@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Receipt Match</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header>
+        <div>
+          <p class="eyebrow">RECEIPT OPTIMIZER</p>
+          <h1>Find the best receipt match.</h1>
+          <p class="lede">Keep a receipt record, then select the combination closest to your requested amount.</p>
+        </div>
+        <div class="header-actions">
+          <button class="ghost" id="loadDraft" type="button">Load saved</button>
+          <button class="ghost" id="saveDraft" type="button">Save locally</button>
+          <button class="ghost danger" id="clearAll" type="button">Clear all</button>
+        </div>
+      </header>
+
+      <section class="target-card" aria-labelledby="target-label">
+        <label id="target-label" for="targetAmount">Amount to fill</label>
+        <div class="currency-input target-input"><span>₱</span><input id="targetAmount" inputmode="decimal" placeholder="0.00" aria-label="Target amount" /></div>
+      </section>
+
+      <section class="workspace">
+        <div class="panel receipt-panel">
+          <div class="panel-heading"><div><h2>Your receipts</h2><p id="receiptCount">No receipts added</p></div><button class="primary small" id="addReceipt" type="button">+ Add receipt</button></div>
+          <div id="receiptList" class="receipt-list" aria-live="polite"></div>
+          <div class="photo-note"><span>⌁</span><p><strong>Free printed-text OCR.</strong> Scan a receipt to fill printed store details. Handwritten amounts should be entered and checked manually.</p></div>
+        </div>
+        <aside class="panel result-panel" aria-live="polite">
+          <p class="eyebrow">RECOMMENDATION</p><h2 id="resultTitle">Add receipts to begin</h2>
+          <div id="resultAmount" class="result-amount">₱0.00</div>
+          <p id="difference" class="difference">Enter a target and receipt amounts.</p>
+          <div id="keptReceipts" class="kept-receipts"></div>
+          <button class="primary" id="calculate" type="button">Find best match</button>
+        </aside>
+      </section>
+      <details class="admin"><summary>Admin: calculation details</summary><div id="adminContent" class="admin-content">Run a calculation to view the selection logic.</div></details>
+    </main>
+
+    <template id="receiptTemplate">
+      <details class="receipt-card">
+        <summary class="receipt-summary"><span class="summary-id">Receipt 1</span><span class="summary-store">Store not set</span><strong class="summary-amount">₱0.00</strong><span class="summary-toggle"><span class="toggle-label">Details</span><span class="toggle-icon">⌄</span></span></summary>
+        <div class="receipt-content">
+        <div class="receipt-topline"><strong>Receipt details</strong><button class="remove" type="button" aria-label="Remove receipt">×</button></div>
+        <div class="receipt-fields">
+          <label>Amount<input class="receipt-amount" inputmode="decimal" placeholder="0.00" /></label>
+          <label>VAT status<select class="receipt-vat"><option value="">Not set</option><option value="VAT">VAT</option><option value="Non-VAT">Non-VAT</option></select></label>
+          <label>Invoice number<input class="receipt-invoice" placeholder="Invoice / OR number" /></label>
+          <label class="wide">Store name<input class="receipt-store" placeholder="Store or business name" /></label>
+          <label class="wide">Store address<input class="receipt-address" placeholder="Store address" /></label>
+          <label>Store TIN<input class="receipt-tin" placeholder="000-000-000-000" /></label>
+          <label class="scan-label">Receipt photo<input class="receipt-photo" type="file" accept="image/*" capture="environment" /><span class="scan-button">⌁ Scan printed details</span></label>
+        </div>
+        <p class="ocr-status" aria-live="polite"></p>
+        </div>
+      </details>
+    </template>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
