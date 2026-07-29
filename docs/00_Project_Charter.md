@@ -4,98 +4,84 @@
 |-------|-------|
 | Project | FSResibo |
 | Document | Project Charter |
-| Version | 1.0 |
+| Version | 1.1 |
 | Status | Approved |
 | Owner | Project Team |
 | Last Updated | 2026-07-29 |
 
+## Revision History
+
+| Version | Date | Changes |
+|----------|------|---------|
+| 1.0 | 2026-07-29 | Initial project charter |
+| 1.1 | 2026-07-29 | Refined product philosophy, long-term objectives, and future direction |
+
 ---
 
-## Purpose
+# Purpose
 
-FSResibo is a cloud-based receipt management and optimization platform designed to help individuals securely organize, preserve, and optimize official receipts.
+FSResibo is a productivity tool for receipt management that helps users capture, organize, and export receipt data while reducing repetitive manual work.
 
-## Vision
+---
 
-Build a modern receipt platform that securely stores, organizes, retrieves, and optimizes receipts while providing a scalable foundation for future features.
+# Vision
 
-## Mission
+Build a reliable receipt management application that emphasizes practical workflows, flexible data export, and intelligent assistance without unnecessary complexity.
 
-Develop a reliable, secure, maintainable, and cloud-connected application through incremental improvement and sound software engineering practices.
+---
 
-## Project Objectives
+# Mission
 
-### Functional
-- Secure authentication
-- Cloud-based receipt storage
-- Receipt creation and editing
-- Receipt optimization
-- Multi-user support
-- Persistent sessions
+Develop a secure, maintainable, and cloud-connected application through incremental improvement and sound software engineering practices.
 
-### Technical
-- Modular architecture
-- Cloud-native backend
-- Maintainable code
-- Clear documentation
-- Git-based version control
-- Testable components
+---
 
-### Long-Term
-- OCR
-- Receipt images
-- PDF export
-- Analytics
-- Admin dashboard
-- Mobile responsiveness
-- Offline capability
-- Multi-language support
+# Product Philosophy
 
-## Guiding Principles
+FSResibo is designed to help people work faster—not replace them.
 
-- Simplicity First
-- Incremental Development
-- Architecture Before Implementation
-- Security by Default
-- Documentation as a First-Class Asset
-- Maintainability Over Cleverness
+Automation should assist users while keeping them in control of reviewing, editing, and exporting their data. Features are added only when they provide measurable productivity benefits.
 
-## Technology Stack
+---
 
-Frontend:
-- HTML5
-- CSS3
-- JavaScript (ES Modules)
+# Long-Term Objectives
 
-Backend:
-- Supabase
+- Improve OCR accuracy
+- Introduce export templates
+- Support configurable data exports
+- Add optional workflow automation
+- Enable optional third-party integrations
 
-Database:
-- PostgreSQL (Supabase)
+---
 
-Authentication:
-- Supabase Authentication
+# Technology Stack
 
-Development:
-- Synology Web Station
+Frontend: HTML5, CSS3, JavaScript (ES Modules)
 
-Deployment:
-- GitHub Pages
+Backend: Supabase
 
-## Definition of Done
+Database: PostgreSQL (Supabase)
 
-- Feature implemented
-- Manual testing passed
-- Documentation updated
-- Changes committed to Git
-- Stable version pushed to GitHub
+Authentication: Supabase Authentication
 
-## Lessons Learned
+Development: Synology Web Station
 
-### Epic 1
+Deployment: GitHub Pages
 
-Separating the optimization engine from data persistence made the migration from localStorage to Supabase significantly easier and validated the modular architecture approach.
+---
 
-## Approval
+# Future Evolution
 
-This document establishes the guiding principles for the FSResibo project.
+Future work should focus on:
+
+- Better OCR
+- Export engine
+- Template-based exports
+- Workflow assistance
+- Optional integrations
+
+---
+
+# Approval
+
+This charter defines the long-term direction of FSResibo. New features should align with the product philosophy before implementation.
