@@ -5,9 +5,31 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Receipt Match</title>
     <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="auth.css" />
   </head>
   <body>
-    <main class="app-shell">
+    <section class="auth-shell" id="authView" hidden>
+      <div class="auth-card">
+        <p class="eyebrow">RECEIPT OPTIMIZER</p>
+        <h1>Welcome back.</h1>
+        <p class="lede">Sign in to access your receipts.</p>
+        <form id="loginForm" class="auth-form">
+          <label>Email<input id="loginEmail" type="email" autocomplete="email" required /></label>
+          <label>Password<input id="loginPassword" type="password" autocomplete="current-password" required /></label>
+          <button class="primary" type="submit">Log in</button>
+          <button class="text-button" id="showRegister" type="button">Create an account</button>
+        </form>
+        <form id="registerForm" class="auth-form" hidden>
+          <label>Email<input id="registerEmail" type="email" autocomplete="email" required /></label>
+          <label>Password<input id="registerPassword" type="password" autocomplete="new-password" minlength="6" required /></label>
+          <label>Confirm password<input id="registerConfirmPassword" type="password" autocomplete="new-password" minlength="6" required /></label>
+          <button class="primary" type="submit">Register</button>
+          <button class="text-button" id="showLogin" type="button">Back to login</button>
+        </form>
+        <p id="authMessage" class="auth-message" aria-live="polite"></p>
+      </div>
+    </section>
+    <main class="app-shell" id="appView" hidden>
       <header>
         <div>
           <p class="eyebrow">RECEIPT OPTIMIZER</p>
@@ -15,8 +37,10 @@
           <p class="lede">Keep a receipt record, then select the combination closest to your requested amount.</p>
         </div>
         <div class="header-actions">
-          <button class="ghost" id="loadDraft" type="button">Load saved</button>
-          <button class="ghost" id="saveDraft" type="button">Save locally</button>
+          <span class="user-email" id="userEmail"></span>
+          <button class="ghost" id="logout" type="button">Log out</button>
+          <button class="ghost" id="loadDraft" type="button">Import draft</button>
+          <button class="ghost" id="saveDraft" type="button">Save changes</button>
           <button class="ghost danger" id="clearAll" type="button">Clear all</button>
         </div>
       </header>
@@ -62,6 +86,6 @@
       </details>
     </template>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script src="app.js"></script>
+    <script type="module" src="app.js"></script>
   </body>
 </html>
