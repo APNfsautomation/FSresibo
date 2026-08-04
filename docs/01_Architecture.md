@@ -1,67 +1,25 @@
 # FSResibo Architecture
 
-| Field | Value |
-|-------|-------|
-| Project | FSResibo |
-| Document | Architecture |
-| Version | 1.1 |
-| Status | Approved |
-| Owner | Project Team |
-| Last Updated | 2026-07-29 |
+Version: 1.2
 
-## Revision History
+## Core Principle
+The application is organized around user workflows rather than individual features.
 
-| Version | Date | Changes |
-|----------|------|---------|
-| 1.0 | 2026-07-29 | Initial architecture |
-| 1.1 | 2026-07-29 | Refined future architecture and automation philosophy |
+## Workspace 1 – Receipt Encoding
+- Create receipts
+- Edit receipts
+- OCR
+- Store autofill (future)
 
----
+## Workspace 2 – Receipt Optimization
+- Target amount
+- Find Best Match
+- Compact receipt cards
+- Search & filters (future)
+- Export (future)
 
-# Architectural Principles
+## UI Direction
+Only the receipt list scrolls.
+Header, summary, and optimization controls remain visible.
 
-- Separation of Concerns
-- Simplicity First
-- Security by Default
-- Incremental Development
-- Documentation Before Implementation
-- Human-Centered Automation
-
-Human-Centered Automation means automation assists users instead of replacing their workflow.
-
----
-
-# Current Architecture
-
-Browser
-→ UI
-→ Application Layer
-→ Service Layer
-→ Supabase
-
----
-
-# Future Architecture
-
-Planned extension points:
-
-- OCR Processing Pipeline
-- Export Engine
-- Export Template Engine
-- Optional Integration Layer
-
-These modules should extend the existing architecture without requiring major redesign.
-
----
-
-# Architecture Decision
-
-FSResibo is intentionally designed as a productivity tool for receipt management rather than an accounting, ERP, or business intelligence platform.
-
-Architecture should prioritize maintainability, fast workflows, and user control over full automation.
-
----
-
-# Source of Truth
-
-Implementation should follow this architecture unless a documented Architecture Decision Record (ADR) supersedes it.
+Selected receipts should always be visually highlighted.
