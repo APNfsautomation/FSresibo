@@ -3,14 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Receipt Match</title>
+    <title>FSResibo</title>
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="auth.css" />
   </head>
   <body>
     <section class="auth-shell" id="authView" hidden>
       <div class="auth-card">
-        <p class="eyebrow">RECEIPT OPTIMIZER</p>
+        <p class="eyebrow">FSRESIBO</p>
         <h1>Welcome back.</h1>
         <p class="lede">Sign in to access your receipts.</p>
         <form id="loginForm" class="auth-form">
@@ -29,61 +29,112 @@
         <p id="authMessage" class="auth-message" aria-live="polite"></p>
       </div>
     </section>
+
     <main class="app-shell" id="appView" hidden>
-      <header>
+      <header class="app-header">
         <div>
-          <p class="eyebrow">RECEIPT OPTIMIZER</p>
-          <h1>Find the best receipt match.</h1>
-          <p class="lede">Keep a receipt record, then select the combination closest to your requested amount.</p>
+          <p class="eyebrow">FSRESIBO</p>
+          <h1>Receipt workspace</h1>
+          <p class="lede">Encode receipts quickly, then optimize the combination you need.</p>
         </div>
         <div class="header-actions">
           <span class="user-email" id="userEmail"></span>
           <button class="ghost" id="logout" type="button">Log out</button>
-          <button class="ghost" id="loadDraft" type="button">Import draft</button>
-          <button class="ghost" id="saveDraft" type="button">Save changes</button>
-          <button class="ghost danger" id="clearAll" type="button">Clear all</button>
         </div>
       </header>
 
-      <section class="target-card" aria-labelledby="target-label">
-        <label id="target-label" for="targetAmount">Amount to fill</label>
-        <div class="currency-input target-input"><span>₱</span><input id="targetAmount" inputmode="decimal" placeholder="0.00" aria-label="Target amount" /></div>
-      </section>
+      <nav class="workspace-switcher" aria-label="Receipt workspaces" role="tablist">
+        <button class="workspace-tab" id="encodingTab" type="button" role="tab" aria-controls="encodingWorkspace" aria-selected="true">Receipt Encoding</button>
+        <button class="workspace-tab" id="optimizationTab" type="button" role="tab" aria-controls="optimizationWorkspace" aria-selected="false">Receipt Optimization</button>
+      </nav>
 
-      <section class="workspace">
-        <div class="panel receipt-panel">
-          <div class="panel-heading"><div><h2>Your receipts</h2><p id="receiptCount">No receipts added</p></div><button class="primary small" id="addReceipt" type="button">+ Add receipt</button></div>
-          <div id="receiptList" class="receipt-list" aria-live="polite"></div>
+      <section class="workspace-view encoding-workspace" id="encodingWorkspace" role="tabpanel" aria-labelledby="encodingTab">
+        <div class="workspace-heading">
+          <div><p class="eyebrow">WORKSPACE 1</p><h2>Receipt Encoding</h2><p>Capture and correct receipt details without optimization distractions.</p></div>
+          <button class="secondary" id="addReceipt" type="button">+ Add receipt</button>
+        </div>
+        <div class="panel encoding-panel">
+          <div class="panel-heading"><div><h3>Your receipts</h3><p id="receiptCount">No receipts added</p></div></div>
+          <div id="receiptList" class="encoding-list" aria-live="polite"></div>
           <div class="photo-note"><span>⌁</span><p><strong>Free printed-text OCR.</strong> Scan a receipt to fill printed store details. Handwritten amounts should be entered and checked manually.</p></div>
         </div>
-        <aside class="panel result-panel" aria-live="polite">
-          <p class="eyebrow">RECOMMENDATION</p><h2 id="resultTitle">Add receipts to begin</h2>
-          <div id="resultAmount" class="result-amount">₱0.00</div>
-          <p id="difference" class="difference">Enter a target and receipt amounts.</p>
-          <div id="keptReceipts" class="kept-receipts"></div>
-          <button class="primary" id="calculate" type="button">Find best match</button>
-        </aside>
+        <div class="encoding-actions">
+          <button class="primary action-save" id="saveDraft" type="button">Save changes</button>
+          <button class="ghost danger" id="clearAll" type="button">Clear form</button>
+        </div>
       </section>
-      <details class="admin"><summary>Admin: calculation details</summary><div id="adminContent" class="admin-content">Run a calculation to view the selection logic.</div></details>
+
+      <section class="workspace-view optimization-workspace" id="optimizationWorkspace" role="tabpanel" aria-labelledby="optimizationTab" hidden>
+        <div class="workspace-heading"><div><p class="eyebrow">WORKSPACE 2</p><h2>Receipt Optimization</h2><p>Find and review the closest combination from your encoded receipts.</p></div></div>
+        <div class="optimization-layout">
+          <section class="optimization-controls" aria-label="Optimization controls">
+            <div class="target-card" aria-labelledby="target-label">
+              <label id="target-label" for="targetAmount">Amount to fill</label>
+              <div class="currency-input target-input"><span>₱</span><input id="targetAmount" inputmode="decimal" placeholder="0.00" aria-label="Target amount" /></div>
+              <button class="primary" id="calculate" type="button">Find best match</button>
+            </div>
+            <aside class="panel result-panel" aria-live="polite">
+              <p class="eyebrow">RECOMMENDATION</p><h3 id="resultTitle">Add receipts to begin</h3>
+              <div id="resultAmount" class="result-amount">₱0.00</div>
+              <p id="difference" class="difference">Enter a target and receipt amounts.</p>
+              <div id="keptReceipts" class="kept-receipts"></div>
+              <details class="admin"><summary>Calculation details</summary><div id="adminContent" class="admin-content">Run a calculation to view the selection logic.</div></details>
+            </aside>
+          </section>
+          <section class="panel optimization-receipts-panel" aria-label="Encoded receipts">
+            <div class="panel-heading receipt-browser-heading"><div><h3>Encoded receipts</h3><p>Review your available receipts. Search and filters will appear here in a future milestone.</p></div></div>
+            <div id="optimizationReceiptList" class="optimization-receipt-list" aria-live="polite"></div>
+          </section>
+        </div>
+      </section>
+
+      <button class="floating-add" id="floatingAddReceipt" type="button" aria-label="Switch to Receipt Encoding">+ <span>Add receipt</span></button>
     </main>
+
+    <section class="edit-modal" id="editReceiptModal" role="dialog" aria-modal="true" aria-labelledby="editReceiptTitle" hidden>
+      <div class="modal-backdrop" id="editModalBackdrop"></div>
+      <div class="modal-card">
+        <div class="modal-heading"><div><p class="eyebrow">QUICK CORRECTION</p><h2 id="editReceiptTitle">Edit receipt</h2></div><button class="icon-button" id="closeEditModal" type="button" aria-label="Close">×</button></div>
+        <form id="editReceiptForm" class="receipt-fields modal-fields">
+          <label>Amount<input id="editAmount" inputmode="decimal" placeholder="0.00" /></label>
+          <label>Receipt date<input id="editReceiptDate" type="date" /></label>
+          <label>VAT status<select id="editVat"><option value="">Not set</option><option value="VAT">VAT</option><option value="Non-VAT">Non-VAT</option></select></label>
+          <label>Invoice number<input id="editInvoice" placeholder="Invoice / OR number" /></label>
+          <label class="wide">Store name<input id="editStore" placeholder="Store or business name" /></label>
+          <label class="wide">Store address<input id="editAddress" placeholder="Store address" /></label>
+          <label>Store TIN<input id="editTin" placeholder="000-000-000-000" /></label>
+          <div class="modal-actions"><button class="primary" type="submit">Save correction</button><button class="ghost" id="cancelEditModal" type="button">Cancel</button></div>
+        </form>
+      </div>
+    </section>
 
     <template id="receiptTemplate">
       <details class="receipt-card">
         <summary class="receipt-summary"><span class="summary-id">Receipt 1</span><span class="summary-store">Store not set</span><strong class="summary-amount">₱0.00</strong><span class="summary-toggle"><span class="toggle-label">Details</span><span class="toggle-icon">⌄</span></span></summary>
         <div class="receipt-content">
-        <div class="receipt-topline"><strong>Receipt details</strong><button class="remove" type="button" aria-label="Remove receipt">×</button></div>
-        <div class="receipt-fields">
-          <label>Amount<input class="receipt-amount" inputmode="decimal" placeholder="0.00" /></label>
-          <label>VAT status<select class="receipt-vat"><option value="">Not set</option><option value="VAT">VAT</option><option value="Non-VAT">Non-VAT</option></select></label>
-          <label>Invoice number<input class="receipt-invoice" placeholder="Invoice / OR number" /></label>
-          <label class="wide">Store name<input class="receipt-store" placeholder="Store or business name" /></label>
-          <label class="wide">Store address<input class="receipt-address" placeholder="Store address" /></label>
-          <label>Store TIN<input class="receipt-tin" placeholder="000-000-000-000" /></label>
-          <label class="scan-label">Receipt photo<input class="receipt-photo" type="file" accept="image/*" capture="environment" /><span class="scan-button">⌁ Scan printed details</span></label>
-        </div>
-        <p class="ocr-status" aria-live="polite"></p>
+          <div class="receipt-topline"><strong>Receipt details</strong><button class="remove" type="button" aria-label="Remove receipt">×</button></div>
+          <div class="receipt-fields">
+            <label>Amount<input class="receipt-amount" inputmode="decimal" placeholder="0.00" /></label>
+            <label>Receipt date<input class="receipt-receiptDate" type="date" /></label>
+            <label>VAT status<select class="receipt-vat"><option value="">Not set</option><option value="VAT">VAT</option><option value="Non-VAT">Non-VAT</option></select></label>
+            <label>Invoice number<input class="receipt-invoice" placeholder="Invoice / OR number" /></label>
+            <label class="wide">Store name<input class="receipt-store" placeholder="Store or business name" /></label>
+            <label class="wide">Store address<input class="receipt-address" placeholder="Store address" /></label>
+            <label>Store TIN<input class="receipt-tin" placeholder="000-000-000-000" /></label>
+            <label class="scan-label">Receipt photo<input class="receipt-photo" type="file" accept="image/*" capture="environment" /><span class="scan-button">⌁ Scan printed details</span></label>
+          </div>
+          <p class="ocr-status" aria-live="polite"></p>
         </div>
       </details>
+    </template>
+
+    <template id="optimizationReceiptTemplate">
+      <article class="optimization-receipt-card">
+        <div class="compact-receipt-details"><strong class="compact-store">Store not set</strong><span class="compact-date">Date not set</span></div>
+        <strong class="compact-amount">₱0.00</strong>
+        <span class="selected-badge" hidden>Selected</span>
+        <button class="ghost compact-edit" type="button">Edit</button>
+      </article>
     </template>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script type="module" src="app.js"></script>
