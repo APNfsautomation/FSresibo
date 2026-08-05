@@ -104,11 +104,24 @@ export function createReceiptUi({ elements, findBest, toCents, scanPrintedDetail
     refreshOptimizationCards();
     return row;
   };
+  const isBlankUnsavedReceipt = row => !row.dataset.receiptDbId && Object.values(rowValues(row)).every(value => !String(value || '').trim());
+  const focusReceiptForEncoding = row => {
+    row.open = true;
+    requestAnimationFrame(() => {
+      row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      row.querySelector('.receipt-store').focus({ preventScroll: true });
+    });
+  };
+  const addReceiptForEncoding = () => {
+    const pendingReceipt = [...elements.list.children].find(isBlankUnsavedReceipt);
+    focusReceiptForEncoding(pendingReceipt || addReceipt());
+  };
   const saveDraft = async () => {
     if (!currentUser) return alert('Please sign in before saving receipts.');
     try {
       for (const row of elements.list.children) {
         const receipt = rowValues(row);
+        if (isBlankUnsavedReceipt(row)) continue;
         const saved = row.dataset.receiptDbId
           ? await receiptService.updateReceipt(row.dataset.receiptDbId, receipt, currentUser.id)
           : await receiptService.createReceipt(receipt, currentUser.id);
@@ -184,7 +197,6 @@ export function createReceiptUi({ elements, findBest, toCents, scanPrintedDetail
     clearForLogout() { currentUser = undefined; elements.list.replaceChildren(); elements.target.value = ''; clearSelection(); refreshReceiptIds(); refreshOptimizationCards(); showEmpty(); closeEditModal(); },
     importLegacyDraft,
     start() {
-      elements.addReceipt.addEventListener('click', () => addReceipt());
       elements.calculate.addEventListener('click', calculate);
       elements.saveDraft.addEventListener('click', saveDraft);
       elements.clearAll.addEventListener('click', () => {
@@ -192,7 +204,7 @@ export function createReceiptUi({ elements, findBest, toCents, scanPrintedDetail
       });
       elements.encodingTab.addEventListener('click', () => setWorkspace('encoding'));
       elements.optimizationTab.addEventListener('click', () => setWorkspace('optimization'));
-      elements.floatingAdd.addEventListener('click', () => setWorkspace('encoding'));
+      elements.floatingAdd.addEventListener('click', addReceiptForEncoding);
       elements.editForm.addEventListener('submit', saveModalCorrection);
       elements.closeEditModal.addEventListener('click', closeEditModal);
       elements.cancelEditModal.addEventListener('click', closeEditModal);
