@@ -8,7 +8,7 @@ import { createReceiptUi } from './ui/receiptUi.js';
 
 const elements = {
   list: document.querySelector('#receiptList'), template: document.querySelector('#receiptTemplate'), target: document.querySelector('#targetAmount'),
-  addReceipt: document.querySelector('#addReceipt'), calculate: document.querySelector('#calculate'), saveDraft: document.querySelector('#saveDraft'),
+  calculate: document.querySelector('#calculate'), saveDraft: document.querySelector('#saveDraft'),
   clearAll: document.querySelector('#clearAll'), receiptCount: document.querySelector('#receiptCount'), resultTitle: document.querySelector('#resultTitle'),
   resultAmount: document.querySelector('#resultAmount'), difference: document.querySelector('#difference'), keptReceipts: document.querySelector('#keptReceipts'),
   adminContent: document.querySelector('#adminContent'), encodingWorkspace: document.querySelector('#encodingWorkspace'), optimizationWorkspace: document.querySelector('#optimizationWorkspace'),
