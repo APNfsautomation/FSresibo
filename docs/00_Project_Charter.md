@@ -26,3 +26,5 @@ Every feature should answer:
 - Optional integrations
 
 Analytics and dashboards are intentionally out of scope.
+
+-
