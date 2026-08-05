@@ -51,7 +51,6 @@
       <section class="workspace-view encoding-workspace" id="encodingWorkspace" role="tabpanel" aria-labelledby="encodingTab">
         <div class="workspace-heading">
           <div><p class="eyebrow">WORKSPACE 1</p><h2>Receipt Encoding</h2><p>Capture and correct receipt details without optimization distractions.</p></div>
-          <button class="secondary" id="addReceipt" type="button">+ Add receipt</button>
         </div>
         <div class="panel encoding-panel">
           <div class="panel-heading"><div><h3>Your receipts</h3><p id="receiptCount">No receipts added</p></div></div>
@@ -62,6 +61,7 @@
           <button class="primary action-save" id="saveDraft" type="button">Save changes</button>
           <button class="ghost danger" id="clearAll" type="button">Clear form</button>
         </div>
+        <button class="floating-add" id="floatingAddReceipt" type="button" aria-label="Add a receipt">+ <span>Add Receipt</span></button>
       </section>
 
       <section class="workspace-view optimization-workspace" id="optimizationWorkspace" role="tabpanel" aria-labelledby="optimizationTab" hidden>
@@ -88,7 +88,6 @@
         </div>
       </section>
 
-      <button class="floating-add" id="floatingAddReceipt" type="button" aria-label="Switch to Receipt Encoding">+ <span>Add receipt</span></button>
     </main>
 
     <section class="edit-modal" id="editReceiptModal" role="dialog" aria-modal="true" aria-labelledby="editReceiptTitle" hidden>
