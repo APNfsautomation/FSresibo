@@ -9,7 +9,13 @@ export function createReceiptUi({ elements, findBest, toCents, scanPrintedDetail
   const formatDate = date => date ? dateFormatter.format(new Date(`${date}T00:00:00`)) : 'Date not set';
   const rowValues = row => Object.fromEntries(['amount', 'receiptDate', 'vat', 'invoice', 'store', 'address', 'tin'].map(key => [key, row.querySelector(`.receipt-${key}`).value]));
   const clearSelection = () => { selectedReceiptIndexes = new Set(); };
-  const refreshToggle = row => { row.querySelector('.toggle-label').textContent = row.open ? 'Close' : 'Details'; };
+  const refreshToggle = row => {
+    const action = row.open ? 'Collapse' : 'Details';
+    const summary = row.querySelector('summary');
+    row.querySelector('.toggle-label').textContent = action;
+    summary.setAttribute('aria-label', `${row.open ? 'Collapse' : 'Show'} receipt details`);
+    summary.title = `${row.open ? 'Collapse' : 'Show'} receipt details`;
+  };
   const refreshSummary = row => {
     const id = row.dataset.receiptId || '1';
     const store = row.querySelector('.receipt-store').value.trim() || 'Store not set';
@@ -83,15 +89,21 @@ export function createReceiptUi({ elements, findBest, toCents, scanPrintedDetail
     if (values.dbId) row.dataset.receiptDbId = values.dbId;
     for (const [key, value] of Object.entries(values)) { const field = row.querySelector(`.receipt-${key}`); if (field) field.value = value; }
     row.querySelector('.receipt-photo').addEventListener('change', event => { const file = event.currentTarget.files[0]; if (file) scanPrintedDetails(file, row, refreshSummary); });
-    row.querySelector('.remove').addEventListener('click', async () => {
+    row.querySelector('.delete-receipt').addEventListener('click', async () => {
       const id = row.dataset.receiptDbId;
+      const nextFocus = row.nextElementSibling || row.previousElementSibling;
+      const hasDraftContent = Object.values(rowValues(row)).some(value => String(value || '').trim()) || row.querySelector('.receipt-photo').files.length > 0;
       if (id && currentUser) {
+        if (!confirm('Delete this saved receipt? This cannot be undone.')) return;
         try { await receiptService.deleteReceipt(id); } catch (error) { alert(`Could not delete this receipt: ${error.message}`); return; }
+      } else if (hasDraftContent && !confirm('Discard this unfinished receipt? Its entered details will be lost.')) {
+        return;
       }
       row.remove();
       clearSelection();
       refreshReceiptIds();
       refreshOptimizationCards();
+      (nextFocus?.querySelector('summary') || elements.floatingAdd).focus({ preventScroll: true });
     });
     row.querySelectorAll('input, select').forEach(field => {
       const refresh = () => { refreshSummary(row); clearSelection(); refreshOptimizationCards(); };
