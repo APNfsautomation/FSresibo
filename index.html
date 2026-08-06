@@ -109,18 +109,28 @@
 
     <template id="receiptTemplate">
       <details class="receipt-card">
-        <summary class="receipt-summary"><span class="summary-id">Receipt 1</span><span class="summary-store">Store not set</span><strong class="summary-amount">₱0.00</strong><span class="summary-toggle"><span class="toggle-label">Details</span><span class="toggle-icon">⌄</span></span></summary>
+        <summary class="receipt-summary" aria-label="Show receipt details" title="Show receipt details"><span class="summary-id">Receipt 1</span><span class="summary-store">Store not set</span><strong class="summary-amount">₱0.00</strong><span class="summary-toggle" aria-hidden="true"><span class="toggle-label">Details</span><span class="toggle-icon">⌄</span></span></summary>
         <div class="receipt-content">
-          <div class="receipt-topline"><strong>Receipt details</strong><button class="remove" type="button" aria-label="Remove receipt">×</button></div>
-          <div class="receipt-fields">
-            <label>Amount<input class="receipt-amount" inputmode="decimal" placeholder="0.00" /></label>
-            <label>Receipt date<input class="receipt-receiptDate" type="date" /></label>
-            <label>VAT status<select class="receipt-vat"><option value="">Not set</option><option value="VAT">VAT</option><option value="Non-VAT">Non-VAT</option></select></label>
-            <label>Invoice number<input class="receipt-invoice" placeholder="Invoice / OR number" /></label>
-            <label class="wide">Store name<input class="receipt-store" placeholder="Store or business name" /></label>
-            <label class="wide">Store address<input class="receipt-address" placeholder="Store address" /></label>
-            <label>Store TIN<input class="receipt-tin" placeholder="000-000-000-000" /></label>
-            <label class="scan-label">Receipt photo<input class="receipt-photo" type="file" accept="image/*" capture="environment" /><span class="scan-button">⌁ Scan printed details</span></label>
+          <section class="receipt-form-group" aria-labelledby="receipt-details-title">
+            <p class="form-group-title" id="receipt-details-title">Receipt details</p>
+            <div class="receipt-fields receipt-core-fields">
+              <label>Amount<input class="receipt-amount" inputmode="decimal" placeholder="0.00" /></label>
+              <label>Receipt date<input class="receipt-receiptDate" type="date" /></label>
+              <label>VAT status<select class="receipt-vat"><option value="">Not set</option><option value="VAT">VAT</option><option value="Non-VAT">Non-VAT</option></select></label>
+              <label>Invoice number<input class="receipt-invoice" placeholder="Invoice / OR number" /></label>
+            </div>
+          </section>
+          <section class="receipt-form-group" aria-labelledby="store-details-title">
+            <p class="form-group-title" id="store-details-title">Store details</p>
+            <div class="receipt-fields receipt-store-fields">
+              <label class="wide">Store name<input class="receipt-store" placeholder="Store or business name" /></label>
+              <label class="wide">Store address<input class="receipt-address" placeholder="Store address" /></label>
+              <label>Store TIN<input class="receipt-tin" placeholder="000-000-000-000" /></label>
+              <label class="scan-label">Receipt photo<input class="receipt-photo" type="file" accept="image/*" capture="environment" /><span class="scan-button">⌁ Scan printed details</span></label>
+            </div>
+          </section>
+          <div class="receipt-form-footer">
+            <button class="delete-receipt" type="button">Delete receipt</button>
           </div>
           <p class="ocr-status" aria-live="polite"></p>
         </div>
