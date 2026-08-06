@@ -82,7 +82,32 @@
             </aside>
           </section>
           <section class="panel optimization-receipts-panel" aria-label="Encoded receipts">
-            <div class="panel-heading receipt-browser-heading"><div><h3>Encoded receipts</h3><p>Review your available receipts. Search and filters will appear here in a future milestone.</p></div></div>
+            <div class="panel-heading receipt-browser-heading"><div><h3>Encoded receipts</h3><p>Search, filter, and review your available receipts.</p></div></div>
+            <div class="optimization-toolbar" aria-label="Receipt search and filters">
+              <label class="optimization-search-label" for="optimizationSearch">Search receipts</label>
+              <div class="optimization-search-wrap">
+                <input id="optimizationSearch" type="search" autocomplete="off" placeholder="Search store, invoice number, TIN, or receipt…" />
+                <button id="clearOptimizationSearch" class="toolbar-clear-search" type="button" aria-label="Clear receipt search" hidden>Clear</button>
+              </div>
+              <div class="optimization-toolbar-status">
+                <p id="optimizationResultCount" aria-live="polite">Showing 0 of 0 receipts</p>
+                <p id="optimizationFilterStatus" class="filter-status" aria-live="polite" hidden>Filters active</p>
+                <button id="clearOptimizationFilters" class="ghost toolbar-clear-filters" type="button" hidden>Clear filters</button>
+              </div>
+              <label class="toolbar-sort">Sort<select id="optimizationSort"><option value="default">Receipt number: current order</option><option value="receipt-asc">Receipt number: ascending</option><option value="receipt-desc">Receipt number: descending</option><option value="date-desc">Date: newest first</option><option value="date-asc">Date: oldest first</option><option value="amount-desc">Amount: highest first</option><option value="amount-asc">Amount: lowest first</option><option value="store-asc">Store: A–Z</option><option value="store-desc">Store: Z–A</option></select></label>
+              <details class="more-filters" id="optimizationMoreFilters">
+                <summary>More filters</summary>
+                <div class="filter-fields">
+                  <label>Store<select id="optimizationStoreFilter"><option value="">All stores</option></select></label>
+                  <label>Start date<input id="optimizationStartDate" type="date" /></label>
+                  <label>End date<input id="optimizationEndDate" type="date" /></label>
+                  <label>Minimum amount<input id="optimizationMinAmount" inputmode="decimal" placeholder="0.00" /></label>
+                  <label>Maximum amount<input id="optimizationMaxAmount" inputmode="decimal" placeholder="0.00" /></label>
+                </div>
+              </details>
+              <p id="optimizationRangeValidation" class="toolbar-validation" role="alert" hidden></p>
+              <p id="optimizationHiddenSelected" class="hidden-selected" aria-live="polite" hidden></p>
+            </div>
             <div id="optimizationReceiptList" class="optimization-receipt-list" aria-live="polite"></div>
           </section>
         </div>
