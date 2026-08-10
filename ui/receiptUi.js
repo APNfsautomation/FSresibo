@@ -70,12 +70,18 @@ export function buildOptimizationView(entries, state) {
   return { visible: visible.sort(compare), validation: { startDate, endDate, minAmount, maxAmount, invalidStartDate, invalidEndDate, invalidMinAmount, invalidMaxAmount, invalidDateRange, invalidAmountRange, message: messages.join(' ') } };
 }
 
-export function createReceiptUi({ elements, findBest, toCents, scanPrintedDetails, receiptService }) {
+export function createReceiptUi({ elements, findBest, optimizationStrategies, toCents, scanPrintedDetails, receiptService }) {
   let currentUser;
   let selectedReceiptIndexes = new Set();
   let toolbarState = defaultOptimizationToolbarState();
+  let selectedStrategy = optimizationStrategies.closest;
   let searchDebounce;
   const format = cents => money.format(cents / 100);
+  const strategyDetails = {
+    [optimizationStrategies.closest]: { label: 'Closest Match', helper: 'Finds the combination nearest to your target.' },
+    [optimizationStrategies.fewest]: { label: 'Fewest Receipts', helper: 'Prioritizes using fewer physical receipts.' },
+    [optimizationStrategies.withoutExceeding]: { label: 'Do Not Exceed Target', helper: 'Finds the closest total without going over your target.' }
+  };
   const formatDate = value => {
     const date = calendarReceiptDate(value);
     if (!date) return 'Date not set';
@@ -86,6 +92,7 @@ export function createReceiptUi({ elements, findBest, toCents, scanPrintedDetail
   const clearSelection = () => { selectedReceiptIndexes = new Set(); };
   const workspaceStorageKey = () => currentUser?.id ? `fsresibo-workspace-${currentUser.id}` : null;
   const toolbarStorageKey = () => currentUser?.id ? `fsresibo-optimization-toolbar-${currentUser.id}` : null;
+  const strategyStorageKey = () => currentUser?.id ? `fsresibo-optimization-strategy-${currentUser.id}` : null;
   const hasActiveToolbarState = state => Object.entries(defaultOptimizationToolbarState()).some(([key, value]) => state[key] !== value);
   const readToolbarState = () => ({
     search: elements.optimizationSearch.value,
@@ -121,6 +128,34 @@ export function createReceiptUi({ elements, findBest, toCents, scanPrintedDetail
       if (stored && typeof stored === 'object') toolbarState = { ...toolbarState, ...Object.fromEntries(Object.keys(toolbarState).map(keyName => [keyName, typeof stored[keyName] === 'string' ? stored[keyName] : toolbarState[keyName]])) };
     } catch { /* Ignore unavailable or malformed browser-session state. */ }
   };
+  const syncStrategyControl = () => {
+    const details = strategyDetails[selectedStrategy] || strategyDetails[optimizationStrategies.closest];
+    elements.optimizationStrategy.value = selectedStrategy;
+    elements.optimizationStrategyHelper.textContent = details.helper;
+  };
+  const restoreStrategy = () => {
+    selectedStrategy = optimizationStrategies.closest;
+    const key = strategyStorageKey();
+    if (key) try {
+      const stored = sessionStorage.getItem(key);
+      if (strategyDetails[stored]) selectedStrategy = stored;
+    } catch { /* Ignore unavailable browser-session state. */ }
+    syncStrategyControl();
+  };
+  const persistStrategy = () => {
+    const key = strategyStorageKey();
+    if (key) try { sessionStorage.setItem(key, selectedStrategy); } catch { /* Ignore unavailable browser-session state. */ }
+  };
+  const updateResultSummary = ({ target, matched = null, difference = null, receiptCount = 0 } = {}) => {
+    const details = strategyDetails[selectedStrategy] || strategyDetails[optimizationStrategies.closest];
+    elements.optimizationResultSummary.hidden = target === undefined;
+    if (target === undefined) return;
+    elements.summaryTarget.textContent = format(target);
+    elements.summaryMatched.textContent = matched === null ? 'No valid combination' : format(matched);
+    elements.summaryDifference.textContent = difference === null ? '—' : format(Math.abs(difference));
+    elements.summaryReceiptCount.textContent = String(receiptCount);
+    elements.summaryStrategy.textContent = details.label;
+  };
   const refreshToggle = row => {
     const summary = row.querySelector('summary');
     row.querySelector('.toggle-label').textContent = row.open ? 'Collapse' : 'Details';
@@ -150,6 +185,7 @@ export function createReceiptUi({ elements, findBest, toCents, scanPrintedDetail
     elements.difference.textContent = 'Enter a target and receipt amounts.';
     elements.keptReceipts.replaceChildren();
     elements.adminContent.textContent = 'Run a calculation to view the selection logic.';
+    updateResultSummary();
   };
   const optimizationEntries = () => [...elements.list.children].map((row, index) => {
     const receipt = rowValues(row);
@@ -292,13 +328,25 @@ export function createReceiptUi({ elements, findBest, toCents, scanPrintedDetail
     const receipts = [...elements.list.children].map((row, index) => ({ index, label: `Receipt ${row.dataset.receiptId}`, cents: toCents(row.querySelector('.receipt-amount').value) })).filter(receipt => receipt.cents > 0);
     if (!targetCents || !receipts.length) { clearSelection(); refreshOptimizationCards(); showEmpty(); return; }
     try {
-      const best = findBest(receipts, targetCents);
+      const best = findBest(receipts, targetCents, selectedStrategy);
+      if (!best) {
+        clearSelection();
+        elements.resultTitle.textContent = selectedStrategy === optimizationStrategies.withoutExceeding ? 'No non-zero match without exceeding' : 'No valid match found';
+        elements.resultAmount.textContent = '₱0.00';
+        elements.difference.textContent = selectedStrategy === optimizationStrategies.withoutExceeding ? 'No non-zero receipt combination is at or below your requested amount.' : 'No valid receipt combination is available.';
+        elements.keptReceipts.replaceChildren();
+        elements.adminContent.textContent = 'Adjust the target or choose a different optimization strategy.';
+        updateResultSummary({ target: targetCents });
+        refreshOptimizationCards();
+        return;
+      }
       const chosen = best.items.map(index => receipts[index]);
       const difference = best.total - targetCents;
       selectedReceiptIndexes = new Set(chosen.map(receipt => receipt.index));
-      elements.resultTitle.textContent = difference === 0 ? 'Exact match found' : 'Best available match';
+      elements.resultTitle.textContent = difference === 0 ? 'Exact match found' : selectedStrategy === optimizationStrategies.withoutExceeding ? 'Best match without exceeding' : 'Best available match';
       elements.resultAmount.textContent = format(best.total);
       elements.difference.textContent = difference === 0 ? 'This selection matches your requested amount exactly.' : `${difference > 0 ? 'Over' : 'Under'} by ${format(Math.abs(difference))}.`;
+      updateResultSummary({ target: targetCents, matched: best.total, difference, receiptCount: chosen.length });
       const chips = document.createDocumentFragment();
       chosen.forEach(receipt => { const chip = document.createElement('span'); chip.className = 'chip'; chip.textContent = `${receipt.label} · ${format(receipt.cents)}`; chips.append(chip); });
       elements.keptReceipts.replaceChildren(chips);
@@ -306,7 +354,9 @@ export function createReceiptUi({ elements, findBest, toCents, scanPrintedDetail
       const details = document.createElement('p');
       details.innerHTML = `<strong>Selection:</strong> ${chosen.map(receipt => receipt.label).join(' + ')} = <strong>${format(best.total)}</strong>`;
       const rules = document.createElement('ul');
-      ['Target: ' + format(targetCents), 'Difference: ' + (difference === 0 ? 'Exact' : format(Math.abs(difference)) + (difference > 0 ? ' over' : ' under')), 'Rule: closest total, then larger total, then fewer receipts.'].forEach(text => { const item = document.createElement('li'); item.textContent = text; rules.append(item); });
+      const strategyMeta = strategyDetails[selectedStrategy] || strategyDetails[optimizationStrategies.closest];
+      const rule = selectedStrategy === optimizationStrategies.fewest ? 'Rule: fewest receipts within 2% of the globally closest result, then closest total, then larger total.' : selectedStrategy === optimizationStrategies.withoutExceeding ? 'Rule: closest total at or below the target, then fewer receipts.' : 'Rule: closest total, then larger total, then fewer receipts.';
+      ['Strategy: ' + strategyMeta.label, 'Target: ' + format(targetCents), 'Difference: ' + (difference === 0 ? 'Exact' : format(Math.abs(difference)) + (difference > 0 ? ' over' : ' under')), rule].forEach(text => { const item = document.createElement('li'); item.textContent = text; rules.append(item); });
       elements.adminContent.append(details, rules);
       refreshOptimizationCards();
     } catch (error) { alert(error.message); }
@@ -359,10 +409,11 @@ export function createReceiptUi({ elements, findBest, toCents, scanPrintedDetail
       receipts.forEach(receipt => addReceipt(receipt, { refresh: false }));
       refreshReceiptIds();
       restoreToolbarState();
+      restoreStrategy();
       showEmpty();
       setWorkspace((() => { try { return sessionStorage.getItem(workspaceStorageKey()) || 'encoding'; } catch { return 'encoding'; } })(), false);
     },
-    clearForLogout() { currentUser = undefined; toolbarState = defaultOptimizationToolbarState(); elements.list.replaceChildren(); elements.target.value = ''; clearSelection(); refreshReceiptIds(); refreshOptimizationCards(); showEmpty(); closeEditModal(); },
+    clearForLogout() { currentUser = undefined; toolbarState = defaultOptimizationToolbarState(); selectedStrategy = optimizationStrategies.closest; syncStrategyControl(); elements.list.replaceChildren(); elements.target.value = ''; clearSelection(); refreshReceiptIds(); refreshOptimizationCards(); showEmpty(); closeEditModal(); },
     importLegacyDraft,
     start() {
       elements.calculate.addEventListener('click', calculate);
@@ -377,6 +428,7 @@ export function createReceiptUi({ elements, findBest, toCents, scanPrintedDetail
       elements.closeEditModal.addEventListener('click', closeEditModal);
       elements.cancelEditModal.addEventListener('click', closeEditModal);
       elements.editModalBackdrop.addEventListener('click', closeEditModal);
+      elements.optimizationStrategy.addEventListener('change', () => { selectedStrategy = strategyDetails[elements.optimizationStrategy.value] ? elements.optimizationStrategy.value : optimizationStrategies.closest; persistStrategy(); syncStrategyControl(); });
       elements.optimizationSearch.addEventListener('input', () => { clearTimeout(searchDebounce); searchDebounce = setTimeout(applyToolbarChange, 120); });
       [elements.optimizationStoreFilter, elements.optimizationStartDate, elements.optimizationEndDate, elements.optimizationMinAmount, elements.optimizationMaxAmount, elements.optimizationSort].forEach(field => field.addEventListener('change', applyToolbarChange));
       [elements.optimizationMinAmount, elements.optimizationMaxAmount].forEach(field => field.addEventListener('input', applyToolbarChange));
@@ -384,6 +436,7 @@ export function createReceiptUi({ elements, findBest, toCents, scanPrintedDetail
       elements.clearOptimizationFilters.addEventListener('click', clearFilters);
       document.addEventListener('keydown', event => { if (event.key === 'Escape' && !elements.editModal.hidden) closeEditModal(); });
       refreshReceiptIds();
+      syncStrategyControl();
       refreshOptimizationCards();
       showEmpty();
     }

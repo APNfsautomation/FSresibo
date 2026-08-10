@@ -20,9 +20,12 @@ Workflow Optimization
 - Sticky toolbar
 
 ### Milestone 2.3
-- Store autocomplete
+- Optimization Strategy Options
 
 ### Milestone 2.4
+- Store autocomplete
+
+### Milestone 2.5
 - Export selected receipts
 - Auto-mark Consumed
 

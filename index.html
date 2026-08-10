@@ -71,12 +71,26 @@
             <div class="target-card" aria-labelledby="target-label">
               <label id="target-label" for="targetAmount">Amount to fill</label>
               <div class="currency-input target-input"><span>₱</span><input id="targetAmount" inputmode="decimal" placeholder="0.00" aria-label="Target amount" /></div>
+              <label class="strategy-label" for="optimizationStrategy">Optimization strategy</label>
+              <select id="optimizationStrategy" class="optimization-strategy">
+                <option value="closest">Closest Match</option>
+                <option value="fewest">Fewest Receipts</option>
+                <option value="without-exceeding">Do Not Exceed Target</option>
+              </select>
+              <p id="optimizationStrategyHelper" class="strategy-helper">Finds the combination nearest to your target.</p>
               <button class="primary" id="calculate" type="button">Find best match</button>
             </div>
             <aside class="panel result-panel" aria-live="polite">
               <p class="eyebrow">RECOMMENDATION</p><h3 id="resultTitle">Add receipts to begin</h3>
               <div id="resultAmount" class="result-amount">₱0.00</div>
               <p id="difference" class="difference">Enter a target and receipt amounts.</p>
+              <dl id="optimizationResultSummary" class="optimization-result-summary" hidden>
+                <div><dt>Target</dt><dd id="summaryTarget">—</dd></div>
+                <div><dt>Matched</dt><dd id="summaryMatched">—</dd></div>
+                <div><dt>Difference</dt><dd id="summaryDifference">—</dd></div>
+                <div><dt>Receipts</dt><dd id="summaryReceiptCount">—</dd></div>
+                <div><dt>Strategy</dt><dd id="summaryStrategy">—</dd></div>
+              </dl>
               <div id="keptReceipts" class="kept-receipts"></div>
               <details class="admin"><summary>Calculation details</summary><div id="adminContent" class="admin-content">Run a calculation to view the selection logic.</div></details>
             </aside>
