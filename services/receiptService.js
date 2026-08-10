@@ -24,7 +24,8 @@ function fromDatabaseReceipt(receipt) {
     invoice: receipt.invoice_number ?? '',
     store: receipt.store_name ?? '',
     address: receipt.address ?? '',
-    tin: receipt.tin ?? ''
+    tin: receipt.tin ?? '',
+    updatedAt: receipt.updated_at ?? ''
   };
 }
 

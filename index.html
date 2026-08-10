@@ -162,7 +162,7 @@
           <section class="receipt-form-group" aria-labelledby="store-details-title">
             <p class="form-group-title" id="store-details-title">Store details</p>
             <div class="receipt-fields receipt-store-fields">
-              <label class="wide">Store name<input class="receipt-store" placeholder="Store or business name" /></label>
+              <label class="wide store-name-field">Store name<input class="receipt-store" placeholder="Store or business name" autocomplete="off" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" /><ul class="store-suggestions" role="listbox" hidden></ul></label>
               <label class="wide">Store address<input class="receipt-address" placeholder="Store address" /></label>
               <label>Store TIN<input class="receipt-tin" placeholder="000-000-000-000" /></label>
               <label class="scan-label">Receipt photo<input class="receipt-photo" type="file" accept="image/*" capture="environment" /><span class="scan-button">⌁ Scan printed details</span></label>

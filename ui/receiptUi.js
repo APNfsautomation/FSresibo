@@ -33,6 +33,71 @@ export function createOptimizationStrategyState({ select, helper, optimizationSt
 export const defaultOptimizationToolbarState = () => ({ search: '', store: '', startDate: '', endDate: '', minAmount: '', maxAmount: '', sort: 'default' });
 export const normalizeOptimizationText = value => String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
 export const readableOptimizationText = value => String(value || '').trim().replace(/\s+/g, ' ');
+export const normalizeStoreText = normalizeOptimizationText;
+const storeProfileIdentity = receipt => ({
+  store: normalizeStoreText(receipt.store),
+  address: normalizeStoreText(receipt.address),
+  tin: normalizeStoreText(receipt.tin)
+});
+const profileSpecificity = profile => Number(Boolean(profile.addressKey)) + Number(Boolean(profile.tinKey));
+const compatibleStoreProfile = (first, second) =>
+  (!first.addressKey || !second.addressKey || first.addressKey === second.addressKey) &&
+  (!first.tinKey || !second.tinKey || first.tinKey === second.tinKey);
+const recordTimestamp = (record, fallback) => {
+  const timestamp = Date.parse(record.updatedAt || '');
+  return Number.isFinite(timestamp) ? timestamp : fallback;
+};
+const latestNonEmptyStoreValue = (records, field) => [...records]
+  .sort((first, second) => recordTimestamp(second, second.index) - recordTimestamp(first, first.index) || second.index - first.index)
+  .map(record => readableOptimizationText(record[field]))
+  .find(Boolean) || '';
+export const storeProfileFields = profile => ({ store: profile.store, address: profile.address, tin: profile.tin, vat: profile.vat });
+export const describeStoreProfile = profile => [profile.address, profile.tin].filter(Boolean).join(' · ');
+export function buildStoreProfiles(receipts) {
+  const stores = new Map();
+  receipts.forEach((receipt, index) => {
+    const identity = storeProfileIdentity(receipt);
+    if (!identity.store) return;
+    const profiles = stores.get(identity.store) || new Map();
+    const key = `${identity.address}\u0000${identity.tin}`;
+    const profile = profiles.get(key) || { storeKey: identity.store, addressKey: identity.address, tinKey: identity.tin, records: [] };
+    profile.records.push({ ...receipt, index });
+    profiles.set(key, profile);
+    stores.set(identity.store, profiles);
+  });
+  const result = [];
+  stores.forEach(profiles => {
+    const candidates = [...profiles.values()];
+    candidates.forEach(profile => {
+      const matches = candidates.filter(candidate => candidate !== profile && profileSpecificity(candidate) > profileSpecificity(profile) && compatibleStoreProfile(profile, candidate));
+      if (matches.length === 1) {
+        matches[0].records.push(...profile.records);
+        profiles.delete(`${profile.addressKey}\u0000${profile.tinKey}`);
+      }
+    });
+    profiles.forEach(profile => {
+      const store = latestNonEmptyStoreValue(profile.records, 'store');
+      result.push({
+        id: `${profile.storeKey}\u0000${profile.addressKey}\u0000${profile.tinKey}`,
+        normalizedStore: profile.storeKey,
+        store,
+        address: latestNonEmptyStoreValue(profile.records, 'address'),
+        tin: latestNonEmptyStoreValue(profile.records, 'tin'),
+        vat: latestNonEmptyStoreValue(profile.records, 'vat'),
+        updatedAt: Math.max(...profile.records.map(record => recordTimestamp(record, record.index)))
+      });
+    });
+  });
+  return result.sort((first, second) => first.store.localeCompare(second.store, undefined, { sensitivity: 'base' }) || describeStoreProfile(first).localeCompare(describeStoreProfile(second), undefined, { sensitivity: 'base' }) || second.updatedAt - first.updatedAt);
+}
+export function findStoreSuggestions(profiles, query, limit = 6) {
+  const normalizedQuery = normalizeStoreText(query);
+  if (!normalizedQuery) return [];
+  return profiles
+    .filter(profile => profile.normalizedStore.includes(normalizedQuery))
+    .sort((first, second) => Number(!first.normalizedStore.startsWith(normalizedQuery)) - Number(!second.normalizedStore.startsWith(normalizedQuery)) || first.store.localeCompare(second.store, undefined, { sensitivity: 'base' }) || describeStoreProfile(first).localeCompare(describeStoreProfile(second), undefined, { sensitivity: 'base' }) || second.updatedAt - first.updatedAt)
+    .slice(0, limit);
+}
 export const calendarReceiptDate = value => {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
   if (!match) return '';
@@ -104,6 +169,9 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   let selectedReceiptIndexes = new Set();
   let toolbarState = defaultOptimizationToolbarState();
   let searchDebounce;
+  let storeSourceReceipts = [];
+  let storeProfiles = [];
+  let storeSuggestionSequence = 0;
   const format = cents => money.format(cents / 100);
   const formatDate = value => {
     const date = calendarReceiptDate(value);
@@ -112,6 +180,19 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     return dateFormatter.format(new Date(year, month - 1, day));
   };
   const rowValues = row => Object.fromEntries(['amount', 'receiptDate', 'vat', 'invoice', 'store', 'address', 'tin'].map(key => [key, row.querySelector(`.receipt-${key}`).value]));
+  const rebuildStoreProfiles = () => { storeProfiles = buildStoreProfiles(storeSourceReceipts); };
+  const upsertStoreSourceReceipt = receipt => {
+    if (!receipt?.dbId) return;
+    const index = storeSourceReceipts.findIndex(candidate => candidate.dbId === receipt.dbId);
+    if (index >= 0) storeSourceReceipts[index] = receipt;
+    else storeSourceReceipts.push(receipt);
+    rebuildStoreProfiles();
+  };
+  const removeStoreSourceReceipt = id => {
+    if (!id) return;
+    storeSourceReceipts = storeSourceReceipts.filter(receipt => receipt.dbId !== id);
+    rebuildStoreProfiles();
+  };
   const clearSelection = () => { selectedReceiptIndexes = new Set(); };
   const workspaceStorageKey = () => currentUser?.id ? `fsresibo-workspace-${currentUser.id}` : null;
   const toolbarStorageKey = () => currentUser?.id ? `fsresibo-optimization-toolbar-${currentUser.id}` : null;
@@ -276,9 +357,87 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     elements.editModal.hidden = false;
     elements.editStore.focus();
   };
+  const installStoreAutocomplete = row => {
+    const input = row.querySelector('.receipt-store');
+    const list = row.querySelector('.store-suggestions');
+    const listId = `store-suggestions-${++storeSuggestionSequence}`;
+    let suggestions = [];
+    let activeIndex = -1;
+    let closeTimer;
+    list.id = listId;
+    input.setAttribute('aria-controls', listId);
+    const closeSuggestions = () => {
+      suggestions = [];
+      activeIndex = -1;
+      list.replaceChildren();
+      list.hidden = true;
+      input.setAttribute('aria-expanded', 'false');
+      input.removeAttribute('aria-activedescendant');
+    };
+    const selectSuggestion = profile => {
+      const values = storeProfileFields(profile);
+      input.value = values.store;
+      if (values.address) row.querySelector('.receipt-address').value = values.address;
+      if (values.tin) row.querySelector('.receipt-tin').value = values.tin;
+      if (values.vat) row.querySelector('.receipt-vat').value = values.vat;
+      refreshSummary(row);
+      clearSelection();
+      refreshOptimizationCards();
+      closeSuggestions();
+      input.focus({ preventScroll: true });
+    };
+    const renderSuggestions = () => {
+      const fragment = document.createDocumentFragment();
+      list.replaceChildren();
+      if (!suggestions.length) return closeSuggestions();
+      suggestions.forEach((profile, index) => {
+        const option = document.createElement('li');
+        option.id = `${listId}-option-${index}`;
+        option.setAttribute('role', 'option');
+        option.setAttribute('aria-selected', String(index === activeIndex));
+        option.className = 'store-suggestion';
+        option.classList.toggle('is-active', index === activeIndex);
+        const name = document.createElement('strong');
+        name.textContent = profile.store;
+        option.append(name);
+        const details = describeStoreProfile(profile);
+        if (details) { const meta = document.createElement('span'); meta.textContent = details; option.append(meta); }
+        option.addEventListener('mousedown', event => { event.preventDefault(); selectSuggestion(profile); });
+        fragment.append(option);
+      });
+      list.append(fragment);
+      list.hidden = false;
+      input.setAttribute('aria-expanded', 'true');
+      if (activeIndex >= 0) input.setAttribute('aria-activedescendant', `${listId}-option-${activeIndex}`);
+      else input.removeAttribute('aria-activedescendant');
+    };
+    const updateSuggestions = () => {
+      activeIndex = -1;
+      suggestions = findStoreSuggestions(storeProfiles, input.value);
+      renderSuggestions();
+    };
+    input.addEventListener('input', updateSuggestions);
+    input.addEventListener('focus', () => { if (input.value.trim()) updateSuggestions(); });
+    input.addEventListener('blur', () => { closeTimer = setTimeout(closeSuggestions, 120); });
+    input.addEventListener('keydown', event => {
+      if (event.key === 'Escape') { if (!list.hidden) { event.preventDefault(); closeSuggestions(); } return; }
+      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Enter') return;
+      if (!suggestions.length) updateSuggestions();
+      if (!suggestions.length) return;
+      if (event.key === 'Enter') {
+        if (activeIndex >= 0) { event.preventDefault(); selectSuggestion(suggestions[activeIndex]); }
+        return;
+      }
+      event.preventDefault();
+      activeIndex = (activeIndex + (event.key === 'ArrowDown' ? 1 : -1) + suggestions.length) % suggestions.length;
+      renderSuggestions();
+    });
+    list.addEventListener('mousedown', () => clearTimeout(closeTimer));
+  };
   const addReceipt = (values = {}, { refresh = true } = {}) => {
     const row = elements.template.content.firstElementChild.cloneNode(true);
     if (values.dbId) row.dataset.receiptDbId = values.dbId;
+    if (values.updatedAt) row.dataset.receiptUpdatedAt = values.updatedAt;
     for (const [key, value] of Object.entries(values)) { const field = row.querySelector(`.receipt-${key}`); if (field) field.value = value; }
     row.querySelector('.receipt-photo').addEventListener('change', event => { const file = event.currentTarget.files[0]; if (file) scanPrintedDetails(file, row, refreshSummary); });
     row.querySelector('.delete-receipt').addEventListener('click', async () => {
@@ -290,14 +449,17 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
         try { await receiptService.deleteReceipt(id); } catch (error) { alert(`Could not delete this receipt: ${error.message}`); return; }
       } else if (hasDraftContent && !confirm('Discard this unfinished receipt? Its entered details will be lost.')) return;
       row.remove();
+      if (id) removeStoreSourceReceipt(id);
       clearSelection();
       refreshReceiptIds();
       refreshOptimizationCards();
       (nextFocus?.querySelector('summary') || elements.floatingAdd).focus({ preventScroll: true });
     });
+    installStoreAutocomplete(row);
+    const storeInput = row.querySelector('.receipt-store');
     row.querySelectorAll('input, select').forEach(field => {
       const refreshView = () => { refreshSummary(row); clearSelection(); refreshOptimizationCards(); };
-      field.addEventListener('input', refreshView);
+      field.addEventListener('input', field === storeInput ? () => refreshSummary(row) : refreshView);
       field.addEventListener('change', refreshView);
     });
     row.addEventListener('toggle', () => refreshToggle(row));
@@ -325,6 +487,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
         if (isBlankUnsavedReceipt(row)) continue;
         const saved = row.dataset.receiptDbId ? await receiptService.updateReceipt(row.dataset.receiptDbId, receipt, currentUser.id) : await receiptService.createReceipt(receipt, currentUser.id);
         row.dataset.receiptDbId = saved.dbId;
+        if (saved.updatedAt) row.dataset.receiptUpdatedAt = saved.updatedAt;
+        upsertStoreSourceReceipt(saved);
       }
       alert('Receipt changes saved.');
     } catch (error) { alert(`Could not save receipt changes: ${error.message}`); }
@@ -378,7 +542,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     const imported = await receiptService.importReceipts(data.receipts, user.id);
     localStorage.setItem(migrationKey, 'true');
     if (data.target) elements.target.value = data.target;
-    imported.forEach(addReceipt);
+    imported.forEach(receipt => { addReceipt(receipt); upsertStoreSourceReceipt(receipt); });
     alert('Import completed. Your original browser draft was kept as a backup.');
     return true;
   };
@@ -389,7 +553,11 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     if (!row) return closeEditModal();
     const values = { amount: elements.editAmount.value, receiptDate: elements.editReceiptDate.value, vat: elements.editVat.value, invoice: elements.editInvoice.value, store: elements.editStore.value, address: elements.editAddress.value, tin: elements.editTin.value };
     if (row.dataset.receiptDbId && currentUser) {
-      try { await receiptService.updateReceipt(row.dataset.receiptDbId, values, currentUser.id); } catch (error) { alert(`Could not save correction: ${error.message}`); return; }
+      try {
+        const saved = await receiptService.updateReceipt(row.dataset.receiptDbId, values, currentUser.id);
+        if (saved.updatedAt) row.dataset.receiptUpdatedAt = saved.updatedAt;
+        upsertStoreSourceReceipt(saved);
+      } catch (error) { alert(`Could not save correction: ${error.message}`); return; }
     }
     Object.entries(values).forEach(([key, value]) => { row.querySelector(`.receipt-${key}`).value = value; });
     refreshSummary(row);
@@ -411,6 +579,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     async loadForUser(user) {
       currentUser = user;
       const receipts = await receiptService.loadReceipts();
+      storeSourceReceipts = receipts;
+      rebuildStoreProfiles();
       elements.list.replaceChildren();
       clearSelection();
       receipts.forEach(receipt => addReceipt(receipt, { refresh: false }));
@@ -420,7 +590,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       showEmpty();
       setWorkspace((() => { try { return sessionStorage.getItem(workspaceStorageKey()) || 'encoding'; } catch { return 'encoding'; } })(), false);
     },
-    clearForLogout() { currentUser = undefined; toolbarState = defaultOptimizationToolbarState(); setActiveStrategy(optimizationStrategies.closest, { persist: false }); elements.list.replaceChildren(); elements.target.value = ''; clearSelection(); refreshReceiptIds(); refreshOptimizationCards(); showEmpty(); closeEditModal(); },
+    clearForLogout() { currentUser = undefined; toolbarState = defaultOptimizationToolbarState(); storeSourceReceipts = []; rebuildStoreProfiles(); setActiveStrategy(optimizationStrategies.closest, { persist: false }); elements.list.replaceChildren(); elements.target.value = ''; clearSelection(); refreshReceiptIds(); refreshOptimizationCards(); showEmpty(); closeEditModal(); },
     importLegacyDraft,
     start() {
       elements.calculate.addEventListener('click', calculate);
