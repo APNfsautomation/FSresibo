@@ -1,18 +1,129 @@
 const draftKey = 'receipt-match-draft-v2';
 const money = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' });
 const dateFormatter = new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium' });
+export const defaultOptimizationToolbarState = () => ({ search: '', store: '', startDate: '', endDate: '', minAmount: '', maxAmount: '', sort: 'default' });
+export const normalizeOptimizationText = value => String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+export const readableOptimizationText = value => String(value || '').trim().replace(/\s+/g, ' ');
+export const calendarReceiptDate = value => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
+  if (!match) return '';
+  const [year, month, day] = match.slice(1).map(Number);
+  const localDate = new Date(year, month - 1, day);
+  return localDate.getFullYear() === year && localDate.getMonth() === month - 1 && localDate.getDate() === day ? `${match[1]}-${match[2]}-${match[3]}` : '';
+};
+const parseOptimizationBound = value => {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return null;
+  const numeric = Number(trimmed.replace(/[^0-9.]/g, ''));
+  return /\d/.test(trimmed) && Number.isFinite(numeric) ? Math.round(numeric * 100) : null;
+};
+const compareMissingLast = (first, second, direction = 1) => {
+  if (!first && !second) return 0;
+  if (!first) return 1;
+  if (!second) return -1;
+  return first < second ? -direction : first > second ? direction : 0;
+};
+export function buildOptimizationView(entries, state) {
+  const startDate = calendarReceiptDate(state.startDate);
+  const endDate = calendarReceiptDate(state.endDate);
+  const minAmount = parseOptimizationBound(state.minAmount);
+  const maxAmount = parseOptimizationBound(state.maxAmount);
+  const invalidStartDate = Boolean(String(state.startDate || '').trim() && !startDate);
+  const invalidEndDate = Boolean(String(state.endDate || '').trim() && !endDate);
+  const invalidMinAmount = Boolean(String(state.minAmount || '').trim() && minAmount === null);
+  const invalidMaxAmount = Boolean(String(state.maxAmount || '').trim() && maxAmount === null);
+  const invalidDateRange = Boolean(startDate && endDate && startDate > endDate);
+  const invalidAmountRange = minAmount !== null && maxAmount !== null && minAmount > maxAmount;
+  const messages = [];
+  if (invalidStartDate || invalidEndDate) messages.push('Enter valid receipt dates.');
+  if (invalidMinAmount || invalidMaxAmount) messages.push('Enter valid amount values.');
+  if (invalidDateRange) messages.push('Start date must be on or before end date.');
+  if (invalidAmountRange) messages.push('Minimum amount must not exceed maximum amount.');
+  const query = normalizeOptimizationText(state.search);
+  const visible = entries.filter(entry => {
+    const { receipt } = entry;
+    const matchesSearch = !query || [receipt.store, receipt.invoice, receipt.tin, receipt.address, entry.receiptId, `Receipt ${entry.receiptId}`].some(value => normalizeOptimizationText(value).includes(query));
+    if (!matchesSearch || (state.store && normalizeOptimizationText(receipt.store) !== state.store)) return false;
+    if (!invalidDateRange && !invalidStartDate && !invalidEndDate && (startDate || endDate)) {
+      if (!entry.date || (startDate && entry.date < startDate) || (endDate && entry.date > endDate)) return false;
+    }
+    if (!invalidAmountRange && !invalidMinAmount && !invalidMaxAmount && (minAmount !== null || maxAmount !== null)) {
+      if ((minAmount !== null && entry.amount < minAmount) || (maxAmount !== null && entry.amount > maxAmount)) return false;
+    }
+    return true;
+  });
+  const compare = (first, second) => {
+    let result = 0;
+    switch (state.sort) {
+      case 'receipt-asc': result = Number(first.receiptId) - Number(second.receiptId); break;
+      case 'receipt-desc': result = Number(second.receiptId) - Number(first.receiptId); break;
+      case 'date-asc': result = compareMissingLast(first.date, second.date); break;
+      case 'date-desc': result = compareMissingLast(first.date, second.date, -1); break;
+      case 'amount-asc': result = first.amount - second.amount; break;
+      case 'amount-desc': result = second.amount - first.amount; break;
+      case 'store-asc': result = compareMissingLast(normalizeOptimizationText(first.receipt.store), normalizeOptimizationText(second.receipt.store)); break;
+      case 'store-desc': result = compareMissingLast(normalizeOptimizationText(first.receipt.store), normalizeOptimizationText(second.receipt.store), -1); break;
+      default: result = first.index - second.index;
+    }
+    return result || first.index - second.index;
+  };
+  return { visible: visible.sort(compare), validation: { startDate, endDate, minAmount, maxAmount, invalidStartDate, invalidEndDate, invalidMinAmount, invalidMaxAmount, invalidDateRange, invalidAmountRange, message: messages.join(' ') } };
+}
 
 export function createReceiptUi({ elements, findBest, toCents, scanPrintedDetails, receiptService }) {
   let currentUser;
   let selectedReceiptIndexes = new Set();
+  let toolbarState = defaultOptimizationToolbarState();
+  let searchDebounce;
   const format = cents => money.format(cents / 100);
-  const formatDate = date => date ? dateFormatter.format(new Date(`${date}T00:00:00`)) : 'Date not set';
+  const formatDate = value => {
+    const date = calendarReceiptDate(value);
+    if (!date) return 'Date not set';
+    const [year, month, day] = date.split('-').map(Number);
+    return dateFormatter.format(new Date(year, month - 1, day));
+  };
   const rowValues = row => Object.fromEntries(['amount', 'receiptDate', 'vat', 'invoice', 'store', 'address', 'tin'].map(key => [key, row.querySelector(`.receipt-${key}`).value]));
   const clearSelection = () => { selectedReceiptIndexes = new Set(); };
+  const workspaceStorageKey = () => currentUser?.id ? `fsresibo-workspace-${currentUser.id}` : null;
+  const toolbarStorageKey = () => currentUser?.id ? `fsresibo-optimization-toolbar-${currentUser.id}` : null;
+  const hasActiveToolbarState = state => Object.entries(defaultOptimizationToolbarState()).some(([key, value]) => state[key] !== value);
+  const readToolbarState = () => ({
+    search: elements.optimizationSearch.value,
+    store: elements.optimizationStoreFilter.value,
+    startDate: elements.optimizationStartDate.value,
+    endDate: elements.optimizationEndDate.value,
+    minAmount: elements.optimizationMinAmount.value,
+    maxAmount: elements.optimizationMaxAmount.value,
+    sort: elements.optimizationSort.value || 'default'
+  });
+  const syncToolbarControls = () => {
+    elements.optimizationSearch.value = toolbarState.search;
+    elements.optimizationStartDate.value = toolbarState.startDate;
+    elements.optimizationEndDate.value = toolbarState.endDate;
+    elements.optimizationMinAmount.value = toolbarState.minAmount;
+    elements.optimizationMaxAmount.value = toolbarState.maxAmount;
+    elements.optimizationSort.value = toolbarState.sort;
+  };
+  const persistToolbarState = () => {
+    const key = toolbarStorageKey();
+    if (!key) return;
+    try {
+      if (hasActiveToolbarState(toolbarState)) sessionStorage.setItem(key, JSON.stringify(toolbarState));
+      else sessionStorage.removeItem(key);
+    } catch { /* Session storage can be unavailable in private browser contexts. */ }
+  };
+  const restoreToolbarState = () => {
+    toolbarState = defaultOptimizationToolbarState();
+    const key = toolbarStorageKey();
+    if (!key) return;
+    try {
+      const stored = JSON.parse(sessionStorage.getItem(key));
+      if (stored && typeof stored === 'object') toolbarState = { ...toolbarState, ...Object.fromEntries(Object.keys(toolbarState).map(keyName => [keyName, typeof stored[keyName] === 'string' ? stored[keyName] : toolbarState[keyName]])) };
+    } catch { /* Ignore unavailable or malformed browser-session state. */ }
+  };
   const refreshToggle = row => {
-    const action = row.open ? 'Collapse' : 'Details';
     const summary = row.querySelector('summary');
-    row.querySelector('.toggle-label').textContent = action;
+    row.querySelector('.toggle-label').textContent = row.open ? 'Collapse' : 'Details';
     summary.setAttribute('aria-label', `${row.open ? 'Collapse' : 'Show'} receipt details`);
     summary.title = `${row.open ? 'Collapse' : 'Show'} receipt details`;
   };
@@ -25,8 +136,13 @@ export function createReceiptUi({ elements, findBest, toCents, scanPrintedDetail
     row.querySelector('.summary-amount').textContent = format(amount);
   };
   const refreshReceiptIds = () => {
-    [...elements.list.children].forEach((row, index) => { row.dataset.receiptId = index + 1; refreshSummary(row); });
-    elements.receiptCount.textContent = elements.list.children.length ? `${elements.list.children.length} receipt${elements.list.children.length === 1 ? '' : 's'}` : 'No receipts added';
+    const rows = [...elements.list.children];
+    let highestId = rows.reduce((highest, row) => Math.max(highest, Number(row.dataset.receiptId) || 0), 0);
+    rows.forEach(row => {
+      if (!Number(row.dataset.receiptId)) row.dataset.receiptId = String(++highestId);
+      refreshSummary(row);
+    });
+    elements.receiptCount.textContent = rows.length ? `${rows.length} receipt${rows.length === 1 ? '' : 's'}` : 'No receipts added';
   };
   const showEmpty = () => {
     elements.resultTitle.textContent = 'Add receipts to begin';
@@ -35,30 +151,63 @@ export function createReceiptUi({ elements, findBest, toCents, scanPrintedDetail
     elements.keptReceipts.replaceChildren();
     elements.adminContent.textContent = 'Run a calculation to view the selection logic.';
   };
+  const optimizationEntries = () => [...elements.list.children].map((row, index) => {
+    const receipt = rowValues(row);
+    return { row, index, receipt, receiptId: row.dataset.receiptId || String(index + 1), date: calendarReceiptDate(receipt.receiptDate), amount: toCents(receipt.amount) };
+  });
+  const updateStoreOptions = entries => {
+    const selected = toolbarState.store;
+    const stores = new Map();
+    entries.forEach(({ receipt }) => {
+      const label = readableOptimizationText(receipt.store);
+      const key = normalizeOptimizationText(label);
+      if (key && !stores.has(key)) stores.set(key, label);
+    });
+    const options = [...stores.entries()].sort(([, first], [, second]) => first.localeCompare(second, undefined, { sensitivity: 'base' }));
+    elements.optimizationStoreFilter.replaceChildren(new Option('All stores', ''), ...options.map(([key, label]) => new Option(label, key)));
+    toolbarState.store = stores.has(selected) ? selected : '';
+    elements.optimizationStoreFilter.value = toolbarState.store;
+  };
   const refreshOptimizationCards = () => {
+    const entries = optimizationEntries();
+    updateStoreOptions(entries);
+    syncToolbarControls();
+    const { visible, validation } = buildOptimizationView(entries, toolbarState);
     const fragment = document.createDocumentFragment();
-    const rows = [...elements.list.children];
-    if (!rows.length) {
+    if (!entries.length) {
       const empty = document.createElement('p');
       empty.className = 'optimization-empty';
       empty.textContent = 'No receipts have been encoded yet.';
       fragment.append(empty);
+    } else if (!visible.length) {
+      const empty = document.createElement('p');
+      empty.className = 'optimization-empty';
+      empty.textContent = 'No receipts match the current search and filters.';
+      fragment.append(empty);
     }
-    rows.forEach((row, index) => {
+    visible.forEach(entry => {
       const card = elements.optimizationTemplate.content.firstElementChild.cloneNode(true);
-      const receipt = rowValues(row);
-      const selected = selectedReceiptIndexes.has(index);
-      card.querySelector('.compact-store').textContent = receipt.store.trim() || 'Store not set';
-      card.querySelector('.compact-date').textContent = formatDate(receipt.receiptDate);
-      card.querySelector('.compact-amount').textContent = format(toCents(receipt.amount));
+      const selected = selectedReceiptIndexes.has(entry.index);
+      card.querySelector('.compact-store').textContent = entry.receipt.store.trim() || 'Store not set';
+      card.querySelector('.compact-date').textContent = formatDate(entry.receipt.receiptDate);
+      card.querySelector('.compact-amount').textContent = format(entry.amount);
       card.querySelector('.selected-badge').hidden = !selected;
       card.classList.toggle('is-selected', selected);
-      card.querySelector('.compact-edit').addEventListener('click', () => openEditModal(index));
+      card.querySelector('.compact-edit').addEventListener('click', () => openEditModal(entry.index));
       fragment.append(card);
     });
     elements.optimizationList.replaceChildren(fragment);
+    const hiddenSelected = [...selectedReceiptIndexes].filter(index => !visible.some(entry => entry.index === index)).length;
+    elements.optimizationResultCount.textContent = `Showing ${visible.length} of ${entries.length} receipt${entries.length === 1 ? '' : 's'}`;
+    elements.optimizationFilterStatus.hidden = !hasActiveToolbarState(toolbarState);
+    elements.optimizationFilterStatus.textContent = hasActiveToolbarState(toolbarState) ? 'Filters active' : '';
+    elements.clearOptimizationFilters.hidden = !hasActiveToolbarState(toolbarState);
+    elements.clearOptimizationSearch.hidden = !toolbarState.search;
+    elements.optimizationRangeValidation.hidden = !validation.message;
+    elements.optimizationRangeValidation.textContent = validation.message;
+    elements.optimizationHiddenSelected.hidden = hiddenSelected === 0;
+    elements.optimizationHiddenSelected.textContent = hiddenSelected ? `${hiddenSelected} selected receipt${hiddenSelected === 1 ? ' is' : 's are'} hidden by the current filters.` : '';
   };
-  const workspaceStorageKey = () => currentUser ? `fsresibo-workspace-${currentUser.id}` : null;
   const setWorkspace = (workspace, persist = true) => {
     const encoding = workspace !== 'optimization';
     elements.encodingWorkspace.hidden = !encoding;
@@ -66,7 +215,8 @@ export function createReceiptUi({ elements, findBest, toCents, scanPrintedDetail
     elements.encodingTab.setAttribute('aria-selected', String(encoding));
     elements.optimizationTab.setAttribute('aria-selected', String(!encoding));
     if (!encoding) refreshOptimizationCards();
-    if (persist && workspaceStorageKey()) sessionStorage.setItem(workspaceStorageKey(), encoding ? 'encoding' : 'optimization');
+    const key = workspaceStorageKey();
+    if (persist && key) try { sessionStorage.setItem(key, encoding ? 'encoding' : 'optimization'); } catch { /* Ignore unavailable session storage. */ }
   };
   const closeEditModal = () => { elements.editModal.hidden = true; delete elements.editModal.dataset.receiptIndex; };
   const openEditModal = index => {
@@ -84,7 +234,7 @@ export function createReceiptUi({ elements, findBest, toCents, scanPrintedDetail
     elements.editModal.hidden = false;
     elements.editStore.focus();
   };
-  const addReceipt = (values = {}) => {
+  const addReceipt = (values = {}, { refresh = true } = {}) => {
     const row = elements.template.content.firstElementChild.cloneNode(true);
     if (values.dbId) row.dataset.receiptDbId = values.dbId;
     for (const [key, value] of Object.entries(values)) { const field = row.querySelector(`.receipt-${key}`); if (field) field.value = value; }
@@ -96,9 +246,7 @@ export function createReceiptUi({ elements, findBest, toCents, scanPrintedDetail
       if (id && currentUser) {
         if (!confirm('Delete this saved receipt? This cannot be undone.')) return;
         try { await receiptService.deleteReceipt(id); } catch (error) { alert(`Could not delete this receipt: ${error.message}`); return; }
-      } else if (hasDraftContent && !confirm('Discard this unfinished receipt? Its entered details will be lost.')) {
-        return;
-      }
+      } else if (hasDraftContent && !confirm('Discard this unfinished receipt? Its entered details will be lost.')) return;
       row.remove();
       clearSelection();
       refreshReceiptIds();
@@ -106,14 +254,13 @@ export function createReceiptUi({ elements, findBest, toCents, scanPrintedDetail
       (nextFocus?.querySelector('summary') || elements.floatingAdd).focus({ preventScroll: true });
     });
     row.querySelectorAll('input, select').forEach(field => {
-      const refresh = () => { refreshSummary(row); clearSelection(); refreshOptimizationCards(); };
-      field.addEventListener('input', refresh);
-      field.addEventListener('change', refresh);
+      const refreshView = () => { refreshSummary(row); clearSelection(); refreshOptimizationCards(); };
+      field.addEventListener('input', refreshView);
+      field.addEventListener('change', refreshView);
     });
     row.addEventListener('toggle', () => refreshToggle(row));
     elements.list.append(row);
-    refreshReceiptIds();
-    refreshOptimizationCards();
+    if (refresh) { refreshReceiptIds(); refreshOptimizationCards(); }
     return row;
   };
   const isBlankUnsavedReceipt = row => !row.dataset.receiptDbId && Object.values(rowValues(row)).every(value => !String(value || '').trim());
@@ -134,9 +281,7 @@ export function createReceiptUi({ elements, findBest, toCents, scanPrintedDetail
       for (const row of elements.list.children) {
         const receipt = rowValues(row);
         if (isBlankUnsavedReceipt(row)) continue;
-        const saved = row.dataset.receiptDbId
-          ? await receiptService.updateReceipt(row.dataset.receiptDbId, receipt, currentUser.id)
-          : await receiptService.createReceipt(receipt, currentUser.id);
+        const saved = row.dataset.receiptDbId ? await receiptService.updateReceipt(row.dataset.receiptDbId, receipt, currentUser.id) : await receiptService.createReceipt(receipt, currentUser.id);
         row.dataset.receiptDbId = saved.dbId;
       }
       alert('Receipt changes saved.');
@@ -191,9 +336,18 @@ export function createReceiptUi({ elements, findBest, toCents, scanPrintedDetail
     }
     Object.entries(values).forEach(([key, value]) => { row.querySelector(`.receipt-${key}`).value = value; });
     refreshSummary(row);
-    clearSelection();
-    showEmpty();
     closeEditModal();
+    refreshOptimizationCards();
+  };
+  const applyToolbarChange = () => {
+    toolbarState = readToolbarState();
+    persistToolbarState();
+    refreshOptimizationCards();
+  };
+  const clearFilters = () => {
+    toolbarState = defaultOptimizationToolbarState();
+    const key = toolbarStorageKey();
+    if (key) try { sessionStorage.removeItem(key); } catch { /* Ignore unavailable session storage. */ }
     refreshOptimizationCards();
   };
   return {
@@ -202,11 +356,13 @@ export function createReceiptUi({ elements, findBest, toCents, scanPrintedDetail
       const receipts = await receiptService.loadReceipts();
       elements.list.replaceChildren();
       clearSelection();
-      receipts.forEach(addReceipt);
+      receipts.forEach(receipt => addReceipt(receipt, { refresh: false }));
+      refreshReceiptIds();
+      restoreToolbarState();
       showEmpty();
-      setWorkspace(sessionStorage.getItem(workspaceStorageKey()) || 'encoding', false);
+      setWorkspace((() => { try { return sessionStorage.getItem(workspaceStorageKey()) || 'encoding'; } catch { return 'encoding'; } })(), false);
     },
-    clearForLogout() { currentUser = undefined; elements.list.replaceChildren(); elements.target.value = ''; clearSelection(); refreshReceiptIds(); refreshOptimizationCards(); showEmpty(); closeEditModal(); },
+    clearForLogout() { currentUser = undefined; toolbarState = defaultOptimizationToolbarState(); elements.list.replaceChildren(); elements.target.value = ''; clearSelection(); refreshReceiptIds(); refreshOptimizationCards(); showEmpty(); closeEditModal(); },
     importLegacyDraft,
     start() {
       elements.calculate.addEventListener('click', calculate);
@@ -221,6 +377,11 @@ export function createReceiptUi({ elements, findBest, toCents, scanPrintedDetail
       elements.closeEditModal.addEventListener('click', closeEditModal);
       elements.cancelEditModal.addEventListener('click', closeEditModal);
       elements.editModalBackdrop.addEventListener('click', closeEditModal);
+      elements.optimizationSearch.addEventListener('input', () => { clearTimeout(searchDebounce); searchDebounce = setTimeout(applyToolbarChange, 120); });
+      [elements.optimizationStoreFilter, elements.optimizationStartDate, elements.optimizationEndDate, elements.optimizationMinAmount, elements.optimizationMaxAmount, elements.optimizationSort].forEach(field => field.addEventListener('change', applyToolbarChange));
+      [elements.optimizationMinAmount, elements.optimizationMaxAmount].forEach(field => field.addEventListener('input', applyToolbarChange));
+      elements.clearOptimizationSearch.addEventListener('click', () => { clearTimeout(searchDebounce); elements.optimizationSearch.value = ''; applyToolbarChange(); elements.optimizationSearch.focus(); });
+      elements.clearOptimizationFilters.addEventListener('click', clearFilters);
       document.addEventListener('keydown', event => { if (event.key === 'Escape' && !elements.editModal.hidden) closeEditModal(); });
       refreshReceiptIds();
       refreshOptimizationCards();
