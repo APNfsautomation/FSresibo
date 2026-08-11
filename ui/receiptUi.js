@@ -30,9 +30,10 @@ export function createOptimizationStrategyState({ select, helper, optimizationSt
   };
   return { getActiveStrategy, setActiveStrategy, restoreActiveStrategy };
 }
-export const defaultOptimizationToolbarState = () => ({ search: '', store: '', startDate: '', endDate: '', minAmount: '', maxAmount: '', sort: 'default' });
+export const defaultOptimizationToolbarState = () => ({ search: '', store: '', startDate: '', endDate: '', minAmount: '', maxAmount: '', sort: 'default', status: 'available' });
 export const normalizeOptimizationText = value => String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
 export const readableOptimizationText = value => String(value || '').trim().replace(/\s+/g, ' ');
+export const normalizeReceiptStatus = value => value === 'consumed' ? 'consumed' : 'available';
 export const normalizeStoreText = normalizeOptimizationText;
 const storeProfileIdentity = receipt => ({
   store: normalizeStoreText(receipt.store),
@@ -118,6 +119,7 @@ const compareMissingLast = (first, second, direction = 1) => {
   return first < second ? -direction : first > second ? direction : 0;
 };
 export function buildOptimizationView(entries, state) {
+  const status = ['available', 'consumed', 'all'].includes(state.status) ? state.status : 'available';
   const startDate = calendarReceiptDate(state.startDate);
   const endDate = calendarReceiptDate(state.endDate);
   const minAmount = parseOptimizationBound(state.minAmount);
@@ -136,8 +138,9 @@ export function buildOptimizationView(entries, state) {
   const query = normalizeOptimizationText(state.search);
   const visible = entries.filter(entry => {
     const { receipt } = entry;
+    const matchesStatus = status === 'all' || normalizeReceiptStatus(receipt.status) === status;
     const matchesSearch = !query || [receipt.store, receipt.invoice, receipt.tin, receipt.address, entry.receiptId, `Receipt ${entry.receiptId}`].some(value => normalizeOptimizationText(value).includes(query));
-    if (!matchesSearch || (state.store && normalizeOptimizationText(receipt.store) !== state.store)) return false;
+    if (!matchesStatus || !matchesSearch || (state.store && normalizeOptimizationText(receipt.store) !== state.store)) return false;
     if (!invalidDateRange && !invalidStartDate && !invalidEndDate && (startDate || endDate)) {
       if (!entry.date || (startDate && entry.date < startDate) || (endDate && entry.date > endDate)) return false;
     }
@@ -163,10 +166,12 @@ export function buildOptimizationView(entries, state) {
   };
   return { visible: visible.sort(compare), validation: { startDate, endDate, minAmount, maxAmount, invalidStartDate, invalidEndDate, invalidMinAmount, invalidMaxAmount, invalidDateRange, invalidAmountRange, message: messages.join(' ') } };
 }
+export const availableOptimizerReceipts = receipts => receipts.filter(receipt => normalizeReceiptStatus(receipt.status) === 'available' && receipt.cents > 0);
 
-export function createReceiptUi({ elements, findBest, optimizationStrategies, toCents, scanPrintedDetails, receiptService }) {
+export function createReceiptUi({ elements, findBest, optimizationStrategies, toCents, scanPrintedDetails, downloadSelectedReceipts, receiptService }) {
   let currentUser;
   let selectedReceiptIndexes = new Set();
+  let selectedReceiptIds = [];
   let toolbarState = defaultOptimizationToolbarState();
   let searchDebounce;
   let storeSourceReceipts = [];
@@ -193,7 +198,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     storeSourceReceipts = storeSourceReceipts.filter(receipt => receipt.dbId !== id);
     rebuildStoreProfiles();
   };
-  const clearSelection = () => { selectedReceiptIndexes = new Set(); };
+  const clearSelection = () => { selectedReceiptIndexes = new Set(); selectedReceiptIds = []; updateExportAction(); };
   const workspaceStorageKey = () => currentUser?.id ? `fsresibo-workspace-${currentUser.id}` : null;
   const toolbarStorageKey = () => currentUser?.id ? `fsresibo-optimization-toolbar-${currentUser.id}` : null;
   const strategyStorageKey = () => currentUser?.id ? `fsresibo-optimization-strategy-${currentUser.id}` : null;
@@ -206,7 +211,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     endDate: elements.optimizationEndDate.value,
     minAmount: elements.optimizationMinAmount.value,
     maxAmount: elements.optimizationMaxAmount.value,
-    sort: elements.optimizationSort.value || 'default'
+    sort: elements.optimizationSort.value || 'default',
+    status: ['available', 'consumed', 'all'].includes(elements.receiptStatusFilter.value) ? elements.receiptStatusFilter.value : 'available'
   });
   const syncToolbarControls = () => {
     elements.optimizationSearch.value = toolbarState.search;
@@ -215,6 +221,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     elements.optimizationMinAmount.value = toolbarState.minAmount;
     elements.optimizationMaxAmount.value = toolbarState.maxAmount;
     elements.optimizationSort.value = toolbarState.sort;
+    elements.receiptStatusFilter.value = toolbarState.status;
   };
   const persistToolbarState = () => {
     const key = toolbarStorageKey();
@@ -249,6 +256,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     summary.setAttribute('aria-label', `${row.open ? 'Collapse' : 'Show'} receipt details`);
     summary.title = `${row.open ? 'Collapse' : 'Show'} receipt details`;
   };
+  const receiptStatus = row => normalizeReceiptStatus(row.dataset.receiptStatus);
   const refreshSummary = row => {
     const id = row.dataset.receiptId || '1';
     const store = row.querySelector('.receipt-store').value.trim() || 'Store not set';
@@ -256,6 +264,22 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     row.querySelector('.summary-id').textContent = `Receipt ${id}`;
     row.querySelector('.summary-store').textContent = store;
     row.querySelector('.summary-amount').textContent = format(amount);
+  };
+  const updateExportAction = () => {
+    const count = selectedReceiptIds.length === selectedReceiptIndexes.size ? selectedReceiptIds.length : 0;
+    elements.exportSelected.disabled = count === 0;
+    elements.exportSelected.textContent = `Export Selected (${count})`;
+  };
+  const refreshEncodingCards = () => {
+    [...elements.list.children].forEach(row => { row.hidden = toolbarState.status !== 'all' && receiptStatus(row) !== toolbarState.status; });
+  };
+  const applyReceiptStatusState = row => {
+    const consumed = receiptStatus(row) === 'consumed';
+    row.classList.toggle('is-consumed', consumed);
+    row.querySelector('.receipt-status-badge').hidden = !consumed;
+    row.querySelector('.delete-receipt').hidden = consumed;
+    row.querySelector('.restore-receipt').hidden = !consumed;
+    row.querySelectorAll('input, select').forEach(field => { field.disabled = consumed; });
   };
   const refreshReceiptIds = () => {
     const rows = [...elements.list.children];
@@ -275,7 +299,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     updateResultSummary();
   };
   const optimizationEntries = () => [...elements.list.children].map((row, index) => {
-    const receipt = rowValues(row);
+    const receipt = { ...rowValues(row), status: receiptStatus(row) };
     return { row, index, receipt, receiptId: row.dataset.receiptId || String(index + 1), date: calendarReceiptDate(receipt.receiptDate), amount: toCents(receipt.amount) };
   });
   const updateStoreOptions = entries => {
@@ -311,12 +335,18 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     visible.forEach(entry => {
       const card = elements.optimizationTemplate.content.firstElementChild.cloneNode(true);
       const selected = selectedReceiptIndexes.has(entry.index);
+      const consumed = entry.receipt.status === 'consumed';
       card.querySelector('.compact-store').textContent = entry.receipt.store.trim() || 'Store not set';
       card.querySelector('.compact-date').textContent = formatDate(entry.receipt.receiptDate);
       card.querySelector('.compact-amount').textContent = format(entry.amount);
+      card.querySelector('.compact-status').hidden = !consumed;
       card.querySelector('.selected-badge').hidden = !selected;
       card.classList.toggle('is-selected', selected);
-      card.querySelector('.compact-edit').addEventListener('click', () => openEditModal(entry.index));
+      card.classList.toggle('is-consumed', consumed);
+      card.querySelector('.compact-edit').hidden = consumed;
+      card.querySelector('.compact-restore').hidden = !consumed;
+      if (consumed) card.querySelector('.compact-restore').addEventListener('click', () => restoreReceipt(entry.index));
+      else card.querySelector('.compact-edit').addEventListener('click', () => openEditModal(entry.index));
       fragment.append(card);
     });
     elements.optimizationList.replaceChildren(fragment);
@@ -330,6 +360,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     elements.optimizationRangeValidation.textContent = validation.message;
     elements.optimizationHiddenSelected.hidden = hiddenSelected === 0;
     elements.optimizationHiddenSelected.textContent = hiddenSelected ? `${hiddenSelected} selected receipt${hiddenSelected === 1 ? ' is' : 's are'} hidden by the current filters.` : '';
+    updateExportAction();
   };
   const setWorkspace = (workspace, persist = true) => {
     const encoding = workspace !== 'optimization';
@@ -344,7 +375,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   const closeEditModal = () => { elements.editModal.hidden = true; delete elements.editModal.dataset.receiptIndex; };
   const openEditModal = index => {
     const row = elements.list.children[index];
-    if (!row) return;
+    if (!row || receiptStatus(row) === 'consumed') return;
     const receipt = rowValues(row);
     elements.editModal.dataset.receiptIndex = String(index);
     elements.editAmount.value = receipt.amount;
@@ -375,6 +406,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       input.removeAttribute('aria-activedescendant');
     };
     const selectSuggestion = profile => {
+      if (receiptStatus(row) === 'consumed') return;
       const values = storeProfileFields(profile);
       input.value = values.store;
       if (values.address) row.querySelector('.receipt-address').value = values.address;
@@ -438,10 +470,12 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     const row = elements.template.content.firstElementChild.cloneNode(true);
     if (values.dbId) row.dataset.receiptDbId = values.dbId;
     if (values.updatedAt) row.dataset.receiptUpdatedAt = values.updatedAt;
+    row.dataset.receiptStatus = normalizeReceiptStatus(values.status);
     for (const [key, value] of Object.entries(values)) { const field = row.querySelector(`.receipt-${key}`); if (field) field.value = value; }
     row.querySelector('.receipt-photo').addEventListener('change', event => { const file = event.currentTarget.files[0]; if (file) scanPrintedDetails(file, row, refreshSummary); });
     row.querySelector('.delete-receipt').addEventListener('click', async () => {
       const id = row.dataset.receiptDbId;
+      if (receiptStatus(row) === 'consumed') return;
       const nextFocus = row.nextElementSibling || row.previousElementSibling;
       const hasDraftContent = Object.values(rowValues(row)).some(value => String(value || '').trim()) || row.querySelector('.receipt-photo').files.length > 0;
       if (id && currentUser) {
@@ -455,6 +489,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       refreshOptimizationCards();
       (nextFocus?.querySelector('summary') || elements.floatingAdd).focus({ preventScroll: true });
     });
+    row.querySelector('.restore-receipt').addEventListener('click', () => restoreReceipt([...elements.list.children].indexOf(row)));
     installStoreAutocomplete(row);
     const storeInput = row.querySelector('.receipt-store');
     row.querySelectorAll('input, select').forEach(field => {
@@ -464,7 +499,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     });
     row.addEventListener('toggle', () => refreshToggle(row));
     elements.list.append(row);
-    if (refresh) { refreshReceiptIds(); refreshOptimizationCards(); }
+    applyReceiptStatusState(row);
+    if (refresh) { refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); }
     return row;
   };
   const isBlankUnsavedReceipt = row => !row.dataset.receiptDbId && Object.values(rowValues(row)).every(value => !String(value || '').trim());
@@ -483,6 +519,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     if (!currentUser) return alert('Please sign in before saving receipts.');
     try {
       for (const row of elements.list.children) {
+        if (receiptStatus(row) === 'consumed') continue;
         const receipt = rowValues(row);
         if (isBlankUnsavedReceipt(row)) continue;
         const saved = row.dataset.receiptDbId ? await receiptService.updateReceipt(row.dataset.receiptDbId, receipt, currentUser.id) : await receiptService.createReceipt(receipt, currentUser.id);
@@ -495,7 +532,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   };
   const calculate = () => {
     const targetCents = toCents(elements.target.value);
-    const receipts = [...elements.list.children].map((row, index) => ({ index, label: `Receipt ${row.dataset.receiptId}`, cents: toCents(row.querySelector('.receipt-amount').value) })).filter(receipt => receipt.cents > 0);
+    const receipts = availableOptimizerReceipts([...elements.list.children].map((row, index) => ({ index, dbId: row.dataset.receiptDbId, label: `Receipt ${row.dataset.receiptId}`, cents: toCents(row.querySelector('.receipt-amount').value), status: receiptStatus(row) })));
     if (!targetCents || !receipts.length) { clearSelection(); refreshOptimizationCards(); showEmpty(); return; }
     try {
       const strategy = setActiveStrategy(getActiveStrategy());
@@ -514,6 +551,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       const chosen = best.items.map(index => receipts[index]);
       const difference = best.total - targetCents;
       selectedReceiptIndexes = new Set(chosen.map(receipt => receipt.index));
+      selectedReceiptIds = chosen.map(receipt => receipt.dbId).filter(Boolean);
       elements.resultTitle.textContent = difference === 0 ? 'Exact match found' : strategy === optimizationStrategies.withoutExceeding ? 'Best match without exceeding' : 'Best available match';
       elements.resultAmount.textContent = format(best.total);
       elements.difference.textContent = difference === 0 ? 'This selection matches your requested amount exactly.' : `${difference > 0 ? 'Over' : 'Under'} by ${format(Math.abs(difference))}.`;
@@ -546,11 +584,63 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     alert('Import completed. Your original browser draft was kept as a backup.');
     return true;
   };
+  const closeExportConfirmation = () => { elements.exportConfirmModal.hidden = true; };
+  const selectedReceiptsForExport = () => selectedReceiptIds.map(id => {
+    const row = [...elements.list.children].find(candidate => candidate.dataset.receiptDbId === id);
+    return row && receiptStatus(row) === 'available' ? { ...rowValues(row), dbId: id, status: 'available' } : null;
+  }).filter(Boolean);
+  const openExportConfirmation = () => {
+    const receipts = selectedReceiptsForExport();
+    if (!receipts.length || receipts.length !== selectedReceiptIndexes.size) return alert('Run Find Best Match with saved Available receipts before exporting.');
+    elements.exportConfirmMessage.textContent = `Export ${receipts.length} selected receipt${receipts.length === 1 ? '' : 's'}? After the export is prepared, these receipts will be marked as Consumed and excluded from future optimization.`;
+    elements.exportConfirmModal.hidden = false;
+    elements.confirmExport.focus();
+  };
+  const exportAndConsume = async () => {
+    const receipts = selectedReceiptsForExport();
+    if (!receipts.length || receipts.length !== selectedReceiptIndexes.size) { closeExportConfirmation(); return alert('The selected result is no longer exportable. Run Find Best Match again.'); }
+    try { downloadSelectedReceipts(receipts); } catch (error) { closeExportConfirmation(); return alert(`Could not prepare the XLSX export: ${error.message}`); }
+    try {
+      const consumed = await receiptService.consumeReceipts(receipts.map(receipt => receipt.dbId));
+      consumed.forEach(saved => {
+        const row = [...elements.list.children].find(candidate => candidate.dataset.receiptDbId === saved.dbId);
+        if (row) { row.dataset.receiptStatus = saved.status; row.dataset.receiptUpdatedAt = saved.updatedAt || ''; applyReceiptStatusState(row); }
+        upsertStoreSourceReceipt(saved);
+      });
+      closeExportConfirmation();
+      clearSelection();
+      refreshReceiptIds();
+      refreshEncodingCards();
+      refreshOptimizationCards();
+      showEmpty();
+      elements.resultTitle.textContent = 'Export complete';
+      elements.difference.textContent = `${consumed.length} receipt${consumed.length === 1 ? '' : 's'} exported and marked as Consumed.`;
+    } catch (error) {
+      closeExportConfirmation();
+      alert(`The XLSX export was prepared, but receipt status could not be updated: ${error.message} Review the receipt status before exporting again.`);
+    }
+  };
+  const restoreReceipt = async index => {
+    const row = elements.list.children[index];
+    if (!row || receiptStatus(row) !== 'consumed' || !row.dataset.receiptDbId) return;
+    if (!confirm('Mark this consumed receipt as Available? It will return to normal editing and optimization.')) return;
+    try {
+      const saved = await receiptService.updateReceiptStatus(row.dataset.receiptDbId, 'available');
+      row.dataset.receiptStatus = saved.status;
+      row.dataset.receiptUpdatedAt = saved.updatedAt || '';
+      applyReceiptStatusState(row);
+      upsertStoreSourceReceipt(saved);
+      refreshEncodingCards();
+      refreshOptimizationCards();
+      alert('Receipt marked as Available.');
+    } catch (error) { alert(`Could not restore this receipt: ${error.message}`); }
+  };
   const saveModalCorrection = async event => {
     event.preventDefault();
     const index = Number(elements.editModal.dataset.receiptIndex);
     const row = elements.list.children[index];
     if (!row) return closeEditModal();
+    if (receiptStatus(row) === 'consumed') return closeEditModal();
     const values = { amount: elements.editAmount.value, receiptDate: elements.editReceiptDate.value, vat: elements.editVat.value, invoice: elements.editInvoice.value, store: elements.editStore.value, address: elements.editAddress.value, tin: elements.editTin.value };
     if (row.dataset.receiptDbId && currentUser) {
       try {
@@ -567,12 +657,15 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   const applyToolbarChange = () => {
     toolbarState = readToolbarState();
     persistToolbarState();
+    refreshEncodingCards();
     refreshOptimizationCards();
   };
   const clearFilters = () => {
     toolbarState = defaultOptimizationToolbarState();
     const key = toolbarStorageKey();
     if (key) try { sessionStorage.removeItem(key); } catch { /* Ignore unavailable session storage. */ }
+    syncToolbarControls();
+    refreshEncodingCards();
     refreshOptimizationCards();
   };
   return {
@@ -586,17 +679,23 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       receipts.forEach(receipt => addReceipt(receipt, { refresh: false }));
       refreshReceiptIds();
       restoreToolbarState();
+      syncToolbarControls();
+      refreshEncodingCards();
       restoreActiveStrategy();
       showEmpty();
       setWorkspace((() => { try { return sessionStorage.getItem(workspaceStorageKey()) || 'encoding'; } catch { return 'encoding'; } })(), false);
     },
-    clearForLogout() { currentUser = undefined; toolbarState = defaultOptimizationToolbarState(); storeSourceReceipts = []; rebuildStoreProfiles(); setActiveStrategy(optimizationStrategies.closest, { persist: false }); elements.list.replaceChildren(); elements.target.value = ''; clearSelection(); refreshReceiptIds(); refreshOptimizationCards(); showEmpty(); closeEditModal(); },
+    clearForLogout() { currentUser = undefined; toolbarState = defaultOptimizationToolbarState(); storeSourceReceipts = []; rebuildStoreProfiles(); syncToolbarControls(); setActiveStrategy(optimizationStrategies.closest, { persist: false }); elements.list.replaceChildren(); elements.target.value = ''; clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); closeEditModal(); closeExportConfirmation(); },
     importLegacyDraft,
     start() {
       elements.calculate.addEventListener('click', calculate);
+      elements.exportSelected.addEventListener('click', openExportConfirmation);
+      elements.confirmExport.addEventListener('click', exportAndConsume);
+      elements.cancelExport.addEventListener('click', closeExportConfirmation);
+      elements.exportConfirmBackdrop.addEventListener('click', closeExportConfirmation);
       elements.saveDraft.addEventListener('click', saveDraft);
       elements.clearAll.addEventListener('click', () => {
-        if (!elements.list.children.length || confirm('Clear all receipts from this form? Saved receipts remain in your account and return after a refresh.')) { elements.list.replaceChildren(); clearSelection(); refreshReceiptIds(); refreshOptimizationCards(); showEmpty(); }
+        if (!elements.list.children.length || confirm('Clear all receipts from this form? Saved receipts remain in your account and return after a refresh.')) { elements.list.replaceChildren(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); }
       });
       elements.encodingTab.addEventListener('click', () => setWorkspace('encoding'));
       elements.optimizationTab.addEventListener('click', () => setWorkspace('optimization'));
@@ -614,10 +713,12 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       [elements.optimizationMinAmount, elements.optimizationMaxAmount].forEach(field => field.addEventListener('input', applyToolbarChange));
       elements.clearOptimizationSearch.addEventListener('click', () => { clearTimeout(searchDebounce); elements.optimizationSearch.value = ''; applyToolbarChange(); elements.optimizationSearch.focus(); });
       elements.clearOptimizationFilters.addEventListener('click', clearFilters);
-      document.addEventListener('keydown', event => { if (event.key === 'Escape' && !elements.editModal.hidden) closeEditModal(); });
+      elements.receiptStatusFilter.addEventListener('change', applyToolbarChange);
+      document.addEventListener('keydown', event => { if (event.key === 'Escape' && !elements.editModal.hidden) closeEditModal(); else if (event.key === 'Escape' && !elements.exportConfirmModal.hidden) closeExportConfirmation(); });
       refreshReceiptIds();
       setActiveStrategy(getActiveStrategy(), { persist: false });
       refreshOptimizationCards();
+      refreshEncodingCards();
       showEmpty();
     }
   };
