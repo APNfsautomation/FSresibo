@@ -1,6 +1,7 @@
 import { isSupabaseConfigured, supabaseConfig } from './config/supabase.js';
 import { getCurrentSession, login, logout, onAuthStateChange, register } from './services/authService.js';
 import { scanPrintedDetails } from './services/ocrService.js';
+import { downloadSelectedReceipts } from './services/exportService.js';
 import { findBest, optimizationStrategies, toCents } from './services/optimizationService.js';
 import * as receiptService from './services/receiptService.js';
 import { createAuthPanel } from './ui/authPanel.js';
@@ -9,7 +10,7 @@ import { createReceiptUi } from './ui/receiptUi.js';
 const elements = {
   list: document.querySelector('#receiptList'), template: document.querySelector('#receiptTemplate'), target: document.querySelector('#targetAmount'),
   calculate: document.querySelector('#calculate'), optimizationStrategy: document.querySelector('#optimizationStrategy'), optimizationStrategyHelper: document.querySelector('#optimizationStrategyHelper'), saveDraft: document.querySelector('#saveDraft'),
-  clearAll: document.querySelector('#clearAll'), receiptCount: document.querySelector('#receiptCount'), resultTitle: document.querySelector('#resultTitle'),
+  clearAll: document.querySelector('#clearAll'), receiptCount: document.querySelector('#receiptCount'), receiptStatusFilter: document.querySelector('#receiptStatusFilter'), resultTitle: document.querySelector('#resultTitle'),
   resultAmount: document.querySelector('#resultAmount'), difference: document.querySelector('#difference'), keptReceipts: document.querySelector('#keptReceipts'),
   optimizationResultSummary: document.querySelector('#optimizationResultSummary'), summaryTarget: document.querySelector('#summaryTarget'), summaryMatched: document.querySelector('#summaryMatched'), summaryDifference: document.querySelector('#summaryDifference'), summaryReceiptCount: document.querySelector('#summaryReceiptCount'), summaryStrategy: document.querySelector('#summaryStrategy'),
   adminContent: document.querySelector('#adminContent'), encodingWorkspace: document.querySelector('#encodingWorkspace'), optimizationWorkspace: document.querySelector('#optimizationWorkspace'),
@@ -19,11 +20,12 @@ const elements = {
   optimizationStoreFilter: document.querySelector('#optimizationStoreFilter'), optimizationStartDate: document.querySelector('#optimizationStartDate'), optimizationEndDate: document.querySelector('#optimizationEndDate'),
   optimizationMinAmount: document.querySelector('#optimizationMinAmount'), optimizationMaxAmount: document.querySelector('#optimizationMaxAmount'), optimizationSort: document.querySelector('#optimizationSort'),
   clearOptimizationFilters: document.querySelector('#clearOptimizationFilters'), optimizationResultCount: document.querySelector('#optimizationResultCount'), optimizationFilterStatus: document.querySelector('#optimizationFilterStatus'),
-  optimizationRangeValidation: document.querySelector('#optimizationRangeValidation'), optimizationHiddenSelected: document.querySelector('#optimizationHiddenSelected'),
+  optimizationRangeValidation: document.querySelector('#optimizationRangeValidation'), optimizationHiddenSelected: document.querySelector('#optimizationHiddenSelected'), exportSelected: document.querySelector('#exportSelected'),
   editModal: document.querySelector('#editReceiptModal'), editModalBackdrop: document.querySelector('#editModalBackdrop'), editForm: document.querySelector('#editReceiptForm'),
   closeEditModal: document.querySelector('#closeEditModal'), cancelEditModal: document.querySelector('#cancelEditModal'), editAmount: document.querySelector('#editAmount'),
   editReceiptDate: document.querySelector('#editReceiptDate'), editVat: document.querySelector('#editVat'), editInvoice: document.querySelector('#editInvoice'),
-  editStore: document.querySelector('#editStore'), editAddress: document.querySelector('#editAddress'), editTin: document.querySelector('#editTin')
+  editStore: document.querySelector('#editStore'), editAddress: document.querySelector('#editAddress'), editTin: document.querySelector('#editTin'),
+  exportConfirmModal: document.querySelector('#exportConfirmModal'), exportConfirmBackdrop: document.querySelector('#exportConfirmBackdrop'), exportConfirmMessage: document.querySelector('#exportConfirmMessage'), confirmExport: document.querySelector('#confirmExport'), cancelExport: document.querySelector('#cancelExport')
 };
 
 const authElements = {
@@ -35,7 +37,7 @@ const authElements = {
 };
 
 void supabaseConfig;
-const receiptUi = createReceiptUi({ elements, findBest, optimizationStrategies, toCents, scanPrintedDetails, receiptService });
+const receiptUi = createReceiptUi({ elements, findBest, optimizationStrategies, toCents, scanPrintedDetails, downloadSelectedReceipts, receiptService });
 const authPanel = createAuthPanel(authElements, { onLogin: login, onRegister: register });
 let activeUserId;
 let activatingUserId;

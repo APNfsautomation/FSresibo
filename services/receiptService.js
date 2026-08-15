@@ -25,7 +25,8 @@ function fromDatabaseReceipt(receipt) {
     store: receipt.store_name ?? '',
     address: receipt.address ?? '',
     tin: receipt.tin ?? '',
-    updatedAt: receipt.updated_at ?? ''
+    updatedAt: receipt.updated_at ?? '',
+    status: receipt.status === 'consumed' ? 'consumed' : 'available'
   };
 }
 
@@ -61,6 +62,24 @@ export async function deleteReceipt(id) {
   const client = await clientOrThrow();
   const { error } = await client.from('receipts').delete().eq('id', id);
   if (error) throw error;
+}
+
+export async function updateReceiptStatus(id, status) {
+  if (!['available', 'consumed'].includes(status)) throw new Error('Unsupported receipt status.');
+  const client = await clientOrThrow();
+  const { data, error } = await client.from('receipts').update({ status }).eq('id', id).select().single();
+  if (error) throw error;
+  return fromDatabaseReceipt(data);
+}
+
+export async function consumeReceipts(ids) {
+  const uniqueIds = [...new Set(ids)].filter(Boolean);
+  if (!uniqueIds.length) return [];
+  const client = await clientOrThrow();
+  const { data, error } = await client.from('receipts').update({ status: 'consumed' }).in('id', uniqueIds).eq('status', 'available').select();
+  if (error) throw error;
+  if (data.length !== uniqueIds.length) throw new Error('One or more selected receipts are no longer available. Refresh and review the result before exporting again.');
+  return data.map(fromDatabaseReceipt);
 }
 
 export async function importReceipts(receipts, userId) {

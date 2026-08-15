@@ -47,6 +47,7 @@
         <button class="workspace-tab" id="encodingTab" type="button" role="tab" aria-controls="encodingWorkspace" aria-selected="true">Receipt Encoding</button>
         <button class="workspace-tab" id="optimizationTab" type="button" role="tab" aria-controls="optimizationWorkspace" aria-selected="false">Receipt Optimization</button>
       </nav>
+      <label class="receipt-status-filter">View receipts<select id="receiptStatusFilter"><option value="available">Available</option><option value="consumed">Consumed</option><option value="all">All</option></select></label>
 
       <section class="workspace-view encoding-workspace" id="encodingWorkspace" role="tabpanel" aria-labelledby="encodingTab">
         <div class="workspace-heading">
@@ -79,6 +80,7 @@
               </select>
               <p id="optimizationStrategyHelper" class="strategy-helper">Finds the combination nearest to your target.</p>
               <button class="primary" id="calculate" type="button">Find best match</button>
+              <button class="secondary export-selected" id="exportSelected" type="button" disabled>Export Selected (0)</button>
             </div>
             <aside class="panel result-panel" aria-live="polite">
               <p class="eyebrow">RECOMMENDATION</p><h3 id="resultTitle">Add receipts to begin</h3>
@@ -148,7 +150,7 @@
 
     <template id="receiptTemplate">
       <details class="receipt-card">
-        <summary class="receipt-summary" aria-label="Show receipt details" title="Show receipt details"><span class="summary-id">Receipt 1</span><span class="summary-store">Store not set</span><strong class="summary-amount">₱0.00</strong><span class="summary-toggle" aria-hidden="true"><span class="toggle-label">Details</span><span class="toggle-icon">⌄</span></span></summary>
+        <summary class="receipt-summary" aria-label="Show receipt details" title="Show receipt details"><span class="summary-id">Receipt 1</span><span class="summary-store">Store not set</span><strong class="summary-amount">₱0.00</strong><span class="receipt-status-badge" hidden>Consumed</span><span class="summary-toggle" aria-hidden="true"><span class="toggle-label">Details</span><span class="toggle-icon">⌄</span></span></summary>
         <div class="receipt-content">
           <section class="receipt-form-group" aria-labelledby="receipt-details-title">
             <p class="form-group-title" id="receipt-details-title">Receipt details</p>
@@ -169,7 +171,7 @@
             </div>
           </section>
           <div class="receipt-form-footer">
-            <button class="delete-receipt" type="button">Delete receipt</button>
+            <button class="delete-receipt" type="button">Delete receipt</button><button class="secondary restore-receipt" type="button" hidden>Mark Available</button>
           </div>
           <p class="ocr-status" aria-live="polite"></p>
         </div>
@@ -178,12 +180,16 @@
 
     <template id="optimizationReceiptTemplate">
       <article class="optimization-receipt-card">
-        <div class="compact-receipt-details"><strong class="compact-store">Store not set</strong><span class="compact-date">Date not set</span></div>
+        <div class="compact-receipt-details"><strong class="compact-store">Store not set</strong><span class="compact-date">Date not set</span><span class="compact-status" hidden>Consumed</span></div>
         <strong class="compact-amount">₱0.00</strong>
         <span class="selected-badge" hidden>Selected</span>
-        <button class="ghost compact-edit" type="button">Edit</button>
+        <button class="ghost compact-edit" type="button">Edit</button><button class="secondary compact-restore" type="button" hidden>Mark Available</button>
       </article>
     </template>
+    <section class="edit-modal" id="exportConfirmModal" role="dialog" aria-modal="true" aria-labelledby="exportConfirmTitle" hidden>
+      <div class="modal-backdrop" id="exportConfirmBackdrop"></div>
+      <div class="modal-card export-confirm-card"><p class="eyebrow">EXPORT SELECTED</p><h2 id="exportConfirmTitle">Export selected receipts?</h2><p id="exportConfirmMessage">After the export is prepared, these receipts will be marked as Consumed and excluded from future optimization.</p><div class="modal-actions"><button class="primary" id="confirmExport" type="button">Export &amp; Mark Consumed</button><button class="ghost" id="cancelExport" type="button">Cancel</button></div></div>
+    </section>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script type="module" src="app.js"></script>
   </body>

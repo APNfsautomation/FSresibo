@@ -30,6 +30,7 @@ Workflow Optimization
 - Auto-mark Consumed
 
 ## Future
+- Company-wide Shared Store Directory: cross-user Store Name, Address, TIN, and VAT Status reuse with admin correction, duplicate/profile management, and deactivation of obsolete stores.
 Epic 3 OCR
 Epic 4 Export & Workflow Support
 Epic 5 Productivity
