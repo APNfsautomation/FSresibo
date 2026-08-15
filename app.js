@@ -1,11 +1,14 @@
 import { isSupabaseConfigured, supabaseConfig } from './config/supabase.js';
-import { getCurrentSession, login, logout, onAuthStateChange, register } from './services/authService.js';
+import { appMetadata } from './config/appMetadata.js';
+import { authRedirectUrl, getCurrentSession, login, logout, onAuthStateChange, register, requestPasswordReset, updatePassword } from './services/authService.js';
 import { scanPrintedDetails } from './services/ocrService.js';
 import { downloadSelectedReceipts } from './services/exportService.js';
 import { findBest, optimizationStrategies, toCents } from './services/optimizationService.js';
 import * as receiptService from './services/receiptService.js';
+import { renderApplicationIdentity } from './ui/appIdentity.js';
 import { createAuthPanel } from './ui/authPanel.js';
 import { createReceiptUi } from './ui/receiptUi.js';
+import { createThemeController } from './ui/themeController.js';
 
 const elements = {
   list: document.querySelector('#receiptList'), template: document.querySelector('#receiptTemplate'), target: document.querySelector('#targetAmount'),
@@ -25,22 +28,43 @@ const elements = {
   closeEditModal: document.querySelector('#closeEditModal'), cancelEditModal: document.querySelector('#cancelEditModal'), editAmount: document.querySelector('#editAmount'),
   editReceiptDate: document.querySelector('#editReceiptDate'), editVat: document.querySelector('#editVat'), editInvoice: document.querySelector('#editInvoice'),
   editStore: document.querySelector('#editStore'), editAddress: document.querySelector('#editAddress'), editTin: document.querySelector('#editTin'),
-  exportConfirmModal: document.querySelector('#exportConfirmModal'), exportConfirmBackdrop: document.querySelector('#exportConfirmBackdrop'), exportConfirmMessage: document.querySelector('#exportConfirmMessage'), confirmExport: document.querySelector('#confirmExport'), cancelExport: document.querySelector('#cancelExport')
+  exportConfirmModal: document.querySelector('#exportConfirmModal'), exportConfirmBackdrop: document.querySelector('#exportConfirmBackdrop'), exportConfirmMessage: document.querySelector('#exportConfirmMessage'), confirmExport: document.querySelector('#confirmExport'), cancelExport: document.querySelector('#cancelExport'),
+  themePreference: document.querySelector('#themePreference'), authVersion: document.querySelector('#authVersion'), appVersion: document.querySelector('#appVersion')
 };
 
 const authElements = {
   authView: document.querySelector('#authView'), appView: document.querySelector('#appView'), loginForm: document.querySelector('#loginForm'),
   registerForm: document.querySelector('#registerForm'), loginEmail: document.querySelector('#loginEmail'), loginPassword: document.querySelector('#loginPassword'),
   registerEmail: document.querySelector('#registerEmail'), registerPassword: document.querySelector('#registerPassword'), registerConfirmPassword: document.querySelector('#registerConfirmPassword'),
-  showRegister: document.querySelector('#showRegister'), showLogin: document.querySelector('#showLogin'), authMessage: document.querySelector('#authMessage'),
+  showRegister: document.querySelector('#showRegister'), showLogin: document.querySelector('#showLogin'), showReset: document.querySelector('#showReset'), backToLogin: document.querySelector('#backToLogin'), backFromRecovery: document.querySelector('#backFromRecovery'), authMessage: document.querySelector('#authMessage'),
+  resetForm: document.querySelector('#resetForm'), resetEmail: document.querySelector('#resetEmail'), recoveryForm: document.querySelector('#recoveryForm'), recoveryPassword: document.querySelector('#recoveryPassword'), recoveryConfirmPassword: document.querySelector('#recoveryConfirmPassword'),
   userEmail: document.querySelector('#userEmail'), logout: document.querySelector('#logout')
 };
 
 void supabaseConfig;
 const receiptUi = createReceiptUi({ elements, findBest, optimizationStrategies, toCents, scanPrintedDetails, downloadSelectedReceipts, receiptService });
-const authPanel = createAuthPanel(authElements, { onLogin: login, onRegister: register });
+const themeController = createThemeController({ select: elements.themePreference });
+const authPanel = createAuthPanel(authElements, {
+  onLogin: login,
+  onRegister: (email, password) => register(email, password, authRedirectUrl('signup')),
+  onPasswordReset: email => requestPasswordReset(email, authRedirectUrl('recovery')),
+  onUpdatePassword: async password => { await updatePassword(password); recoveryCompleted = true; await logout(); }
+});
 let activeUserId;
 let activatingUserId;
+let recoveryMode = new URLSearchParams(window.location.search).get('auth') === 'recovery';
+let recoveryCompleted = false;
+
+const callbackError = () => {
+  const params = new URLSearchParams(`${window.location.search.slice(1)}&${window.location.hash.slice(1)}`);
+  return params.get('error_description') || params.get('error') || '';
+};
+const clearRecoveryUrl = () => {
+  const url = new URL(window.location.href);
+  url.searchParams.delete('auth');
+  url.hash = '';
+  window.history.replaceState({}, document.title, url);
+};
 
 async function showAuthenticatedUser(user) {
   if (activeUserId === user.id || activatingUserId === user.id) return;
@@ -54,24 +78,54 @@ async function showAuthenticatedUser(user) {
   } finally { activatingUserId = undefined; }
 }
 
+async function handleAuthState(event, nextSession) {
+  if (event === 'PASSWORD_RECOVERY') {
+    recoveryMode = true;
+    authPanel.showRecovery();
+    clearRecoveryUrl();
+    return;
+  }
+  if (recoveryMode && event !== 'SIGNED_OUT') return;
+  if (event === 'SIGNED_OUT') {
+    activeUserId = undefined;
+    activatingUserId = undefined;
+    receiptUi.clearForLogout();
+    const message = recoveryCompleted ? 'Password updated. Sign in with your new password.' : '';
+    recoveryCompleted = false;
+    recoveryMode = false;
+    authPanel.show(message);
+    return;
+  }
+  if (nextSession?.user) await showAuthenticatedUser(nextSession.user);
+  else {
+    activeUserId = undefined;
+    activatingUserId = undefined;
+    receiptUi.clearForLogout();
+    authPanel.show();
+  }
+}
+
 authElements.logout.addEventListener('click', async () => {
   try { await logout(); } catch (error) { alert(`Could not sign out: ${error.message}`); }
 });
 
 async function start() {
+  renderApplicationIdentity([elements.authVersion, elements.appVersion], appMetadata);
+  themeController.restore();
   receiptUi.start();
   if (!isSupabaseConfigured()) {
     authPanel.show();
     authPanel.setMessage('Supabase configuration is required before sign-in can be used.');
     return;
   }
+  await onAuthStateChange((event, nextSession) => { void handleAuthState(event, nextSession); });
   const session = await getCurrentSession();
-  if (session?.user) await showAuthenticatedUser(session.user);
+  if (recoveryMode) {
+    const error = callbackError();
+    if (session?.user && !error) authPanel.showRecovery();
+    else { recoveryMode = false; authPanel.showRecoveryUnavailable(error || undefined); clearRecoveryUrl(); }
+  } else if (session?.user) await showAuthenticatedUser(session.user);
   else authPanel.show();
-  await onAuthStateChange(async (_event, nextSession) => {
-    if (nextSession?.user) await showAuthenticatedUser(nextSession.user);
-    else { activeUserId = undefined; activatingUserId = undefined; receiptUi.clearForLogout(); authPanel.show(); }
-  });
 }
 
 start().catch(error => { authPanel.show(); authPanel.setMessage(error.message || 'Could not start the application.'); });

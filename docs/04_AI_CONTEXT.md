@@ -148,7 +148,7 @@ Workflow Optimization
 
 Current milestone:
 
-Separate the application into two dedicated workspaces.
+Epic 2 Milestone 2.6 — Beta Hardening.
 
 ---
 
@@ -167,7 +167,7 @@ Features:
 - Create receipt
 - Edit receipt
 - OCR
-- Store autofill (future)
+- Store autocomplete
 - Delete receipt
 
 Design goal:
@@ -189,9 +189,9 @@ Features:
 - Target amount
 - Find Best Match
 - Compact receipt cards
-- Search (future)
-- Filters (future)
-- Export (future)
+- Search, filters, and sorting
+- Strategy selection
+- Export selected receipts, then mark them Consumed
 
 Design goal:
 
@@ -203,11 +203,9 @@ Maximum visibility.
 
 Highest Priority
 
-- Workflow separation
-- Floating Add Receipt button
-- Better receipt summary cards
-- Visual indication of optimized receipts
-- Scrollable receipt panel
+- Beta hardening
+- Authentication reliability
+- Deployment verification
 
 Medium Priority
 
@@ -217,7 +215,6 @@ Medium Priority
 
 Future Priority
 
-- Export templates
 - OCR improvements
 - Workflow assistance
 
@@ -351,6 +348,12 @@ This document exists so future AI sessions can immediately understand the projec
 Always preserve the project's philosophy:
 
 > Help users capture, organize, optimize, and export receipt information with the least amount of manual work while keeping users in control.
+
+## Beta Application Identity
+
+- Theme preference is browser-local: System, Light, or Dark.
+- Corporate blue/red are shell accents; Encoding remains green and Optimization remains purple.
+- `config/appMetadata.js` is the single source of the manually maintained tester-facing version. Use beta increments such as `2.6.0-beta.1` and `2.6.0-beta.2` for deployable test iterations.
 
 ---
 End of Document

@@ -238,3 +238,43 @@ Append new decisions below.
 Do not edit historical decisions.
 
 If a decision changes significantly, create a new decision that supersedes the previous one while preserving the project's history.
+
+---
+
+# Decision 008
+
+## Deployment-Aware Authentication Redirects
+
+**Status**
+
+Accepted
+
+### Decision
+
+Signup confirmation and password recovery redirects are derived from the current application URL and must be allowed in Supabase URL Configuration.
+
+### Reason
+
+FSResibo is tested on Synology and deployed on GitHub Pages. A single stale Site URL must not force users back to an obsolete deployment.
+
+### Consequences
+
+Password recovery is a dedicated Set New Password experience, not normal application entry. Supabase Dashboard redirect URLs and email templates must remain aligned with supported deployments.
+
+---
+
+# Decision 009
+
+## Functional Identity and Beta Verification
+
+**Status**
+
+Accepted
+
+### Decision
+
+FS Automation blue/red are restrained application-shell accents; Encoding stays green and Optimization stays purple. Theme preference is local to the browser, and a single manually maintained version identifier is visible before and after authentication.
+
+### Reason
+
+This supports company identity and reliable beta testing without weakening functional workspace cues or adding backend configuration.

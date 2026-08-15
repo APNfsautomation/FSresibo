@@ -8,15 +8,17 @@
     <link rel="stylesheet" href="auth.css" />
   </head>
   <body>
+    <label class="theme-control" for="themePreference">Theme<select id="themePreference"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
     <section class="auth-shell" id="authView" hidden>
       <div class="auth-card">
-        <p class="eyebrow">FSRESIBO</p>
+        <p class="eyebrow brand-mark">FSRESIBO</p>
         <h1>Welcome back.</h1>
         <p class="lede">Sign in to access your receipts.</p>
         <form id="loginForm" class="auth-form">
           <label>Email<input id="loginEmail" type="email" autocomplete="email" required /></label>
           <label>Password<input id="loginPassword" type="password" autocomplete="current-password" required /></label>
           <button class="primary" type="submit">Log in</button>
+          <button class="text-button" id="showReset" type="button">Forgot password?</button>
           <button class="text-button" id="showRegister" type="button">Create an account</button>
         </form>
         <form id="registerForm" class="auth-form" hidden>
@@ -26,19 +28,35 @@
           <button class="primary" type="submit">Register</button>
           <button class="text-button" id="showLogin" type="button">Back to login</button>
         </form>
+        <form id="resetForm" class="auth-form" hidden>
+          <h2>Reset password</h2>
+          <p class="auth-form-copy">Enter your email and we’ll send a reset link.</p>
+          <label>Email<input id="resetEmail" type="email" autocomplete="email" required /></label>
+          <button class="primary" type="submit">Send reset link</button>
+          <button class="text-button" id="backToLogin" type="button">Back to login</button>
+        </form>
+        <form id="recoveryForm" class="auth-form" hidden>
+          <h2>Set new password</h2>
+          <p class="auth-form-copy">Choose a new password for your FSResibo account.</p>
+          <label>New password<input id="recoveryPassword" type="password" autocomplete="new-password" minlength="6" required /></label>
+          <label>Confirm new password<input id="recoveryConfirmPassword" type="password" autocomplete="new-password" minlength="6" required /></label>
+          <button class="primary" type="submit">Save new password</button>
+          <button class="text-button" id="backFromRecovery" type="button">Request another reset link</button>
+        </form>
         <p id="authMessage" class="auth-message" aria-live="polite"></p>
+        <p class="application-version auth-version" id="authVersion"></p>
       </div>
     </section>
 
     <main class="app-shell" id="appView" hidden>
       <header class="app-header">
         <div>
-          <p class="eyebrow">FSRESIBO</p>
+          <p class="eyebrow brand-mark">FSRESIBO</p>
           <h1>Receipt workspace</h1>
           <p class="lede">Encode receipts quickly, then optimize the combination you need.</p>
         </div>
         <div class="header-actions">
-          <span class="user-email" id="userEmail"></span>
+          <div class="session-meta"><span class="user-email" id="userEmail"></span><span class="application-version app-version" id="appVersion"></span></div>
           <button class="ghost" id="logout" type="button">Log out</button>
         </div>
       </header>
