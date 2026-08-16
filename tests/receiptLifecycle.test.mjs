@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { availableOptimizerReceipts, buildOptimizationView, defaultOptimizationToolbarState, normalizeReceiptStatus } from '../ui/receiptUi.js';
+import { availableOptimizerReceipts, availableReceiptTotalCents, buildOptimizationView, defaultOptimizationToolbarState, normalizeReceiptStatus, receiptMatchesEncodingAmountCompartment } from '../ui/receiptUi.js';
 
 const entries = [
   { index: 0, receiptId: '1', date: '2026-07-01', amount: 50000, receipt: { store: 'Available Store', invoice: '', tin: '', address: '', status: 'available' } },
@@ -30,4 +30,16 @@ test('optimizer eligibility remains Available-only even when Consumed or All is 
     { index: 2, status: 'available', cents: 0 }
   ];
   assert.deepEqual(availableOptimizerReceipts(candidates).map(receipt => receipt.index), [0]);
+});
+
+test('Encoding amount compartments are display-only centavo-safe presets', () => {
+  assert.equal(receiptMatchesEncodingAmountCompartment(19950, 'below-200'), true);
+  assert.equal(receiptMatchesEncodingAmountCompartment(20000, '200-299'), true);
+  assert.equal(receiptMatchesEncodingAmountCompartment(29999, '200-299'), true);
+  assert.equal(receiptMatchesEncodingAmountCompartment(30000, '200-299'), false);
+  assert.equal(receiptMatchesEncodingAmountCompartment(100000, '1000-plus'), true);
+});
+
+test('Available Total includes the complete Available pool regardless of display filters', () => {
+  assert.equal(availableReceiptTotalCents([{ status: 'available', cents: 19950 }, { status: 'consumed', cents: 50000 }, { status: 'available', cents: 20000 }]), 39950);
 });

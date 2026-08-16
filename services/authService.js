@@ -13,6 +13,24 @@ export function authRedirectUrl(state, locationLike = globalThis.location) {
   return base.toString();
 }
 
+export function authCallbackParams(locationLike = globalThis.location) {
+  const current = new URL(locationLike.href);
+  const params = new URLSearchParams(current.search);
+  const fragment = current.hash.replace(/^#/, '');
+  if (fragment) new URLSearchParams(fragment).forEach((value, key) => params.append(key, value));
+  return params;
+}
+
+export const hasPasswordRecoveryIntent = (locationLike = globalThis.location) => {
+  const params = authCallbackParams(locationLike);
+  return params.get('auth') === 'recovery' || params.get('type') === 'recovery';
+};
+
+export const recoveryCallbackError = (locationLike = globalThis.location) => {
+  const params = authCallbackParams(locationLike);
+  return params.get('error_description') || params.get('error') || '';
+};
+
 export function createAuthActions(resolveClient) {
   return {
     async register(email, password, emailRedirectTo) {

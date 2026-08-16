@@ -10,6 +10,7 @@ The application is organized around user workflows rather than individual featur
 - Edit receipts
 - OCR
 - Store autocomplete
+- Display-only amount-compartment filter and complete Available Total workflow metric
 
 ## Workspace 2 – Receipt Optimization
 - Target amount
@@ -18,6 +19,7 @@ The application is organized around user workflows rather than individual featur
 - Search, filters, and sorting
 - Strategy options
 - Export selected receipts and receipt lifecycle
+- XLSX staging export preserves the official Expense Detailed Report A:O mapping, including a grouped Supplier Details / Name / Address header
 
 ## UI Direction
 Only the receipt list scrolls.
@@ -27,7 +29,7 @@ Selected receipts should always be visually highlighted.
 
 ## Application Shell
 
-- Supabase Auth supports login, confirmation redirects, password recovery, and normal session persistence.
+- Supabase Auth supports login, confirmation redirects, password recovery, and normal session persistence. Recovery-intent links without a valid recovery session stay in a recovery-specific expired/invalid state instead of opening a normal session.
 - Theme preference is browser-local (System, Light, Dark); it is not persisted in Supabase.
 - A single source-code application version is rendered before and after authentication for beta deployment verification.
 - FS Automation blue/red are restrained shell accents. Encoding remains green and Optimization remains purple.

@@ -1,6 +1,6 @@
 import { isSupabaseConfigured, supabaseConfig } from './config/supabase.js';
 import { appMetadata } from './config/appMetadata.js';
-import { authRedirectUrl, getCurrentSession, login, logout, onAuthStateChange, register, requestPasswordReset, updatePassword } from './services/authService.js';
+import { authRedirectUrl, getCurrentSession, hasPasswordRecoveryIntent, login, logout, onAuthStateChange, recoveryCallbackError, register, requestPasswordReset, updatePassword } from './services/authService.js';
 import { scanPrintedDetails } from './services/ocrService.js';
 import { downloadSelectedReceipts } from './services/exportService.js';
 import { findBest, optimizationStrategies, toCents } from './services/optimizationService.js';
@@ -13,7 +13,7 @@ import { createThemeController } from './ui/themeController.js';
 const elements = {
   list: document.querySelector('#receiptList'), template: document.querySelector('#receiptTemplate'), target: document.querySelector('#targetAmount'),
   calculate: document.querySelector('#calculate'), optimizationStrategy: document.querySelector('#optimizationStrategy'), optimizationStrategyHelper: document.querySelector('#optimizationStrategyHelper'), saveDraft: document.querySelector('#saveDraft'),
-  clearAll: document.querySelector('#clearAll'), receiptCount: document.querySelector('#receiptCount'), receiptStatusFilter: document.querySelector('#receiptStatusFilter'), resultTitle: document.querySelector('#resultTitle'),
+  clearAll: document.querySelector('#clearAll'), receiptCount: document.querySelector('#receiptCount'), receiptStatusFilter: document.querySelector('#receiptStatusFilter'), encodingAmountCompartment: document.querySelector('#encodingAmountCompartment'), availableTotal: document.querySelector('#availableTotal'), resultTitle: document.querySelector('#resultTitle'),
   resultAmount: document.querySelector('#resultAmount'), difference: document.querySelector('#difference'), keptReceipts: document.querySelector('#keptReceipts'),
   optimizationResultSummary: document.querySelector('#optimizationResultSummary'), summaryTarget: document.querySelector('#summaryTarget'), summaryMatched: document.querySelector('#summaryMatched'), summaryDifference: document.querySelector('#summaryDifference'), summaryReceiptCount: document.querySelector('#summaryReceiptCount'), summaryStrategy: document.querySelector('#summaryStrategy'),
   adminContent: document.querySelector('#adminContent'), encodingWorkspace: document.querySelector('#encodingWorkspace'), optimizationWorkspace: document.querySelector('#optimizationWorkspace'),
@@ -52,16 +52,12 @@ const authPanel = createAuthPanel(authElements, {
 });
 let activeUserId;
 let activatingUserId;
-let recoveryMode = new URLSearchParams(window.location.search).get('auth') === 'recovery';
+let recoveryMode = hasPasswordRecoveryIntent();
+let recoverySessionEstablished = false;
 let recoveryCompleted = false;
-
-const callbackError = () => {
-  const params = new URLSearchParams(`${window.location.search.slice(1)}&${window.location.hash.slice(1)}`);
-  return params.get('error_description') || params.get('error') || '';
-};
 const clearRecoveryUrl = () => {
   const url = new URL(window.location.href);
-  url.searchParams.delete('auth');
+  ['auth', 'type', 'error', 'error_code', 'error_description'].forEach(parameter => url.searchParams.delete(parameter));
   url.hash = '';
   window.history.replaceState({}, document.title, url);
 };
@@ -81,7 +77,9 @@ async function showAuthenticatedUser(user) {
 async function handleAuthState(event, nextSession) {
   if (event === 'PASSWORD_RECOVERY') {
     recoveryMode = true;
-    authPanel.showRecovery();
+    recoverySessionEstablished = Boolean(nextSession?.user);
+    if (recoverySessionEstablished) authPanel.showRecovery();
+    else authPanel.showRecoveryUnavailable(recoveryCallbackError() || undefined);
     clearRecoveryUrl();
     return;
   }
@@ -93,6 +91,7 @@ async function handleAuthState(event, nextSession) {
     const message = recoveryCompleted ? 'Password updated. Sign in with your new password.' : '';
     recoveryCompleted = false;
     recoveryMode = false;
+    recoverySessionEstablished = false;
     authPanel.show(message);
     return;
   }
@@ -121,9 +120,10 @@ async function start() {
   await onAuthStateChange((event, nextSession) => { void handleAuthState(event, nextSession); });
   const session = await getCurrentSession();
   if (recoveryMode) {
-    const error = callbackError();
-    if (session?.user && !error) authPanel.showRecovery();
-    else { recoveryMode = false; authPanel.showRecoveryUnavailable(error || undefined); clearRecoveryUrl(); }
+    await new Promise(resolve => window.setTimeout(resolve, 0));
+    const error = recoveryCallbackError();
+    if (recoverySessionEstablished) authPanel.showRecovery();
+    else { authPanel.showRecoveryUnavailable(error || undefined); clearRecoveryUrl(); }
   } else if (session?.user) await showAuthenticatedUser(session.user);
   else authPanel.show();
 }

@@ -34,6 +34,26 @@ export const defaultOptimizationToolbarState = () => ({ search: '', store: '', s
 export const normalizeOptimizationText = value => String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
 export const readableOptimizationText = value => String(value || '').trim().replace(/\s+/g, ' ');
 export const normalizeReceiptStatus = value => value === 'consumed' ? 'consumed' : 'available';
+export const encodingAmountCompartments = Object.freeze([
+  { value: 'all', label: 'All amounts' },
+  { value: 'below-200', label: 'Below ₱200' },
+  ...[200, 300, 400, 500, 600, 700, 800, 900].map(lower => ({ value: `${lower}-${lower + 99}`, label: `₱${lower}–${lower + 99}` })),
+  { value: '1000-plus', label: '₱1,000+' }
+]);
+const encodingAmountCompartmentValues = new Set(encodingAmountCompartments.map(({ value }) => value));
+export const normalizeEncodingAmountCompartment = value => encodingAmountCompartmentValues.has(value) ? value : 'all';
+export const receiptMatchesEncodingAmountCompartment = (cents, compartment) => {
+  const amount = Number(cents);
+  if (!Number.isFinite(amount)) return false;
+  const normalized = normalizeEncodingAmountCompartment(compartment);
+  if (normalized === 'all') return true;
+  if (normalized === 'below-200') return amount < 20000;
+  if (normalized === '1000-plus') return amount >= 100000;
+  const [lower] = normalized.split('-').map(Number);
+  return amount >= lower * 100 && amount < (lower + 100) * 100;
+};
+export const availableReceiptTotalCents = receipts => receipts.reduce((total, receipt) =>
+  normalizeReceiptStatus(receipt.status) === 'available' && Number.isFinite(Number(receipt.cents)) ? total + Number(receipt.cents) : total, 0);
 export const normalizeStoreText = normalizeOptimizationText;
 const storeProfileIdentity = receipt => ({
   store: normalizeStoreText(receipt.store),
@@ -173,6 +193,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   let selectedReceiptIndexes = new Set();
   let selectedReceiptIds = [];
   let toolbarState = defaultOptimizationToolbarState();
+  let encodingDisplayState = { compartment: 'all' };
   let searchDebounce;
   let storeSourceReceipts = [];
   let storeProfiles = [];
@@ -201,6 +222,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   const clearSelection = () => { selectedReceiptIndexes = new Set(); selectedReceiptIds = []; updateExportAction(); };
   const workspaceStorageKey = () => currentUser?.id ? `fsresibo-workspace-${currentUser.id}` : null;
   const toolbarStorageKey = () => currentUser?.id ? `fsresibo-optimization-toolbar-${currentUser.id}` : null;
+  const encodingDisplayStorageKey = () => currentUser?.id ? `fsresibo-encoding-display-${currentUser.id}` : null;
   const strategyStorageKey = () => currentUser?.id ? `fsresibo-optimization-strategy-${currentUser.id}` : null;
   const { getActiveStrategy, setActiveStrategy, restoreActiveStrategy } = createOptimizationStrategyState({ select: elements.optimizationStrategy, helper: elements.optimizationStrategyHelper, optimizationStrategies, storage: sessionStorage, storageKey: strategyStorageKey });
   const hasActiveToolbarState = state => Object.entries(defaultOptimizationToolbarState()).some(([key, value]) => state[key] !== value);
@@ -240,6 +262,23 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       if (stored && typeof stored === 'object') toolbarState = { ...toolbarState, ...Object.fromEntries(Object.keys(toolbarState).map(keyName => [keyName, typeof stored[keyName] === 'string' ? stored[keyName] : toolbarState[keyName]])) };
     } catch { /* Ignore unavailable or malformed browser-session state. */ }
   };
+  const persistEncodingDisplayState = () => {
+    const key = encodingDisplayStorageKey();
+    if (!key) return;
+    try {
+      if (encodingDisplayState.compartment === 'all') sessionStorage.removeItem(key);
+      else sessionStorage.setItem(key, JSON.stringify(encodingDisplayState));
+    } catch { /* Session storage can be unavailable in private browser contexts. */ }
+  };
+  const restoreEncodingDisplayState = () => {
+    encodingDisplayState = { compartment: 'all' };
+    const key = encodingDisplayStorageKey();
+    if (key) try {
+      const stored = JSON.parse(sessionStorage.getItem(key));
+      encodingDisplayState.compartment = normalizeEncodingAmountCompartment(stored?.compartment);
+    } catch { /* Ignore unavailable or malformed browser-session state. */ }
+    elements.encodingAmountCompartment.value = encodingDisplayState.compartment;
+  };
   const updateResultSummary = ({ target, matched = null, difference = null, receiptCount = 0, strategy = getActiveStrategy() } = {}) => {
     const details = optimizationStrategyDetails[strategy];
     elements.optimizationResultSummary.hidden = target === undefined;
@@ -271,7 +310,13 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     elements.exportSelected.textContent = `Export Selected (${count})`;
   };
   const refreshEncodingCards = () => {
-    [...elements.list.children].forEach(row => { row.hidden = toolbarState.status !== 'all' && receiptStatus(row) !== toolbarState.status; });
+    [...elements.list.children].forEach(row => {
+      const matchesStatus = toolbarState.status === 'all' || receiptStatus(row) === toolbarState.status;
+      const matchesCompartment = receiptMatchesEncodingAmountCompartment(toCents(row.querySelector('.receipt-amount').value), encodingDisplayState.compartment);
+      row.hidden = !matchesStatus || !matchesCompartment;
+    });
+    const total = availableReceiptTotalCents(storeSourceReceipts.map(receipt => ({ status: receipt.status, cents: toCents(receipt.amount) })));
+    elements.availableTotal.textContent = `Available Total — ${format(total)}`;
   };
   const applyReceiptStatusState = row => {
     const consumed = receiptStatus(row) === 'consumed';
@@ -493,7 +538,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     installStoreAutocomplete(row);
     const storeInput = row.querySelector('.receipt-store');
     row.querySelectorAll('input, select').forEach(field => {
-      const refreshView = () => { refreshSummary(row); clearSelection(); refreshOptimizationCards(); };
+      const refreshView = () => { refreshSummary(row); clearSelection(); refreshEncodingCards(); refreshOptimizationCards(); };
       field.addEventListener('input', field === storeInput ? () => refreshSummary(row) : refreshView);
       field.addEventListener('change', refreshView);
     });
@@ -527,6 +572,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
         if (saved.updatedAt) row.dataset.receiptUpdatedAt = saved.updatedAt;
         upsertStoreSourceReceipt(saved);
       }
+      refreshEncodingCards();
+      refreshOptimizationCards();
       alert('Receipt changes saved.');
     } catch (error) { alert(`Could not save receipt changes: ${error.message}`); }
   };
@@ -652,6 +699,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     Object.entries(values).forEach(([key, value]) => { row.querySelector(`.receipt-${key}`).value = value; });
     refreshSummary(row);
     closeEditModal();
+    refreshEncodingCards();
     refreshOptimizationCards();
   };
   const applyToolbarChange = () => {
@@ -680,12 +728,13 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       refreshReceiptIds();
       restoreToolbarState();
       syncToolbarControls();
+      restoreEncodingDisplayState();
       refreshEncodingCards();
       restoreActiveStrategy();
       showEmpty();
       setWorkspace((() => { try { return sessionStorage.getItem(workspaceStorageKey()) || 'encoding'; } catch { return 'encoding'; } })(), false);
     },
-    clearForLogout() { currentUser = undefined; toolbarState = defaultOptimizationToolbarState(); storeSourceReceipts = []; rebuildStoreProfiles(); syncToolbarControls(); setActiveStrategy(optimizationStrategies.closest, { persist: false }); elements.list.replaceChildren(); elements.target.value = ''; clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); closeEditModal(); closeExportConfirmation(); },
+    clearForLogout() { currentUser = undefined; toolbarState = defaultOptimizationToolbarState(); encodingDisplayState = { compartment: 'all' }; storeSourceReceipts = []; rebuildStoreProfiles(); syncToolbarControls(); elements.encodingAmountCompartment.value = 'all'; setActiveStrategy(optimizationStrategies.closest, { persist: false }); elements.list.replaceChildren(); elements.target.value = ''; clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); closeEditModal(); closeExportConfirmation(); },
     importLegacyDraft,
     start() {
       elements.calculate.addEventListener('click', calculate);
@@ -714,6 +763,11 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       elements.clearOptimizationSearch.addEventListener('click', () => { clearTimeout(searchDebounce); elements.optimizationSearch.value = ''; applyToolbarChange(); elements.optimizationSearch.focus(); });
       elements.clearOptimizationFilters.addEventListener('click', clearFilters);
       elements.receiptStatusFilter.addEventListener('change', applyToolbarChange);
+      elements.encodingAmountCompartment.addEventListener('change', () => {
+        encodingDisplayState.compartment = normalizeEncodingAmountCompartment(elements.encodingAmountCompartment.value);
+        persistEncodingDisplayState();
+        refreshEncodingCards();
+      });
       document.addEventListener('keydown', event => { if (event.key === 'Escape' && !elements.editModal.hidden) closeEditModal(); else if (event.key === 'Escape' && !elements.exportConfirmModal.hidden) closeExportConfirmation(); });
       refreshReceiptIds();
       setActiveStrategy(getActiveStrategy(), { persist: false });

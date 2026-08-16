@@ -261,6 +261,8 @@ FSResibo is tested on Synology and deployed on GitHub Pages. A single stale Site
 
 Password recovery is a dedicated Set New Password experience, not normal application entry. Supabase Dashboard redirect URLs and email templates must remain aligned with supported deployments.
 
+Recovery-intent callback URLs are recognized from their query or fragment before normal session bootstrap. An expired, invalid, or already-used recovery link therefore keeps the user in the recovery flow with a path to request a new email, even when another user session is present in the browser.
+
 ---
 
 # Decision 009
@@ -278,3 +280,5 @@ FS Automation blue/red are restrained application-shell accents; Encoding stays 
 ### Reason
 
 This supports company identity and reliable beta testing without weakening functional workspace cues or adding backend configuration.
+
+The manually maintained beta identifier advances to `2.6.0-beta.2` for the contained recovery, usability, and export-header test iteration.

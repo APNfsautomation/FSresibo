@@ -30,7 +30,7 @@ Workflow Optimization
 - Auto-mark Consumed
 
 ### Milestone 2.6
-- Beta hardening: authentication recovery, deployment-aware redirects, theme support, restrained company accents, and visible build version
+- Beta hardening: authentication recovery, deployment-aware redirects, theme support, restrained company accents, visible build version, Encoding amount compartments, Available Total, and official-style staging workbook headers
 
 ## Future
 - Company-wide Shared Store Directory: cross-user Store Name, Address, TIN, and VAT Status reuse with admin correction, duplicate/profile management, and deactivation of obsolete stores.

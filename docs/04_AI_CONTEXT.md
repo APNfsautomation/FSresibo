@@ -168,6 +168,7 @@ Features:
 - Edit receipt
 - OCR
 - Store autocomplete
+- Display-only amount-compartment filter and complete Available Total workflow metric
 - Delete receipt
 
 Design goal:

@@ -5,6 +5,13 @@ export const expenseDetailedReportHeaders = Object.freeze([
   'TIN Number', 'Invoice No.', 'Amount', 'Expense Account', 'Classification of Expense',
   'Additional Classification', 'Customer Name', 'Customer PO#', 'Notes for Accounting', 'Item Description (FOR COGS)'
 ]);
+const expenseDetailedReportHeaderRows = Object.freeze([
+  ['Item No.', 'Receipt Date', 'Supplier Details', '', 'VAT Status / Indicator', 'TIN Number', 'Invoice No.', 'Amount', 'Expense Account', 'Classification of Expense', 'Additional Classification', 'Customer Name', 'Customer PO#', 'Notes for Accounting', 'Item Description (FOR COGS)'],
+  ['', '', 'Name', 'Address', '', '', '', '', '', '', '', '', '', '', '']
+]);
+const expenseDetailedReportHeaderMerges = Object.freeze([
+  'A1:A2', 'B1:B2', 'C1:D1', 'E1:E2', 'F1:F2', 'G1:G2', 'H1:H2', 'I1:I2', 'J1:J2', 'K1:K2', 'L1:L2', 'M1:M2', 'N1:N2', 'O1:O2'
+]);
 
 const spreadsheetDate = value => {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
@@ -20,7 +27,7 @@ const numericAmount = value => {
 };
 
 export const buildExpenseDetailedReportRows = receipts => [
-  expenseDetailedReportHeaders,
+  ...expenseDetailedReportHeaderRows,
   ...receipts.map((receipt, index) => [
     index + 1, spreadsheetDate(receipt.receiptDate), receipt.store || '', receipt.address || '', receipt.vat || '', receipt.tin || '', receipt.invoice || '', numericAmount(receipt.amount),
     '', '', '', '', '', '', ''
@@ -30,9 +37,10 @@ export const buildExpenseDetailedReportRows = receipts => [
 export function createSelectedReceiptsWorkbook(receipts, xlsx = { utils }) {
   const worksheet = xlsx.utils.aoa_to_sheet(buildExpenseDetailedReportRows(receipts), { cellDates: true });
   receipts.forEach((receipt, index) => {
-    const cell = worksheet[`B${index + 2}`];
+    const cell = worksheet[`B${index + 3}`];
     if (cell?.v instanceof Date) cell.z = 'd-mmm';
   });
+  worksheet['!merges'] = expenseDetailedReportHeaderMerges.map(range => xlsx.utils.decode_range(range));
   worksheet['!cols'] = [
     { wch: 10 }, { wch: 13 }, { wch: 30 }, { wch: 42 }, { wch: 18 }, { wch: 20 }, { wch: 20 }, { wch: 14 },
     { wch: 20 }, { wch: 26 }, { wch: 26 }, { wch: 24 }, { wch: 18 }, { wch: 28 }, { wch: 30 }
