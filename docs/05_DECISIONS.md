@@ -281,4 +281,4 @@ FS Automation blue/red are restrained application-shell accents; Encoding stays 
 
 This supports company identity and reliable beta testing without weakening functional workspace cues or adding backend configuration.
 
-The manually maintained beta identifier advances to `2.6.0-beta.2` for the contained recovery, usability, and export-header test iteration.
+The manually maintained beta identifier advances to `2.6.0-beta.3` for the final contained theme-surface and physical receipt-grouping test iteration.

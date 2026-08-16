@@ -169,6 +169,7 @@ Features:
 - OCR
 - Store autocomplete
 - Display-only amount-compartment filter and complete Available Total workflow metric
+- Selected optimizer recommendations grouped by the same physical amount compartments without changing optimization or export behavior
 - Delete receipt
 
 Design goal:
@@ -354,7 +355,7 @@ Always preserve the project's philosophy:
 
 - Theme preference is browser-local: System, Light, or Dark.
 - Corporate blue/red are shell accents; Encoding remains green and Optimization remains purple.
-- `config/appMetadata.js` is the single source of the manually maintained tester-facing version. Use beta increments such as `2.6.0-beta.1` and `2.6.0-beta.2` for deployable test iterations.
+- `config/appMetadata.js` is the single source of the manually maintained tester-facing version. Use beta increments such as `2.6.0-beta.2` and `2.6.0-beta.3` for deployable test iterations.
 
 ---
 End of Document

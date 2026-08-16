@@ -32,13 +32,15 @@ test('both version targets render from the one application metadata value', () =
   const authVersion = { textContent: '' };
   const appVersion = { textContent: '' };
   const label = renderApplicationIdentity([authVersion, appVersion], appMetadata);
-  assert.equal(label, 'FSResibo v2.6.0-beta.2');
+  assert.equal(label, 'FSResibo v2.6.0-beta.3');
   assert.equal(authVersion.textContent, label);
   assert.equal(appVersion.textContent, label);
 });
 
-test('native selects request a matching browser color scheme and dark option fallback', async () => {
+test('semantic surface tokens cover dark native selects and optimization result cards', async () => {
   const styles = await readFile(new URL('../styles.css', import.meta.url), 'utf8');
   assert.match(styles, /html\[data-theme="dark"\] select\{color-scheme:dark\}/);
-  assert.match(styles, /html\[data-theme="dark"\] select option,html\[data-theme="dark"\] select optgroup\{background-color:var\(--control\);color:var\(--text\)\}/);
+  assert.match(styles, /--optimization-surface:#202c3a/);
+  assert.match(styles, /\.receipt-status-filter select,[^\n]*background:var\(--control\)/);
+  assert.match(styles, /\.optimization-toolbar,\.optimization-result-summary div\{background:var\(--optimization-surface\)/);
 });

@@ -35,23 +35,23 @@ export const normalizeOptimizationText = value => String(value || '').trim().rep
 export const readableOptimizationText = value => String(value || '').trim().replace(/\s+/g, ' ');
 export const normalizeReceiptStatus = value => value === 'consumed' ? 'consumed' : 'available';
 export const encodingAmountCompartments = Object.freeze([
-  { value: 'all', label: 'All amounts' },
-  { value: 'below-200', label: 'Below ₱200' },
-  ...[200, 300, 400, 500, 600, 700, 800, 900].map(lower => ({ value: `${lower}-${lower + 99}`, label: `₱${lower}–${lower + 99}` })),
-  { value: '1000-plus', label: '₱1,000+' }
+  { value: 'all', label: 'All amounts', minimumCents: -Infinity, maximumCents: Infinity },
+  { value: 'below-200', label: 'Below ₱200', minimumCents: -Infinity, maximumCents: 20000 },
+  ...[200, 300, 400, 500, 600, 700, 800, 900].map(lower => ({ value: `${lower}-${lower + 99}`, label: `₱${lower}–${lower + 99}`, minimumCents: lower * 100, maximumCents: (lower + 100) * 100 })),
+  { value: '1000-plus', label: '₱1,000+', minimumCents: 100000, maximumCents: Infinity }
 ]);
 const encodingAmountCompartmentValues = new Set(encodingAmountCompartments.map(({ value }) => value));
 export const normalizeEncodingAmountCompartment = value => encodingAmountCompartmentValues.has(value) ? value : 'all';
-export const receiptMatchesEncodingAmountCompartment = (cents, compartment) => {
+export const amountCompartmentForCents = cents => {
   const amount = Number(cents);
-  if (!Number.isFinite(amount)) return false;
-  const normalized = normalizeEncodingAmountCompartment(compartment);
-  if (normalized === 'all') return true;
-  if (normalized === 'below-200') return amount < 20000;
-  if (normalized === '1000-plus') return amount >= 100000;
-  const [lower] = normalized.split('-').map(Number);
-  return amount >= lower * 100 && amount < (lower + 100) * 100;
+  if (!Number.isFinite(amount)) return null;
+  return encodingAmountCompartments.find(compartment => compartment.value !== 'all' && amount >= compartment.minimumCents && amount < compartment.maximumCents) || null;
 };
+export const receiptMatchesEncodingAmountCompartment = (cents, compartment) => normalizeEncodingAmountCompartment(compartment) === 'all' || amountCompartmentForCents(cents)?.value === compartment;
+export const groupSelectedReceiptsByCompartment = receipts => encodingAmountCompartments
+  .filter(compartment => compartment.value !== 'all')
+  .map(compartment => ({ ...compartment, receipts: receipts.filter(receipt => amountCompartmentForCents(receipt.cents)?.value === compartment.value) }))
+  .filter(group => group.receipts.length);
 export const availableReceiptTotalCents = receipts => receipts.reduce((total, receipt) =>
   normalizeReceiptStatus(receipt.status) === 'available' && Number.isFinite(Number(receipt.cents)) ? total + Number(receipt.cents) : total, 0);
 export const normalizeStoreText = normalizeOptimizationText;
@@ -278,6 +278,11 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       encodingDisplayState.compartment = normalizeEncodingAmountCompartment(stored?.compartment);
     } catch { /* Ignore unavailable or malformed browser-session state. */ }
     elements.encodingAmountCompartment.value = encodingDisplayState.compartment;
+  };
+  const renderEncodingAmountCompartmentOptions = () => {
+    const selected = normalizeEncodingAmountCompartment(elements.encodingAmountCompartment.value);
+    elements.encodingAmountCompartment.replaceChildren(...encodingAmountCompartments.map(compartment => new Option(compartment.label, compartment.value)));
+    elements.encodingAmountCompartment.value = selected;
   };
   const updateResultSummary = ({ target, matched = null, difference = null, receiptCount = 0, strategy = getActiveStrategy() } = {}) => {
     const details = optimizationStrategyDetails[strategy];
@@ -579,7 +584,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   };
   const calculate = () => {
     const targetCents = toCents(elements.target.value);
-    const receipts = availableOptimizerReceipts([...elements.list.children].map((row, index) => ({ index, dbId: row.dataset.receiptDbId, label: `Receipt ${row.dataset.receiptId}`, cents: toCents(row.querySelector('.receipt-amount').value), status: receiptStatus(row) })));
+    const receipts = availableOptimizerReceipts([...elements.list.children].map((row, index) => ({ index, dbId: row.dataset.receiptDbId, label: `Receipt ${row.dataset.receiptId}`, cents: toCents(row.querySelector('.receipt-amount').value), status: receiptStatus(row), ...rowValues(row) })));
     if (!targetCents || !receipts.length) { clearSelection(); refreshOptimizationCards(); showEmpty(); return; }
     try {
       const strategy = setActiveStrategy(getActiveStrategy());
@@ -603,9 +608,32 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       elements.resultAmount.textContent = format(best.total);
       elements.difference.textContent = difference === 0 ? 'This selection matches your requested amount exactly.' : `${difference > 0 ? 'Over' : 'Under'} by ${format(Math.abs(difference))}.`;
       updateResultSummary({ target: targetCents, matched: best.total, difference, receiptCount: chosen.length, strategy });
-      const chips = document.createDocumentFragment();
-      chosen.forEach(receipt => { const chip = document.createElement('span'); chip.className = 'chip'; chip.textContent = `${receipt.label} · ${format(receipt.cents)}`; chips.append(chip); });
-      elements.keptReceipts.replaceChildren(chips);
+      const groupedReceipts = document.createDocumentFragment();
+      groupSelectedReceiptsByCompartment(chosen).forEach(group => {
+        const section = document.createElement('section');
+        section.className = 'selected-compartment-group';
+        const heading = document.createElement('h4');
+        heading.textContent = group.label;
+        const receipts = document.createElement('div');
+        receipts.className = 'selected-compartment-receipts';
+        group.receipts.forEach(receipt => {
+          const item = document.createElement('div');
+          item.className = 'selected-compartment-receipt';
+          const title = document.createElement('strong');
+          title.textContent = `${receipt.label} · ${format(receipt.cents)}`;
+          item.append(title);
+          const identity = [receipt.store?.trim(), receipt.invoice?.trim() && `Invoice ${receipt.invoice.trim()}`, calendarReceiptDate(receipt.receiptDate) && formatDate(receipt.receiptDate)].filter(Boolean);
+          if (identity.length) {
+            const details = document.createElement('span');
+            details.textContent = identity.join(' · ');
+            item.append(details);
+          }
+          receipts.append(item);
+        });
+        section.append(heading, receipts);
+        groupedReceipts.append(section);
+      });
+      elements.keptReceipts.replaceChildren(groupedReceipts);
       elements.adminContent.replaceChildren();
       const details = document.createElement('p');
       details.innerHTML = `<strong>Selection:</strong> ${chosen.map(receipt => receipt.label).join(' + ')} = <strong>${format(best.total)}</strong>`;
@@ -737,6 +765,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     clearForLogout() { currentUser = undefined; toolbarState = defaultOptimizationToolbarState(); encodingDisplayState = { compartment: 'all' }; storeSourceReceipts = []; rebuildStoreProfiles(); syncToolbarControls(); elements.encodingAmountCompartment.value = 'all'; setActiveStrategy(optimizationStrategies.closest, { persist: false }); elements.list.replaceChildren(); elements.target.value = ''; clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); closeEditModal(); closeExportConfirmation(); },
     importLegacyDraft,
     start() {
+      renderEncodingAmountCompartmentOptions();
       elements.calculate.addEventListener('click', calculate);
       elements.exportSelected.addEventListener('click', openExportConfirmation);
       elements.confirmExport.addEventListener('click', exportAndConsume);

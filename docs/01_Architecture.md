@@ -20,6 +20,7 @@ The application is organized around user workflows rather than individual featur
 - Strategy options
 - Export selected receipts and receipt lifecycle
 - XLSX staging export preserves the official Expense Detailed Report A:O mapping, including a grouped Supplier Details / Name / Address header
+- Selected optimizer recommendations are grouped by the same display-only physical amount compartments used in Encoding; this never alters optimizer or export order.
 
 ## UI Direction
 Only the receipt list scrolls.
