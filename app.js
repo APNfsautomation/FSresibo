@@ -7,6 +7,7 @@ import { findBest, optimizationStrategies, toCents } from './services/optimizati
 import * as receiptService from './services/receiptService.js';
 import { renderApplicationIdentity } from './ui/appIdentity.js';
 import { createAuthPanel } from './ui/authPanel.js';
+import { createConfirmationDialog } from './ui/confirmationDialog.js';
 import { createReceiptUi } from './ui/receiptUi.js';
 import { createThemeController } from './ui/themeController.js';
 
@@ -29,6 +30,8 @@ const elements = {
   editReceiptDate: document.querySelector('#editReceiptDate'), editVat: document.querySelector('#editVat'), editInvoice: document.querySelector('#editInvoice'),
   editStore: document.querySelector('#editStore'), editAddress: document.querySelector('#editAddress'), editTin: document.querySelector('#editTin'),
   exportConfirmModal: document.querySelector('#exportConfirmModal'), exportConfirmBackdrop: document.querySelector('#exportConfirmBackdrop'), exportConfirmMessage: document.querySelector('#exportConfirmMessage'), confirmExport: document.querySelector('#confirmExport'), cancelExport: document.querySelector('#cancelExport'),
+  confirmationModal: document.querySelector('#confirmationModal'), confirmationBackdrop: document.querySelector('#confirmationBackdrop'), confirmationTitle: document.querySelector('#confirmationTitle'), confirmationMessage: document.querySelector('#confirmationMessage'), confirmationConfirm: document.querySelector('#confirmationConfirm'), confirmationCancel: document.querySelector('#confirmationCancel'),
+  encodingFeedback: document.querySelector('#encodingFeedback'), editFeedback: document.querySelector('#editFeedback'), sessionFeedback: document.querySelector('#sessionFeedback'),
   themePreference: document.querySelector('#themePreference'), authVersion: document.querySelector('#authVersion'), appVersion: document.querySelector('#appVersion')
 };
 
@@ -42,7 +45,8 @@ const authElements = {
 };
 
 void supabaseConfig;
-const receiptUi = createReceiptUi({ elements, findBest, optimizationStrategies, toCents, scanPrintedDetails, downloadSelectedReceipts, receiptService });
+const confirmationDialog = createConfirmationDialog({ modal: elements.confirmationModal, backdrop: elements.confirmationBackdrop, title: elements.confirmationTitle, message: elements.confirmationMessage, confirmButton: elements.confirmationConfirm, cancelButton: elements.confirmationCancel });
+const receiptUi = createReceiptUi({ elements, findBest, optimizationStrategies, toCents, scanPrintedDetails, downloadSelectedReceipts, receiptService, confirmAction: confirmationDialog.confirm });
 const themeController = createThemeController({ select: elements.themePreference });
 const authPanel = createAuthPanel(authElements, {
   onLogin: login,
@@ -105,7 +109,7 @@ async function handleAuthState(event, nextSession) {
 }
 
 authElements.logout.addEventListener('click', async () => {
-  try { await logout(); } catch (error) { alert(`Could not sign out: ${error.message}`); }
+  try { await logout(); } catch (error) { elements.sessionFeedback.textContent = `Could not sign out: ${error.message}`; }
 });
 
 async function start() {

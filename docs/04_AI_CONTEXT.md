@@ -355,7 +355,8 @@ Always preserve the project's philosophy:
 
 - Theme preference is browser-local: System, Light, or Dark.
 - Corporate blue/red are shell accents; Encoding remains green and Optimization remains purple.
-- `config/appMetadata.js` is the single source of the manually maintained tester-facing version. Use beta increments such as `2.6.0-beta.2` and `2.6.0-beta.3` for deployable test iterations.
+- `config/appMetadata.js` is the single source of the manually maintained tester-facing version. Use beta increments such as `2.6.0-beta.2`, `2.6.0-beta.3`, and `2.6.0-beta.4` for deployable test iterations.
+- Core receipt actions use the shared in-app confirmation dialog instead of browser-native prompts, which can be suppressed by browser anti-abuse controls. Informational workflow feedback remains inline and non-blocking.
 
 ---
 End of Document

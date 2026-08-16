@@ -56,7 +56,7 @@
           <p class="lede">Encode receipts quickly, then optimize the combination you need.</p>
         </div>
         <div class="header-actions">
-          <div class="session-meta"><span class="user-email" id="userEmail"></span><span class="application-version app-version" id="appVersion"></span></div>
+          <div class="session-meta"><span class="user-email" id="userEmail"></span><span class="application-version app-version" id="appVersion"></span><span class="session-feedback" id="sessionFeedback" role="status"></span></div>
           <button class="ghost" id="logout" type="button">Log out</button>
         </div>
       </header>
@@ -81,6 +81,7 @@
           <button class="primary action-save" id="saveDraft" type="button">Save changes</button>
           <button class="ghost danger" id="clearAll" type="button">Clear form</button>
         </div>
+        <p class="workflow-feedback" id="encodingFeedback" role="status" aria-live="polite"></p>
         <button class="floating-add" id="floatingAddReceipt" type="button" aria-label="Add a receipt">+ <span>Add Receipt</span></button>
       </section>
 
@@ -162,6 +163,7 @@
           <label class="wide">Store name<input id="editStore" placeholder="Store or business name" /></label>
           <label class="wide">Store address<input id="editAddress" placeholder="Store address" /></label>
           <label>Store TIN<input id="editTin" placeholder="000-000-000-000" /></label>
+          <p class="workflow-feedback" id="editFeedback" role="status" aria-live="polite"></p>
           <div class="modal-actions"><button class="primary" type="submit">Save correction</button><button class="ghost" id="cancelEditModal" type="button">Cancel</button></div>
         </form>
       </div>
@@ -208,6 +210,10 @@
     <section class="edit-modal" id="exportConfirmModal" role="dialog" aria-modal="true" aria-labelledby="exportConfirmTitle" hidden>
       <div class="modal-backdrop" id="exportConfirmBackdrop"></div>
       <div class="modal-card export-confirm-card"><p class="eyebrow">EXPORT SELECTED</p><h2 id="exportConfirmTitle">Export selected receipts?</h2><p id="exportConfirmMessage">After the export is prepared, these receipts will be marked as Consumed and excluded from future optimization.</p><div class="modal-actions"><button class="primary" id="confirmExport" type="button">Export &amp; Mark Consumed</button><button class="ghost" id="cancelExport" type="button">Cancel</button></div></div>
+    </section>
+    <section class="edit-modal confirmation-modal" id="confirmationModal" role="dialog" aria-modal="true" aria-labelledby="confirmationTitle" aria-describedby="confirmationMessage" hidden>
+      <div class="modal-backdrop" id="confirmationBackdrop"></div>
+      <div class="modal-card confirmation-card"><p class="eyebrow">CONFIRM ACTION</p><h2 id="confirmationTitle">Confirm action</h2><p id="confirmationMessage"></p><div class="modal-actions"><button class="primary" id="confirmationConfirm" type="button">Confirm</button><button class="ghost" id="confirmationCancel" type="button">Cancel</button></div></div>
     </section>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script type="module" src="app.js"></script>

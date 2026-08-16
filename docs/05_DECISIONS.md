@@ -282,3 +282,25 @@ FS Automation blue/red are restrained application-shell accents; Encoding stays 
 This supports company identity and reliable beta testing without weakening functional workspace cues or adding backend configuration.
 
 The manually maintained beta identifier advances to `2.6.0-beta.3` for the final contained theme-surface and physical receipt-grouping test iteration.
+
+---
+
+# Decision 010
+
+## In-App Confirmation for Core Receipt Actions
+
+**Status**
+
+Accepted
+
+### Decision
+
+Core receipt workflow confirmations use one accessible, in-app dialog. Browser-native confirmation and alert dialogs are not used for application workflow decisions or feedback.
+
+### Reason
+
+Browser anti-abuse controls can suppress repeated native dialogs, blocking normal receipt work without an application-visible recovery path.
+
+### Consequences
+
+Delete, discard, import, clear-form, and lifecycle restoration actions require an explicit in-app decision. Export retains its existing in-app confirmation and prevents duplicate processing. Informational results appear as inline live feedback. The manually maintained tester-facing version advances to `2.6.0-beta.4`.

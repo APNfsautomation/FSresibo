@@ -188,7 +188,7 @@ export function buildOptimizationView(entries, state) {
 }
 export const availableOptimizerReceipts = receipts => receipts.filter(receipt => normalizeReceiptStatus(receipt.status) === 'available' && receipt.cents > 0);
 
-export function createReceiptUi({ elements, findBest, optimizationStrategies, toCents, scanPrintedDetails, downloadSelectedReceipts, receiptService }) {
+export function createReceiptUi({ elements, findBest, optimizationStrategies, toCents, scanPrintedDetails, downloadSelectedReceipts, receiptService, confirmAction = async () => false }) {
   let currentUser;
   let selectedReceiptIndexes = new Set();
   let selectedReceiptIds = [];
@@ -198,7 +198,11 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   let storeSourceReceipts = [];
   let storeProfiles = [];
   let storeSuggestionSequence = 0;
+  let savePending = false;
+  let importPending = false;
+  let editSavePending = false;
   const format = cents => money.format(cents / 100);
+  const setFeedback = (target, text = '') => { if (target) target.textContent = text; };
   const formatDate = value => {
     const date = calendarReceiptDate(value);
     if (!date) return 'Date not set';
@@ -395,7 +399,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       card.classList.toggle('is-consumed', consumed);
       card.querySelector('.compact-edit').hidden = consumed;
       card.querySelector('.compact-restore').hidden = !consumed;
-      if (consumed) card.querySelector('.compact-restore').addEventListener('click', () => restoreReceipt(entry.index));
+      if (consumed) card.querySelector('.compact-restore').addEventListener('click', event => restoreReceipt(entry.index, event.currentTarget));
       else card.querySelector('.compact-edit').addEventListener('click', () => openEditModal(entry.index));
       fragment.append(card);
     });
@@ -426,6 +430,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   const openEditModal = index => {
     const row = elements.list.children[index];
     if (!row || receiptStatus(row) === 'consumed') return;
+    setFeedback(elements.editFeedback);
     const receipt = rowValues(row);
     elements.editModal.dataset.receiptIndex = String(index);
     elements.editAmount.value = receipt.amount;
@@ -523,15 +528,17 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     row.dataset.receiptStatus = normalizeReceiptStatus(values.status);
     for (const [key, value] of Object.entries(values)) { const field = row.querySelector(`.receipt-${key}`); if (field) field.value = value; }
     row.querySelector('.receipt-photo').addEventListener('change', event => { const file = event.currentTarget.files[0]; if (file) scanPrintedDetails(file, row, refreshSummary); });
-    row.querySelector('.delete-receipt').addEventListener('click', async () => {
+    row.querySelector('.delete-receipt').addEventListener('click', async event => {
+      if (event.currentTarget.disabled) return;
       const id = row.dataset.receiptDbId;
       if (receiptStatus(row) === 'consumed') return;
       const nextFocus = row.nextElementSibling || row.previousElementSibling;
       const hasDraftContent = Object.values(rowValues(row)).some(value => String(value || '').trim()) || row.querySelector('.receipt-photo').files.length > 0;
       if (id && currentUser) {
-        if (!confirm('Delete this saved receipt? This cannot be undone.')) return;
-        try { await receiptService.deleteReceipt(id); } catch (error) { alert(`Could not delete this receipt: ${error.message}`); return; }
-      } else if (hasDraftContent && !confirm('Discard this unfinished receipt? Its entered details will be lost.')) return;
+        if (!await confirmAction({ title: 'Delete saved receipt?', message: 'This cannot be undone.', confirmLabel: 'Delete receipt', cancelLabel: 'Keep receipt', danger: true, trigger: event.currentTarget })) return;
+        event.currentTarget.disabled = true;
+        try { await receiptService.deleteReceipt(id); } catch (error) { setFeedback(elements.encodingFeedback, `Could not delete this receipt: ${error.message}`); event.currentTarget.disabled = false; return; }
+      } else if (hasDraftContent && !await confirmAction({ title: 'Discard unfinished receipt?', message: 'Its entered details will be lost.', confirmLabel: 'Discard receipt', cancelLabel: 'Keep editing', danger: true, trigger: event.currentTarget })) return;
       row.remove();
       if (id) removeStoreSourceReceipt(id);
       clearSelection();
@@ -539,7 +546,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       refreshOptimizationCards();
       (nextFocus?.querySelector('summary') || elements.floatingAdd).focus({ preventScroll: true });
     });
-    row.querySelector('.restore-receipt').addEventListener('click', () => restoreReceipt([...elements.list.children].indexOf(row)));
+    row.querySelector('.restore-receipt').addEventListener('click', event => restoreReceipt([...elements.list.children].indexOf(row), event.currentTarget));
     installStoreAutocomplete(row);
     const storeInput = row.querySelector('.receipt-store');
     row.querySelectorAll('input, select').forEach(field => {
@@ -566,7 +573,10 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     focusReceiptForEncoding(pendingReceipt || addReceipt());
   };
   const saveDraft = async () => {
-    if (!currentUser) return alert('Please sign in before saving receipts.');
+    if (savePending) return;
+    if (!currentUser) return setFeedback(elements.encodingFeedback, 'Please sign in before saving receipts.');
+    savePending = true;
+    elements.saveDraft.disabled = true;
     try {
       for (const row of elements.list.children) {
         if (receiptStatus(row) === 'consumed') continue;
@@ -579,8 +589,9 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       }
       refreshEncodingCards();
       refreshOptimizationCards();
-      alert('Receipt changes saved.');
-    } catch (error) { alert(`Could not save receipt changes: ${error.message}`); }
+      setFeedback(elements.encodingFeedback, 'Receipt changes saved.');
+    } catch (error) { setFeedback(elements.encodingFeedback, `Could not save receipt changes: ${error.message}`); }
+    finally { savePending = false; elements.saveDraft.disabled = false; }
   };
   const calculate = () => {
     const targetCents = toCents(elements.target.value);
@@ -643,38 +654,57 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       ['Strategy: ' + strategyMeta.label, 'Target: ' + format(targetCents), 'Difference: ' + (difference === 0 ? 'Exact' : format(Math.abs(difference)) + (difference > 0 ? ' over' : ' under')), rule].forEach(text => { const item = document.createElement('li'); item.textContent = text; rules.append(item); });
       elements.adminContent.append(details, rules);
       refreshOptimizationCards();
-    } catch (error) { alert(error.message); }
+    } catch (error) { elements.difference.textContent = error.message || 'Could not calculate a receipt combination.'; }
   };
   const importLegacyDraft = async user => {
+    if (importPending) return false;
     const draft = localStorage.getItem(draftKey);
     const migrationKey = `${draftKey}-imported-for-${user.id}`;
     if (!draft || localStorage.getItem(migrationKey)) return false;
     let data;
     try { data = JSON.parse(draft); } catch { return false; }
-    if (!data.receipts?.length || !confirm(`Import ${data.receipts.length} saved browser receipt(s) into your account? Your local draft will be kept as a backup.`)) return false;
-    const imported = await receiptService.importReceipts(data.receipts, user.id);
-    localStorage.setItem(migrationKey, 'true');
-    if (data.target) elements.target.value = data.target;
-    imported.forEach(receipt => { addReceipt(receipt); upsertStoreSourceReceipt(receipt); });
-    alert('Import completed. Your original browser draft was kept as a backup.');
-    return true;
+    if (!data.receipts?.length || !await confirmAction({ title: 'Import saved browser receipts?', message: `Import ${data.receipts.length} saved browser receipt${data.receipts.length === 1 ? '' : 's'} into your account? Your local draft will be kept as a backup.`, confirmLabel: 'Import receipts', cancelLabel: 'Not now', trigger: document.activeElement })) return false;
+    importPending = true;
+    try {
+      const imported = await receiptService.importReceipts(data.receipts, user.id);
+      localStorage.setItem(migrationKey, 'true');
+      if (data.target) elements.target.value = data.target;
+      imported.forEach(receipt => { addReceipt(receipt); upsertStoreSourceReceipt(receipt); });
+      setFeedback(elements.encodingFeedback, 'Import completed. Your original browser draft was kept as a backup.');
+      return true;
+    } catch (error) {
+      setFeedback(elements.encodingFeedback, `Could not import saved browser receipts: ${error.message}`);
+      return false;
+    } finally { importPending = false; }
   };
-  const closeExportConfirmation = () => { elements.exportConfirmModal.hidden = true; };
+  let exportPending = false;
+  const closeExportConfirmation = ({ force = false } = {}) => {
+    if (exportPending && !force) return;
+    elements.exportConfirmModal.hidden = true;
+    elements.confirmExport.disabled = false;
+    elements.confirmExport.removeAttribute('aria-busy');
+    elements.confirmExport.textContent = 'Export & Mark Consumed';
+  };
   const selectedReceiptsForExport = () => selectedReceiptIds.map(id => {
     const row = [...elements.list.children].find(candidate => candidate.dataset.receiptDbId === id);
     return row && receiptStatus(row) === 'available' ? { ...rowValues(row), dbId: id, status: 'available' } : null;
   }).filter(Boolean);
   const openExportConfirmation = () => {
     const receipts = selectedReceiptsForExport();
-    if (!receipts.length || receipts.length !== selectedReceiptIndexes.size) return alert('Run Find Best Match with saved Available receipts before exporting.');
+    if (!receipts.length || receipts.length !== selectedReceiptIndexes.size) return setFeedback(elements.difference, 'Run Find Best Match with saved Available receipts before exporting.');
     elements.exportConfirmMessage.textContent = `Export ${receipts.length} selected receipt${receipts.length === 1 ? '' : 's'}? After the export is prepared, these receipts will be marked as Consumed and excluded from future optimization.`;
     elements.exportConfirmModal.hidden = false;
     elements.confirmExport.focus();
   };
   const exportAndConsume = async () => {
+    if (exportPending) return;
+    exportPending = true;
+    elements.confirmExport.disabled = true;
+    elements.confirmExport.setAttribute('aria-busy', 'true');
+    elements.confirmExport.textContent = 'Preparing export…';
     const receipts = selectedReceiptsForExport();
-    if (!receipts.length || receipts.length !== selectedReceiptIndexes.size) { closeExportConfirmation(); return alert('The selected result is no longer exportable. Run Find Best Match again.'); }
-    try { downloadSelectedReceipts(receipts); } catch (error) { closeExportConfirmation(); return alert(`Could not prepare the XLSX export: ${error.message}`); }
+    if (!receipts.length || receipts.length !== selectedReceiptIndexes.size) { exportPending = false; closeExportConfirmation(); return setFeedback(elements.difference, 'The selected result is no longer exportable. Run Find Best Match again.'); }
+    try { downloadSelectedReceipts(receipts); } catch (error) { exportPending = false; closeExportConfirmation(); return setFeedback(elements.difference, `Could not prepare the XLSX export: ${error.message}`); }
     try {
       const consumed = await receiptService.consumeReceipts(receipts.map(receipt => receipt.dbId));
       consumed.forEach(saved => {
@@ -682,6 +712,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
         if (row) { row.dataset.receiptStatus = saved.status; row.dataset.receiptUpdatedAt = saved.updatedAt || ''; applyReceiptStatusState(row); }
         upsertStoreSourceReceipt(saved);
       });
+      exportPending = false;
       closeExportConfirmation();
       clearSelection();
       refreshReceiptIds();
@@ -691,14 +722,16 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       elements.resultTitle.textContent = 'Export complete';
       elements.difference.textContent = `${consumed.length} receipt${consumed.length === 1 ? '' : 's'} exported and marked as Consumed.`;
     } catch (error) {
+      exportPending = false;
       closeExportConfirmation();
-      alert(`The XLSX export was prepared, but receipt status could not be updated: ${error.message} Review the receipt status before exporting again.`);
+      setFeedback(elements.difference, `The XLSX export was prepared, but receipt status could not be updated: ${error.message} Review the receipt status before exporting again.`);
     }
   };
-  const restoreReceipt = async index => {
+  const restoreReceipt = async (index, trigger) => {
     const row = elements.list.children[index];
     if (!row || receiptStatus(row) !== 'consumed' || !row.dataset.receiptDbId) return;
-    if (!confirm('Mark this consumed receipt as Available? It will return to normal editing and optimization.')) return;
+    if (!await confirmAction({ title: 'Mark receipt Available?', message: 'It will return to normal editing and optimization.', confirmLabel: 'Mark Available', cancelLabel: 'Keep Consumed', trigger })) return;
+    if (trigger) trigger.disabled = true;
     try {
       const saved = await receiptService.updateReceiptStatus(row.dataset.receiptDbId, 'available');
       row.dataset.receiptStatus = saved.status;
@@ -707,28 +740,33 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       upsertStoreSourceReceipt(saved);
       refreshEncodingCards();
       refreshOptimizationCards();
-      alert('Receipt marked as Available.');
-    } catch (error) { alert(`Could not restore this receipt: ${error.message}`); }
+      setFeedback(elements.encodingFeedback, 'Receipt marked as Available.');
+    } catch (error) { setFeedback(elements.encodingFeedback, `Could not restore this receipt: ${error.message}`); if (trigger) trigger.disabled = false; }
   };
   const saveModalCorrection = async event => {
     event.preventDefault();
+    if (editSavePending) return;
     const index = Number(elements.editModal.dataset.receiptIndex);
     const row = elements.list.children[index];
     if (!row) return closeEditModal();
     if (receiptStatus(row) === 'consumed') return closeEditModal();
     const values = { amount: elements.editAmount.value, receiptDate: elements.editReceiptDate.value, vat: elements.editVat.value, invoice: elements.editInvoice.value, store: elements.editStore.value, address: elements.editAddress.value, tin: elements.editTin.value };
+    editSavePending = true;
+    const submitButton = event.submitter;
+    if (submitButton) submitButton.disabled = true;
     if (row.dataset.receiptDbId && currentUser) {
       try {
         const saved = await receiptService.updateReceipt(row.dataset.receiptDbId, values, currentUser.id);
         if (saved.updatedAt) row.dataset.receiptUpdatedAt = saved.updatedAt;
         upsertStoreSourceReceipt(saved);
-      } catch (error) { alert(`Could not save correction: ${error.message}`); return; }
+      } catch (error) { setFeedback(elements.editFeedback, `Could not save correction: ${error.message}`); editSavePending = false; if (submitButton) submitButton.disabled = false; return; }
     }
     Object.entries(values).forEach(([key, value]) => { row.querySelector(`.receipt-${key}`).value = value; });
     refreshSummary(row);
     closeEditModal();
     refreshEncodingCards();
     refreshOptimizationCards();
+    editSavePending = false;
   };
   const applyToolbarChange = () => {
     toolbarState = readToolbarState();
@@ -762,7 +800,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       showEmpty();
       setWorkspace((() => { try { return sessionStorage.getItem(workspaceStorageKey()) || 'encoding'; } catch { return 'encoding'; } })(), false);
     },
-    clearForLogout() { currentUser = undefined; toolbarState = defaultOptimizationToolbarState(); encodingDisplayState = { compartment: 'all' }; storeSourceReceipts = []; rebuildStoreProfiles(); syncToolbarControls(); elements.encodingAmountCompartment.value = 'all'; setActiveStrategy(optimizationStrategies.closest, { persist: false }); elements.list.replaceChildren(); elements.target.value = ''; clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); closeEditModal(); closeExportConfirmation(); },
+    clearForLogout() { currentUser = undefined; toolbarState = defaultOptimizationToolbarState(); encodingDisplayState = { compartment: 'all' }; storeSourceReceipts = []; rebuildStoreProfiles(); syncToolbarControls(); elements.encodingAmountCompartment.value = 'all'; setActiveStrategy(optimizationStrategies.closest, { persist: false }); elements.list.replaceChildren(); elements.target.value = ''; clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); closeEditModal(); closeExportConfirmation({ force: true }); },
     importLegacyDraft,
     start() {
       renderEncodingAmountCompartmentOptions();
@@ -772,8 +810,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       elements.cancelExport.addEventListener('click', closeExportConfirmation);
       elements.exportConfirmBackdrop.addEventListener('click', closeExportConfirmation);
       elements.saveDraft.addEventListener('click', saveDraft);
-      elements.clearAll.addEventListener('click', () => {
-        if (!elements.list.children.length || confirm('Clear all receipts from this form? Saved receipts remain in your account and return after a refresh.')) { elements.list.replaceChildren(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); }
+      elements.clearAll.addEventListener('click', async event => {
+        if (!elements.list.children.length || await confirmAction({ title: 'Clear receipts from this form?', message: 'Saved receipts remain in your account and return after a refresh.', confirmLabel: 'Clear form', cancelLabel: 'Keep receipts', danger: true, trigger: event.currentTarget })) { elements.list.replaceChildren(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); }
       });
       elements.encodingTab.addEventListener('click', () => setWorkspace('encoding'));
       elements.optimizationTab.addEventListener('click', () => setWorkspace('optimization'));
