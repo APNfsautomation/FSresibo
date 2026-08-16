@@ -8,15 +8,17 @@
     <link rel="stylesheet" href="auth.css" />
   </head>
   <body>
+    <label class="theme-control" for="themePreference">Theme<select id="themePreference"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
     <section class="auth-shell" id="authView" hidden>
       <div class="auth-card">
-        <p class="eyebrow">FSRESIBO</p>
+        <p class="eyebrow brand-mark">FSRESIBO</p>
         <h1>Welcome back.</h1>
         <p class="lede">Sign in to access your receipts.</p>
         <form id="loginForm" class="auth-form">
           <label>Email<input id="loginEmail" type="email" autocomplete="email" required /></label>
           <label>Password<input id="loginPassword" type="password" autocomplete="current-password" required /></label>
           <button class="primary" type="submit">Log in</button>
+          <button class="text-button" id="showReset" type="button">Forgot password?</button>
           <button class="text-button" id="showRegister" type="button">Create an account</button>
         </form>
         <form id="registerForm" class="auth-form" hidden>
@@ -26,19 +28,35 @@
           <button class="primary" type="submit">Register</button>
           <button class="text-button" id="showLogin" type="button">Back to login</button>
         </form>
+        <form id="resetForm" class="auth-form" hidden>
+          <h2>Reset password</h2>
+          <p class="auth-form-copy">Enter your email and we’ll send a reset link.</p>
+          <label>Email<input id="resetEmail" type="email" autocomplete="email" required /></label>
+          <button class="primary" type="submit">Send reset link</button>
+          <button class="text-button" id="backToLogin" type="button">Back to login</button>
+        </form>
+        <form id="recoveryForm" class="auth-form" hidden>
+          <h2>Set new password</h2>
+          <p class="auth-form-copy">Choose a new password for your FSResibo account.</p>
+          <label>New password<input id="recoveryPassword" type="password" autocomplete="new-password" minlength="6" required /></label>
+          <label>Confirm new password<input id="recoveryConfirmPassword" type="password" autocomplete="new-password" minlength="6" required /></label>
+          <button class="primary" type="submit">Save new password</button>
+          <button class="text-button" id="backFromRecovery" type="button">Request another reset link</button>
+        </form>
         <p id="authMessage" class="auth-message" aria-live="polite"></p>
+        <p class="application-version auth-version" id="authVersion"></p>
       </div>
     </section>
 
     <main class="app-shell" id="appView" hidden>
       <header class="app-header">
         <div>
-          <p class="eyebrow">FSRESIBO</p>
+          <p class="eyebrow brand-mark">FSRESIBO</p>
           <h1>Receipt workspace</h1>
           <p class="lede">Encode receipts quickly, then optimize the combination you need.</p>
         </div>
         <div class="header-actions">
-          <span class="user-email" id="userEmail"></span>
+          <div class="session-meta"><span class="user-email" id="userEmail"></span><span class="application-version app-version" id="appVersion"></span><span class="session-feedback" id="sessionFeedback" role="status"></span></div>
           <button class="ghost" id="logout" type="button">Log out</button>
         </div>
       </header>
@@ -52,6 +70,7 @@
       <section class="workspace-view encoding-workspace" id="encodingWorkspace" role="tabpanel" aria-labelledby="encodingTab">
         <div class="workspace-heading">
           <div><p class="eyebrow">WORKSPACE 1</p><h2>Receipt Encoding</h2><p>Capture and correct receipt details without optimization distractions.</p></div>
+          <div class="encoding-workspace-tools"><p id="availableTotal" class="available-total">Available Total — ₱0.00</p><label class="encoding-compartment-filter" for="encodingAmountCompartment">Amount compartment<select id="encodingAmountCompartment"></select></label></div>
         </div>
         <div class="panel encoding-panel">
           <div class="panel-heading"><div><h3>Your receipts</h3><p id="receiptCount">No receipts added</p></div></div>
@@ -62,6 +81,7 @@
           <button class="primary action-save" id="saveDraft" type="button">Save changes</button>
           <button class="ghost danger" id="clearAll" type="button">Clear form</button>
         </div>
+        <p class="workflow-feedback" id="encodingFeedback" role="status" aria-live="polite"></p>
         <button class="floating-add" id="floatingAddReceipt" type="button" aria-label="Add a receipt">+ <span>Add Receipt</span></button>
       </section>
 
@@ -143,6 +163,7 @@
           <label class="wide">Store name<input id="editStore" placeholder="Store or business name" /></label>
           <label class="wide">Store address<input id="editAddress" placeholder="Store address" /></label>
           <label>Store TIN<input id="editTin" placeholder="000-000-000-000" /></label>
+          <p class="workflow-feedback" id="editFeedback" role="status" aria-live="polite"></p>
           <div class="modal-actions"><button class="primary" type="submit">Save correction</button><button class="ghost" id="cancelEditModal" type="button">Cancel</button></div>
         </form>
       </div>
@@ -189,6 +210,10 @@
     <section class="edit-modal" id="exportConfirmModal" role="dialog" aria-modal="true" aria-labelledby="exportConfirmTitle" hidden>
       <div class="modal-backdrop" id="exportConfirmBackdrop"></div>
       <div class="modal-card export-confirm-card"><p class="eyebrow">EXPORT SELECTED</p><h2 id="exportConfirmTitle">Export selected receipts?</h2><p id="exportConfirmMessage">After the export is prepared, these receipts will be marked as Consumed and excluded from future optimization.</p><div class="modal-actions"><button class="primary" id="confirmExport" type="button">Export &amp; Mark Consumed</button><button class="ghost" id="cancelExport" type="button">Cancel</button></div></div>
+    </section>
+    <section class="edit-modal confirmation-modal" id="confirmationModal" role="dialog" aria-modal="true" aria-labelledby="confirmationTitle" aria-describedby="confirmationMessage" hidden>
+      <div class="modal-backdrop" id="confirmationBackdrop"></div>
+      <div class="modal-card confirmation-card"><p class="eyebrow">CONFIRM ACTION</p><h2 id="confirmationTitle">Confirm action</h2><p id="confirmationMessage"></p><div class="modal-actions"><button class="primary" id="confirmationConfirm" type="button">Confirm</button><button class="ghost" id="confirmationCancel" type="button">Cancel</button></div></div>
     </section>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script type="module" src="app.js"></script>

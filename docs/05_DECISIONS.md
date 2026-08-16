@@ -238,3 +238,69 @@ Append new decisions below.
 Do not edit historical decisions.
 
 If a decision changes significantly, create a new decision that supersedes the previous one while preserving the project's history.
+
+---
+
+# Decision 008
+
+## Deployment-Aware Authentication Redirects
+
+**Status**
+
+Accepted
+
+### Decision
+
+Signup confirmation and password recovery redirects are derived from the current application URL and must be allowed in Supabase URL Configuration.
+
+### Reason
+
+FSResibo is tested on Synology and deployed on GitHub Pages. A single stale Site URL must not force users back to an obsolete deployment.
+
+### Consequences
+
+Password recovery is a dedicated Set New Password experience, not normal application entry. Supabase Dashboard redirect URLs and email templates must remain aligned with supported deployments.
+
+Recovery-intent callback URLs are recognized from their query or fragment before normal session bootstrap. An expired, invalid, or already-used recovery link therefore keeps the user in the recovery flow with a path to request a new email, even when another user session is present in the browser.
+
+---
+
+# Decision 009
+
+## Functional Identity and Beta Verification
+
+**Status**
+
+Accepted
+
+### Decision
+
+FS Automation blue/red are restrained application-shell accents; Encoding stays green and Optimization stays purple. Theme preference is local to the browser, and a single manually maintained version identifier is visible before and after authentication.
+
+### Reason
+
+This supports company identity and reliable beta testing without weakening functional workspace cues or adding backend configuration.
+
+The manually maintained beta identifier advances to `2.6.0-beta.3` for the final contained theme-surface and physical receipt-grouping test iteration.
+
+---
+
+# Decision 010
+
+## In-App Confirmation for Core Receipt Actions
+
+**Status**
+
+Accepted
+
+### Decision
+
+Core receipt workflow confirmations use one accessible, in-app dialog. Browser-native confirmation and alert dialogs are not used for application workflow decisions or feedback.
+
+### Reason
+
+Browser anti-abuse controls can suppress repeated native dialogs, blocking normal receipt work without an application-visible recovery path.
+
+### Consequences
+
+Delete, discard, import, clear-form, and lifecycle restoration actions require an explicit in-app decision. Export retains its existing in-app confirmation and prevents duplicate processing. Informational results appear as inline live feedback. The manually maintained tester-facing version advances to `2.6.0-beta.4`.
