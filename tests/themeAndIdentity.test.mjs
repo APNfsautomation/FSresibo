@@ -32,7 +32,7 @@ test('both version targets render from the one application metadata value', () =
   const authVersion = { textContent: '' };
   const appVersion = { textContent: '' };
   const label = renderApplicationIdentity([authVersion, appVersion], appMetadata);
-  assert.equal(label, 'FSResibo v2.6.0-beta.4');
+  assert.equal(label, 'FSResibo v2.6.0-beta.5');
   assert.equal(authVersion.textContent, label);
   assert.equal(appVersion.textContent, label);
 });

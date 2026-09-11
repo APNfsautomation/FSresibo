@@ -188,6 +188,38 @@ export function buildOptimizationView(entries, state) {
 }
 export const availableOptimizerReceipts = receipts => receipts.filter(receipt => normalizeReceiptStatus(receipt.status) === 'available' && receipt.cents > 0);
 
+export function createReceiptDeleteHandler({ row, triggerFallback, getCurrentUser, getReceiptStatus, hasDraftContent, confirmAction, deleteReceipt, removeStoreSourceReceipt, clearSelection, refreshReceiptIds, refreshEncodingCards, refreshOptimizationCards, setFeedback, feedbackTarget }) {
+  let deletePending = false;
+  return async event => {
+    const trigger = event.currentTarget;
+    if (!trigger || trigger.disabled || deletePending) return;
+    const id = row.dataset.receiptDbId;
+    if (getReceiptStatus() === 'consumed') return;
+    const nextFocus = row.nextElementSibling || row.previousElementSibling;
+    deletePending = true;
+    try {
+      if (id && getCurrentUser()) {
+        if (!await confirmAction({ title: 'Delete saved receipt?', message: 'This cannot be undone.', confirmLabel: 'Delete receipt', cancelLabel: 'Keep receipt', danger: true, trigger })) return;
+        trigger.disabled = true;
+        setFeedback(feedbackTarget);
+        await deleteReceipt(id);
+      } else if (hasDraftContent() && !await confirmAction({ title: 'Discard unfinished receipt?', message: 'Its entered details will be lost.', confirmLabel: 'Discard receipt', cancelLabel: 'Keep editing', danger: true, trigger })) return;
+      row.remove();
+      if (id) removeStoreSourceReceipt(id);
+      clearSelection();
+      refreshReceiptIds();
+      refreshEncodingCards();
+      refreshOptimizationCards();
+      (nextFocus?.querySelector('summary') || triggerFallback).focus({ preventScroll: true });
+    } catch (error) {
+      setFeedback(feedbackTarget, `Could not delete this receipt: ${error.message}`);
+    } finally {
+      deletePending = false;
+      trigger.disabled = false;
+    }
+  };
+}
+
 export function createReceiptUi({ elements, findBest, optimizationStrategies, toCents, scanPrintedDetails, downloadSelectedReceipts, receiptService, confirmAction = async () => false }) {
   let currentUser;
   let selectedReceiptIndexes = new Set();
@@ -528,24 +560,22 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     row.dataset.receiptStatus = normalizeReceiptStatus(values.status);
     for (const [key, value] of Object.entries(values)) { const field = row.querySelector(`.receipt-${key}`); if (field) field.value = value; }
     row.querySelector('.receipt-photo').addEventListener('change', event => { const file = event.currentTarget.files[0]; if (file) scanPrintedDetails(file, row, refreshSummary); });
-    row.querySelector('.delete-receipt').addEventListener('click', async event => {
-      if (event.currentTarget.disabled) return;
-      const id = row.dataset.receiptDbId;
-      if (receiptStatus(row) === 'consumed') return;
-      const nextFocus = row.nextElementSibling || row.previousElementSibling;
-      const hasDraftContent = Object.values(rowValues(row)).some(value => String(value || '').trim()) || row.querySelector('.receipt-photo').files.length > 0;
-      if (id && currentUser) {
-        if (!await confirmAction({ title: 'Delete saved receipt?', message: 'This cannot be undone.', confirmLabel: 'Delete receipt', cancelLabel: 'Keep receipt', danger: true, trigger: event.currentTarget })) return;
-        event.currentTarget.disabled = true;
-        try { await receiptService.deleteReceipt(id); } catch (error) { setFeedback(elements.encodingFeedback, `Could not delete this receipt: ${error.message}`); event.currentTarget.disabled = false; return; }
-      } else if (hasDraftContent && !await confirmAction({ title: 'Discard unfinished receipt?', message: 'Its entered details will be lost.', confirmLabel: 'Discard receipt', cancelLabel: 'Keep editing', danger: true, trigger: event.currentTarget })) return;
-      row.remove();
-      if (id) removeStoreSourceReceipt(id);
-      clearSelection();
-      refreshReceiptIds();
-      refreshOptimizationCards();
-      (nextFocus?.querySelector('summary') || elements.floatingAdd).focus({ preventScroll: true });
-    });
+    row.querySelector('.delete-receipt').addEventListener('click', createReceiptDeleteHandler({
+      row,
+      triggerFallback: elements.floatingAdd,
+      getCurrentUser: () => currentUser,
+      getReceiptStatus: () => receiptStatus(row),
+      hasDraftContent: () => Object.values(rowValues(row)).some(value => String(value || '').trim()) || row.querySelector('.receipt-photo').files.length > 0,
+      confirmAction,
+      deleteReceipt: id => receiptService.deleteReceipt(id),
+      removeStoreSourceReceipt,
+      clearSelection,
+      refreshReceiptIds,
+      refreshEncodingCards,
+      refreshOptimizationCards,
+      setFeedback,
+      feedbackTarget: elements.encodingFeedback
+    }));
     row.querySelector('.restore-receipt').addEventListener('click', event => restoreReceipt([...elements.list.children].indexOf(row), event.currentTarget));
     installStoreAutocomplete(row);
     const storeInput = row.querySelector('.receipt-store');
