@@ -43,10 +43,12 @@ Workflow Optimization
 - Hash routing compatible with static hosting and authentication callbacks
 - Receipts as a top-level module with Encoding and Optimization retained as sub-tabs
 
-### Milestone 3.2 — Shared Store Directory Foundation
+### Milestone 3.2 ✅ — Shared Store Directory Foundation
 - `public.shared_store_directory` migration, normalization, constraints, indexes, RLS, and grants
 - Active-profile loading/search through a shared service
 - Company membership/security gate resolved before deployment
+
+Repository implementation only: the migration is not yet applied to hosted Supabase, and the company-controlled signup gate must be completed before deployment.
 
 ### Milestone 3.3 — Shared Store Directory Adoption
 - Reusable autocomplete logic

@@ -144,7 +144,7 @@ Authentication is separated from business logic.
 
 Epic 3 — Additional Receipt Workflows & Shared Store Data
 
-Epic 2 is complete through Milestone 2.6 and the beta.5 receipt-delete hotfix. Epic 3 Milestone 3.1 — Navigation Foundation is implemented. The current visible application version is maintained in `config/appMetadata.js` and is `3.1.0-beta.1`.
+Epic 2 is complete through Milestone 2.6 and the beta.5 receipt-delete hotfix. Epic 3 Milestones 3.1 — Navigation Foundation and 3.2 — Shared Store Directory Foundation are implemented in the repository. Milestone 3.2 is not yet applied to hosted Supabase or user-facing; company-controlled signup is a required pre-deployment gate. The current visible application version is maintained in `config/appMetadata.js` and is `3.1.0-beta.1`.
 
 ---
 
