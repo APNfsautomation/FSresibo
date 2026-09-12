@@ -6,7 +6,7 @@
 | Document | AI Context |
 | Version | 1.0 |
 | Status | Living Document |
-| Last Updated | 2026-08-05 |
+| Last Updated | 2026-09-13 |
 
 ---
 
@@ -142,19 +142,15 @@ Authentication is separated from business logic.
 
 # Current Epic
 
-Epic 2
+Epic 3 — Additional Receipt Workflows & Shared Store Data
 
-Workflow Optimization
-
-Current milestone:
-
-Epic 2 Milestone 2.6 — Beta Hardening.
+Epic 2 is complete through Milestone 2.6 and the beta.5 receipt-delete hotfix. The current visible application version is maintained in `config/appMetadata.js` and is `2.6.0-beta.5`.
 
 ---
 
-# Planned Workspaces
+# Current Implemented Receipts Module
 
-## Workspace 1
+## Receipt Encoding
 
 Receipt Encoding
 
@@ -178,7 +174,7 @@ Maximum encoding speed.
 
 ---
 
-## Workspace 2
+## Receipt Optimization
 
 Receipt Optimization
 
@@ -201,23 +197,70 @@ Maximum visibility.
 
 ---
 
+# Approved Epic 3 Direction — Not Yet Implemented
+
+## Multi-Module Navigation
+
+Top-level modules will be Receipts, Monthly Filing, and Quick Optimizer. A future Store Directory screen may exist only when an authorized UI is deliberately implemented.
+
+Desktop navigation will use a sidebar and mobile navigation an accessible drawer. Receipts retains Receipt Encoding and Receipt Optimization as related subviews/tabs. Lightweight hash routing is preferred for GitHub Pages, Synology static hosting, and vanilla JavaScript:
+
+```text
+#receipts/encoding
+#receipts/optimization
+#monthly-filing
+#quick-optimizer
+```
+
+Authentication callback fragments take precedence over normal routing.
+
+## Transaction Domains
+
+The existing `public.receipts` table remains the long-term receipt domain with its Available/Consumed lifecycle. Monthly Filing will use a separate `public.monthly_filing_receipts` table, service, lifecycle, queries, exports, and clear/delete operations. The two domains must never mix transaction records.
+
+Monthly Filing will use Active and Archived statuses. Archived records may be Returned to Active for correction and re-export before final approval. Deliberate Clear Monthly Filing will hard-delete only the current user's Monthly Filing records; it will not affect long-term receipts or shared stores. Monthly history/batches are out of scope.
+
+## Shared Store Directory
+
+Epic 3 will introduce one canonical company-wide Shared Store Directory for Receipt Encoding and Monthly Filing. Transaction records retain their own Store/Address/TIN/VAT snapshots. Selecting a profile fills receipt fields but does not allow silent canonical-profile updates.
+
+Contribution is explicit. A new shared profile normally requires a store name plus an address or TIN. Exact duplicates reuse the existing profile; similar or conflicting data must not overwrite it. Initial correction/deactivation may occur through Supabase administration, not through an assumed immediate admin UI.
+
+Before the directory is deployed, account membership/signup behavior must be reviewed so unapproved accounts cannot gain company-wide reference-data access. FSResibo is currently treated as a single-company deployment; multi-company architecture is not part of Epic 3.
+
+## Quick Optimizer
+
+Quick Optimizer is an in-memory R1/R2/R3 amount calculator. It reuses the existing optimization engine and all three strategies, but it does not use Supabase, receipt services, Monthly Filing services, store data, lifecycle state, exports, localStorage, or sessionStorage. Refreshing/leaving may discard its state. The current 32-input optimization maximum remains accepted for Epic 3.
+
+## Epic 3 Milestones
+
+1. Navigation Foundation
+2. Shared Store Directory Foundation
+3. Shared Store Directory Adoption
+4. Monthly Filing Foundation
+5. Monthly Filing Lifecycle & Export
+6. Quick Optimizer
+
+Epic 4 is OCR Improvements.
+
+---
+
 # Current Priorities
 
 Highest Priority
 
-- Beta hardening
-- Authentication reliability
-- Deployment verification
+- Safe Epic 3 navigation and transaction-domain isolation
+- Shared Store Directory security/membership gate before deployment
+- Monthly Filing lifecycle and export safety
 
 Medium Priority
 
-- Search
-- Filters
-- Store autocomplete
+- Shared autocomplete adoption
+- Stateless Quick Optimizer
 
 Future Priority
 
-- OCR improvements
+- Epic 4 OCR improvements
 - Workflow assistance
 
 ---
@@ -355,8 +398,12 @@ Always preserve the project's philosophy:
 
 - Theme preference is browser-local: System, Light, or Dark.
 - Corporate blue/red are shell accents; Encoding remains green and Optimization remains purple.
-- `config/appMetadata.js` is the single source of the manually maintained tester-facing version. Use beta increments such as `2.6.0-beta.2`, `2.6.0-beta.3`, and `2.6.0-beta.4` for deployable test iterations.
+- `config/appMetadata.js` is the single source of the manually maintained tester-facing version. The current merged version is `2.6.0-beta.5`; advance only for manually tested deployable iterations.
 - Core receipt actions use the shared in-app confirmation dialog instead of browser-native prompts, which can be suppressed by browser anti-abuse controls. Informational workflow feedback remains inline and non-blocking.
+
+## Database and Manual Supabase Principle
+
+Prefer reproducible source-controlled migrations, code, API, or CLI operations over manual dashboard changes. Database migration and frontend deployment are separate: apply and verify additive schema/RLS changes before deploying dependent frontend code. Manual Supabase actions are reserved for account/auth project configuration, secrets, SMTP/provider credentials, privileged administration, or settings unsuitable for repository storage, and must be documented before deployment.
 
 ---
 End of Document

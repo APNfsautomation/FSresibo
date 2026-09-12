@@ -5,7 +5,7 @@
 | Document | Major Project Decisions |
 | Version | 1.0 |
 | Status | Living Document |
-| Last Updated | 2026-08-05 |
+| Last Updated | 2026-09-13 |
 
 ---
 
@@ -304,3 +304,137 @@ Browser anti-abuse controls can suppress repeated native dialogs, blocking norma
 ### Consequences
 
 Delete, discard, import, clear-form, and lifecycle restoration actions require an explicit in-app decision. Export retains its existing in-app confirmation and prevents duplicate processing. Informational results appear as inline live feedback. The manually maintained tester-facing version advances to `2.6.0-beta.4`.
+
+---
+
+# Decision 011
+
+## Multi-Module Navigation Hierarchy
+
+**Status**
+
+Accepted
+
+### Decision
+
+Top-level workflows use application navigation: a desktop sidebar and accessible mobile drawer. Receipt Encoding and Receipt Optimization remain related subviews/tabs inside the Receipts module. Lightweight hash routing is preferred for static GitHub Pages and Synology deployments.
+
+### Reason
+
+FSResibo is growing beyond a two-workspace screen. Navigation should distinguish separate tools while preserving the close relationship between the two long-term receipt workflows.
+
+### Consequences
+
+The approved routes are `#receipts/encoding`, `#receipts/optimization`, `#monthly-filing`, and `#quick-optimizer`. Authentication callback fragments take precedence over application routing. This extends Decision 004 without changing its historical record.
+
+---
+
+# Decision 012
+
+## Transaction-Domain Isolation
+
+**Status**
+
+Accepted
+
+### Decision
+
+Long-term receipts and Monthly Filing receipts use separate transaction tables, services, lifecycle states, queries, and explicit export sources. Only intentionally shared reference data may cross the boundary.
+
+### Reason
+
+Long-term Receipt Encoding/Optimization and Monthly Filing have different business purposes and clearing/lifecycle requirements. Mixing their transaction records could produce incorrect optimization, export, lifecycle, or deletion outcomes.
+
+### Consequences
+
+`public.receipts` remains the long-term domain. Planned `public.monthly_filing_receipts` is a separate user-scoped domain. Neither workflow may query, optimize, export, update, clear, or delete the other's records.
+
+---
+
+# Decision 013
+
+## Shared Company Store Directory
+
+**Status**
+
+Accepted
+
+### Decision
+
+One company-wide canonical store reference source serves long-term Receipt Encoding and Monthly Filing. Receipt values remain transaction snapshots. Normal receipt edits never silently overwrite canonical store profiles; shared contribution is explicit and administrative correction/deactivation remains controlled.
+
+### Reason
+
+Users need cross-user reuse of Store Name, Address, TIN, and VAT Status without allowing ordinary transaction editing to corrupt canonical reference data.
+
+### Consequences
+
+Planned `public.shared_store_directory` is reference/master data, not a transaction table. New shared profiles normally require a store name plus an address or TIN. Exact duplicates reuse the existing profile; conflicting data does not replace it. Initial correction may occur through Supabase administration. Before deployment, account membership/signup behavior must be reviewed so unapproved accounts cannot gain company-wide directory access; this is a required security gate, not an implemented multi-company system.
+
+---
+
+# Decision 014
+
+## Monthly Filing Ephemeral Lifecycle
+
+**Status**
+
+Accepted
+
+### Decision
+
+Monthly Filing uses Active and Archived states. Archived records may be Returned to Active for correction and re-export. After final approval, deliberate Clear Monthly Filing hard-deletes the current user's Monthly Filing transaction records. No retained monthly historical batches are required in Epic 3.
+
+### Reason
+
+Monthly filing is a repeatable current-cycle workflow. It needs a safe export state and a practical correction path when a submitted filing is rejected, without expanding FSResibo into historical reporting or batch management.
+
+### Consequences
+
+Successful Monthly Filing export archives exactly the records in the generated workbook. Return to Active supports edit/correct/re-export. Clear Monthly Filing removes only the current user's Active and Archived Monthly Filing rows; it does not affect long-term receipts or shared store records.
+
+---
+
+# Decision 015
+
+## Stateless Quick Optimizer
+
+**Status**
+
+Accepted
+
+### Decision
+
+Quick Optimizer is a nonpersistent calculator using the existing optimization engine. It stores no receipts, store data, lifecycle state, or exports.
+
+### Reason
+
+Users sometimes need a fast amount-combination calculation without creating transaction records or entering receipt metadata.
+
+### Consequences
+
+Quick Optimizer uses temporary R1/R2/R3 amount rows, a target, and the existing three strategies. It does not use Supabase, receipt services, Monthly Filing services, Shared Store Directory, localStorage, or sessionStorage. Refreshing or leaving may discard its state.
+
+---
+
+# Decision 016
+
+## Shared Expense Workbook Builder
+
+**Status**
+
+Accepted
+
+### Decision
+
+Long-term and Monthly Filing exports reuse one authoritative Expense Detailed Report workbook generator. Each workflow passes its own explicit transaction snapshot array. The exporter never queries a persistence service.
+
+### Reason
+
+The official A:O mapping and grouped Supplier Details header must remain consistent while transaction domains remain isolated.
+
+### Consequences
+
+Workbook generation remains reusable and pure. Long-term export receives only long-term receipt records; Monthly Filing export receives only Monthly Filing records. Monthly Filing archives records only after workbook generation succeeds.
+
+---

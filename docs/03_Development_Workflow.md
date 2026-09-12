@@ -10,6 +10,8 @@
 8. Push.
 9. Verify deployment.
 
+For database-backed work, keep schema changes reproducible in source-controlled migrations. Apply and verify an additive migration and its RLS/security behavior before deploying frontend code that depends on it. Reserve manual Supabase actions for settings unsuitable for repository storage, such as account/auth project configuration, secrets, SMTP/provider credentials, and privileged administration; document those steps before deployment.
+
 For new Codex chats:
 - Attach GitHub repository.
 - Read /docs.

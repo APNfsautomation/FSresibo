@@ -3,7 +3,7 @@
 ## Epic 1 ✅
 Foundation & Cloud Infrastructure
 
-## Epic 2 🚧
+## Epic 2 ✅
 Workflow Optimization
 
 ### Milestone 2.1 ✅
@@ -29,12 +29,46 @@ Workflow Optimization
 - Export selected receipts
 - Auto-mark Consumed
 
-### Milestone 2.6
+### Milestone 2.6 ✅
 - Beta hardening: authentication recovery, deployment-aware redirects, semantic theme surfaces, restrained company accents, visible build version, shared physical amount compartments, Available Total, official-style staging workbook headers, and in-app workflow confirmations
 
+### Beta.5 Hotfix ✅
+- Fixed persisted receipt deletion after asynchronous in-app confirmation
+
+## Epic 3 — Additional Receipt Workflows & Shared Store Data
+
+### Milestone 3.1 — Navigation Foundation
+- Top-level application shell/navigation
+- Desktop sidebar and accessible mobile drawer
+- Hash routing compatible with static hosting and authentication callbacks
+- Receipts as a top-level module with Encoding and Optimization retained as sub-tabs
+
+### Milestone 3.2 — Shared Store Directory Foundation
+- `public.shared_store_directory` migration, normalization, constraints, indexes, RLS, and grants
+- Active-profile loading/search through a shared service
+- Company membership/security gate resolved before deployment
+
+### Milestone 3.3 — Shared Store Directory Adoption
+- Reusable autocomplete logic
+- Receipt Encoding integration and cross-user discovery
+- Explicit profile contribution, branch-aware matching, and duplicate/conflict handling
+- Temporary receipt-history fallback and controlled historical-backfill approach if needed
+
+### Milestone 3.4 — Monthly Filing Foundation
+- Separate Monthly Filing transaction table, lifecycle status, service, UI, and user RLS
+- Create/edit/delete/review and Shared Store Directory autocomplete
+- Transaction-domain isolation tests
+
+### Milestone 3.5 — Monthly Filing Lifecycle & Export
+- Active to Archived export lifecycle
+- Return to Active for rejected/corrected filings, then re-edit/re-export
+- Official workbook reuse, export-before-archive sequencing, archive-failure handling, and Clear Monthly Filing
+
+### Milestone 3.6 — Quick Optimizer
+- Stateless R1/R2/R3 temporary amount workflow
+- Existing Closest Match, Fewest Receipts, and Do Not Exceed Target strategies
+- No persistence, store data, lifecycle, or export
+
 ## Future
-- Company-wide Shared Store Directory: cross-user Store Name, Address, TIN, and VAT Status reuse with admin correction, duplicate/profile management, and deactivation of obsolete stores.
-Epic 3 OCR
-Epic 4 Export & Workflow Support
-Epic 5 Productivity
-Epic 6 Optional Integrations
+- Epic 4 — OCR Improvements
+- Further workflow assistance and optional integrations only when they remain consistent with the product charter
