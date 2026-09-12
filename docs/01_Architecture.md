@@ -95,6 +95,7 @@ Selected receipts should always be visually highlighted.
 - Theme preference is browser-local (System, Light, Dark); it is not persisted in Supabase.
 - A single source-code application version is rendered before and after authentication for beta deployment verification.
 - FS Automation blue/red are restrained shell accents. Encoding remains green and Optimization remains purple.
+- The application shell provides a desktop Receipts sidebar and an accessible mobile drawer. `#receipts/encoding` and `#receipts/optimization` are the active hash routes; Supabase callback fragments retain precedence and are never normalized as application routes.
 
 ## Database and Deployment Principle
 

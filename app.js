@@ -8,6 +8,7 @@ import * as receiptService from './services/receiptService.js';
 import { renderApplicationIdentity } from './ui/appIdentity.js';
 import { createAuthPanel } from './ui/authPanel.js';
 import { createConfirmationDialog } from './ui/confirmationDialog.js';
+import { createNavigationController, receiptRoutes } from './ui/navigationController.js';
 import { createReceiptUi } from './ui/receiptUi.js';
 import { createThemeController } from './ui/themeController.js';
 
@@ -35,6 +36,11 @@ const elements = {
   themePreference: document.querySelector('#themePreference'), authVersion: document.querySelector('#authVersion'), appVersion: document.querySelector('#appVersion')
 };
 
+const navigationElements = {
+  menuButton: document.querySelector('#navigationMenuButton'), drawer: document.querySelector('#navigationDrawer'), drawerBackdrop: document.querySelector('#navigationDrawerBackdrop'),
+  receiptsNav: document.querySelector('#receiptsNavigationItem'), encodingTab: elements.encodingTab, optimizationTab: elements.optimizationTab
+};
+
 const authElements = {
   authView: document.querySelector('#authView'), appView: document.querySelector('#appView'), loginForm: document.querySelector('#loginForm'),
   registerForm: document.querySelector('#registerForm'), loginEmail: document.querySelector('#loginEmail'), loginPassword: document.querySelector('#loginPassword'),
@@ -47,6 +53,7 @@ const authElements = {
 void supabaseConfig;
 const confirmationDialog = createConfirmationDialog({ modal: elements.confirmationModal, backdrop: elements.confirmationBackdrop, title: elements.confirmationTitle, message: elements.confirmationMessage, confirmButton: elements.confirmationConfirm, cancelButton: elements.confirmationCancel });
 const receiptUi = createReceiptUi({ elements, findBest, optimizationStrategies, toCents, scanPrintedDetails, downloadSelectedReceipts, receiptService, confirmAction: confirmationDialog.confirm });
+const navigationController = createNavigationController({ elements: navigationElements, onRoute: workspace => receiptUi.setWorkspace(workspace) });
 const themeController = createThemeController({ select: elements.themePreference });
 const authPanel = createAuthPanel(authElements, {
   onLogin: login,
@@ -74,6 +81,7 @@ async function showAuthenticatedUser(user) {
     authElements.userEmail.textContent = user.email;
     await receiptUi.loadForUser(user);
     await receiptUi.importLegacyDraft(user);
+    navigationController.start({ fallbackRoute: receiptUi.consumeLegacyWorkspace() === 'optimization' ? receiptRoutes.optimization : receiptRoutes.encoding });
     activeUserId = user.id;
   } finally { activatingUserId = undefined; }
 }

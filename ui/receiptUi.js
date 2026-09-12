@@ -448,15 +448,13 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     elements.optimizationHiddenSelected.textContent = hiddenSelected ? `${hiddenSelected} selected receipt${hiddenSelected === 1 ? ' is' : 's are'} hidden by the current filters.` : '';
     updateExportAction();
   };
-  const setWorkspace = (workspace, persist = true) => {
+  const setWorkspace = workspace => {
     const encoding = workspace !== 'optimization';
     elements.encodingWorkspace.hidden = !encoding;
     elements.optimizationWorkspace.hidden = encoding;
     elements.encodingTab.setAttribute('aria-selected', String(encoding));
     elements.optimizationTab.setAttribute('aria-selected', String(!encoding));
     if (!encoding) refreshOptimizationCards();
-    const key = workspaceStorageKey();
-    if (persist && key) try { sessionStorage.setItem(key, encoding ? 'encoding' : 'optimization'); } catch { /* Ignore unavailable session storage. */ }
   };
   const closeEditModal = () => { elements.editModal.hidden = true; delete elements.editModal.dataset.receiptIndex; };
   const openEditModal = index => {
@@ -828,8 +826,18 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       refreshEncodingCards();
       restoreActiveStrategy();
       showEmpty();
-      setWorkspace((() => { try { return sessionStorage.getItem(workspaceStorageKey()) || 'encoding'; } catch { return 'encoding'; } })(), false);
+      setWorkspace('encoding');
     },
+    consumeLegacyWorkspace() {
+      const key = workspaceStorageKey();
+      if (!key) return 'encoding';
+      try {
+        const workspace = sessionStorage.getItem(key) === 'optimization' ? 'optimization' : 'encoding';
+        sessionStorage.removeItem(key);
+        return workspace;
+      } catch { return 'encoding'; }
+    },
+    setWorkspace,
     clearForLogout() { currentUser = undefined; toolbarState = defaultOptimizationToolbarState(); encodingDisplayState = { compartment: 'all' }; storeSourceReceipts = []; rebuildStoreProfiles(); syncToolbarControls(); elements.encodingAmountCompartment.value = 'all'; setActiveStrategy(optimizationStrategies.closest, { persist: false }); elements.list.replaceChildren(); elements.target.value = ''; clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); closeEditModal(); closeExportConfirmation({ force: true }); },
     importLegacyDraft,
     start() {
@@ -843,8 +851,6 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       elements.clearAll.addEventListener('click', async event => {
         if (!elements.list.children.length || await confirmAction({ title: 'Clear receipts from this form?', message: 'Saved receipts remain in your account and return after a refresh.', confirmLabel: 'Clear form', cancelLabel: 'Keep receipts', danger: true, trigger: event.currentTarget })) { elements.list.replaceChildren(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); }
       });
-      elements.encodingTab.addEventListener('click', () => setWorkspace('encoding'));
-      elements.optimizationTab.addEventListener('click', () => setWorkspace('optimization'));
       elements.floatingAdd.addEventListener('click', addReceiptForEncoding);
       elements.editForm.addEventListener('submit', saveModalCorrection);
       elements.closeEditModal.addEventListener('click', closeEditModal);

@@ -49,6 +49,16 @@
     </section>
 
     <main class="app-shell" id="appView" hidden>
+      <button class="navigation-menu-button" id="navigationMenuButton" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="navigationDrawer">Menu</button>
+      <div class="navigation-backdrop" id="navigationDrawerBackdrop" hidden></div>
+      <aside class="application-navigation" id="navigationDrawer" aria-label="Application navigation" aria-hidden="false">
+        <p class="navigation-brand">FSRESIBO</p>
+        <p class="navigation-label">WORKFLOWS</p>
+        <nav>
+          <button class="navigation-item" id="receiptsNavigationItem" type="button" aria-current="page">Receipts</button>
+        </nav>
+      </aside>
+      <div class="application-content">
       <header class="app-header">
         <div>
           <p class="eyebrow brand-mark">FSRESIBO</p>
@@ -149,6 +159,7 @@
         </div>
       </section>
 
+      </div>
     </main>
 
     <section class="edit-modal" id="editReceiptModal" role="dialog" aria-modal="true" aria-labelledby="editReceiptTitle" hidden>

@@ -37,7 +37,7 @@ Workflow Optimization
 
 ## Epic 3 — Additional Receipt Workflows & Shared Store Data
 
-### Milestone 3.1 — Navigation Foundation
+### Milestone 3.1 ✅ — Navigation Foundation
 - Top-level application shell/navigation
 - Desktop sidebar and accessible mobile drawer
 - Hash routing compatible with static hosting and authentication callbacks
