@@ -48,7 +48,7 @@ Workflow Optimization
 - Active-profile loading/search through a shared service
 - Company membership/security gate resolved before deployment
 
-Repository implementation only: the migration is not yet applied to hosted Supabase, and the company-controlled signup gate must be completed before deployment.
+Hosted Supabase now has the reviewed directory migration and validated RLS; public signup is company-controlled. Milestone 3.3 performs the Receipt Encoding adoption.
 
 ### Milestone 3.3 ✅ — Shared Store Directory Adoption
 - Reusable autocomplete logic

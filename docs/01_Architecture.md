@@ -65,7 +65,7 @@ They must not query, optimize, export, update lifecycle state, or clear/delete e
 
 ### Shared Store Reference Data
 
-`public.shared_store_directory` is a source-controlled repository foundation for one canonical company-wide reference source for Receipt Encoding and Monthly Filing. It is reference/master data, not transaction data. Both transaction domains retain Store/Address/TIN/VAT snapshots, so later canonical corrections never rewrite historical receipt values. The migration is not yet applied to hosted Supabase and no Receipt Encoding UI consumes it until Milestone 3.3.
+`public.shared_store_directory` is the live canonical company-wide reference source for Receipt Encoding and Monthly Filing. It is reference/master data, not transaction data. Both transaction domains retain Store/Address/TIN/VAT snapshots, so later canonical corrections never rewrite historical receipt values.
 
 Receipt Encoding now loads active company profiles ahead of the current user's receipt-history fallback. Normal receipt edits never silently update canonical store profiles. New shared-profile contribution is explicit, requires a store name plus an address or TIN, and does not overwrite conflicting existing profiles. Initial administrative correction may occur through Supabase administration until an authorized in-app screen is deliberately implemented.
 
