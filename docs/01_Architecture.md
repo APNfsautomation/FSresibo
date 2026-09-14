@@ -69,7 +69,7 @@ They must not query, optimize, export, update lifecycle state, or clear/delete e
 
 Receipt Encoding now loads active company profiles ahead of the current user's receipt-history fallback. Normal receipt edits never silently update canonical store profiles. New shared-profile contribution is explicit, requires a store name plus an address or TIN, and does not overwrite conflicting existing profiles. Initial administrative correction may occur through Supabase administration until an authorized in-app screen is deliberately implemented.
 
-Before directory deployment, account membership/signup behavior must be reviewed so unapproved accounts cannot receive company-wide directory access. The current public signup flow must be replaced with company-controlled invitations or administrative account creation before hosted deployment. FSResibo remains a single-company deployment; multi-company architecture is out of scope.
+Company-wide directory access is restricted to company-controlled accounts. Public self-registration is disabled; new users are provisioned administratively. FSResibo remains a single-company deployment, and multi-company architecture is out of scope.
 
 ### Stateless Quick Optimizer
 
