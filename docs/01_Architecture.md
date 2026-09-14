@@ -65,11 +65,11 @@ They must not query, optimize, export, update lifecycle state, or clear/delete e
 
 ### Shared Store Reference Data
 
-`public.shared_store_directory` is planned as one canonical company-wide reference source for Receipt Encoding and Monthly Filing. It is reference/master data, not transaction data. Both transaction domains retain Store/Address/TIN/VAT snapshots, so later canonical corrections never rewrite historical receipt values.
+`public.shared_store_directory` is a source-controlled repository foundation for one canonical company-wide reference source for Receipt Encoding and Monthly Filing. It is reference/master data, not transaction data. Both transaction domains retain Store/Address/TIN/VAT snapshots, so later canonical corrections never rewrite historical receipt values. The migration is not yet applied to hosted Supabase and no Receipt Encoding UI consumes it until Milestone 3.3.
 
 Normal receipt edits must not silently update canonical store profiles. New shared-profile contribution is explicit, requires a store name plus an address or TIN, and does not overwrite conflicting existing profiles. Initial administrative correction may occur through Supabase administration until an authorized in-app screen is deliberately implemented.
 
-Before directory deployment, account membership/signup behavior must be reviewed so unapproved accounts cannot receive company-wide directory access. FSResibo remains a single-company deployment; multi-company architecture is out of scope.
+Before directory deployment, account membership/signup behavior must be reviewed so unapproved accounts cannot receive company-wide directory access. The current public signup flow must be replaced with company-controlled invitations or administrative account creation before hosted deployment. FSResibo remains a single-company deployment; multi-company architecture is out of scope.
 
 ### Stateless Quick Optimizer
 
