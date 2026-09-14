@@ -50,7 +50,7 @@ Workflow Optimization
 
 Repository implementation only: the migration is not yet applied to hosted Supabase, and the company-controlled signup gate must be completed before deployment.
 
-### Milestone 3.3 — Shared Store Directory Adoption
+### Milestone 3.3 ✅ — Shared Store Directory Adoption
 - Reusable autocomplete logic
 - Receipt Encoding integration and cross-user discovery
 - Explicit profile contribution, branch-aware matching, and duplicate/conflict handling
