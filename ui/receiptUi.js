@@ -73,6 +73,11 @@ const latestNonEmptyStoreValue = (records, field) => [...records]
   .map(record => readableOptimizationText(record[field]))
   .find(Boolean) || '';
 export const storeProfileFields = profile => ({ store: profile.store, address: profile.address, tin: profile.tin, vat: profile.vat });
+export const applyStoreProfileSnapshot = (current, profile) => {
+  const values = storeProfileFields(profile);
+  if (profile.source === 'shared') return values;
+  return { store: values.store, address: values.address || current.address, tin: values.tin || current.tin, vat: values.vat || current.vat };
+};
 export const describeStoreProfile = profile => [profile.address, profile.tin].filter(Boolean).join(' · ');
 export function buildStoreProfiles(receipts) {
   const stores = new Map();
@@ -219,8 +224,34 @@ export function createReceiptDeleteHandler({ row, triggerFallback, getCurrentUse
     }
   };
 }
+export const normalizeStoreTin = value => String(value || '').replace(/\D/g, '');
+export const sharedProfileIdentity = profile => `${normalizeStoreText(profile.storeName || profile.store)}\u0000${normalizeStoreText(profile.address)}\u0000${normalizeStoreTin(profile.tin)}`;
+export function findCompatibleSharedProfiles(candidate, profiles) {
+  const store = normalizeStoreText(candidate.storeName || candidate.store);
+  const address = normalizeStoreText(candidate.address);
+  const tin = normalizeStoreTin(candidate.tin);
+  return profiles.filter(profile => {
+    const existingAddress = normalizeStoreText(profile.address);
+    const existingTin = normalizeStoreTin(profile.tin);
+    return store && normalizeStoreText(profile.storeName || profile.store) === store && (!address || !existingAddress || address === existingAddress) && (!tin || !existingTin || tin === existingTin);
+  });
+}
+export function resolveSharedContributionCandidate(candidate, profiles) {
+  const exact = profiles.find(profile => sharedProfileIdentity(profile) === sharedProfileIdentity(candidate));
+  if (exact) return { status: 'existing', profile: exact };
+  const compatible = findCompatibleSharedProfiles(candidate, profiles);
+  if (compatible.length === 1) return { status: 'existing', profile: compatible[0] };
+  if (compatible.length > 1) return { status: 'ambiguous', profiles: compatible };
+  return { status: 'new' };
+}
+export function combineStoreProfiles(sharedProfiles, historyProfiles) {
+  const shared = sharedProfiles.map(profile => ({ ...profile, source: 'shared', store: profile.storeName, normalizedStore: normalizeStoreText(profile.storeName), addressKey: normalizeStoreText(profile.address), tinKey: normalizeStoreTin(profile.tin) }));
+  const identity = profile => `${profile.normalizedStore || normalizeStoreText(profile.store)}\u0000${profile.addressKey || normalizeStoreText(profile.address)}\u0000${profile.tinKey || normalizeStoreTin(profile.tin)}`;
+  const sharedIds = new Set(shared.map(identity));
+  return [...shared, ...historyProfiles.filter(profile => !sharedIds.has(identity(profile))).map(profile => ({ ...profile, source: 'history', normalizedStore: profile.normalizedStore || normalizeStoreText(profile.store) }))];
+}
 
-export function createReceiptUi({ elements, findBest, optimizationStrategies, toCents, scanPrintedDetails, downloadSelectedReceipts, receiptService, confirmAction = async () => false }) {
+export function createReceiptUi({ elements, findBest, optimizationStrategies, toCents, scanPrintedDetails, downloadSelectedReceipts, receiptService, sharedStoreService = {}, confirmAction = async () => false }) {
   let currentUser;
   let selectedReceiptIndexes = new Set();
   let selectedReceiptIds = [];
@@ -229,6 +260,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   let searchDebounce;
   let storeSourceReceipts = [];
   let storeProfiles = [];
+  let sharedStoreProfiles = [];
   let storeSuggestionSequence = 0;
   let savePending = false;
   let importPending = false;
@@ -243,6 +275,13 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   };
   const rowValues = row => Object.fromEntries(['amount', 'receiptDate', 'vat', 'invoice', 'store', 'address', 'tin'].map(key => [key, row.querySelector(`.receipt-${key}`).value]));
   const rebuildStoreProfiles = () => { storeProfiles = buildStoreProfiles(storeSourceReceipts); };
+  const sharedProfile = profile => ({ ...profile, storeName: profile.storeName || profile.store, address: profile.address || '', tin: profile.tin || '' });
+  const profileIdentity = sharedProfileIdentity;
+  const combinedStoreProfiles = () => combineStoreProfiles(sharedStoreProfiles, storeProfiles);
+  const reloadSharedStores = async () => {
+    try { sharedStoreProfiles = await sharedStoreService.listActiveSharedStores(); return true; }
+    catch { setFeedback(elements.encodingFeedback, 'Company Store Directory is temporarily unavailable. Your receipt history is still available.'); return false; }
+  };
   const upsertStoreSourceReceipt = receipt => {
     if (!receipt?.dbId) return;
     const index = storeSourceReceipts.findIndex(candidate => candidate.dbId === receipt.dbId);
@@ -492,11 +531,11 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     };
     const selectSuggestion = profile => {
       if (receiptStatus(row) === 'consumed') return;
-      const values = storeProfileFields(profile);
+      const values = applyStoreProfileSnapshot(rowValues(row), profile);
       input.value = values.store;
-      if (values.address) row.querySelector('.receipt-address').value = values.address;
-      if (values.tin) row.querySelector('.receipt-tin').value = values.tin;
-      if (values.vat) row.querySelector('.receipt-vat').value = values.vat;
+      row.querySelector('.receipt-address').value = values.address;
+      row.querySelector('.receipt-tin').value = values.tin;
+      row.querySelector('.receipt-vat').value = values.vat;
       refreshSummary(row);
       clearSelection();
       refreshOptimizationCards();
@@ -517,7 +556,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
         const name = document.createElement('strong');
         name.textContent = profile.store;
         option.append(name);
-        const details = describeStoreProfile(profile);
+        const details = [profile.source === 'shared' ? 'Company' : 'My receipt history', describeStoreProfile(profile)].filter(Boolean).join(' · ');
         if (details) { const meta = document.createElement('span'); meta.textContent = details; option.append(meta); }
         option.addEventListener('mousedown', event => { event.preventDefault(); selectSuggestion(profile); });
         fragment.append(option);
@@ -530,7 +569,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     };
     const updateSuggestions = () => {
       activeIndex = -1;
-      suggestions = findStoreSuggestions(storeProfiles, input.value);
+      suggestions = findStoreSuggestions(combinedStoreProfiles(), input.value);
       renderSuggestions();
     };
     input.addEventListener('input', updateSuggestions);
@@ -574,6 +613,23 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       setFeedback,
       feedbackTarget: elements.encodingFeedback
     }));
+    row.querySelector('.contribute-store').addEventListener('click', async event => {
+      const values = rowValues(row);
+      if (!currentUser || !values.store.trim() || (!values.address.trim() && !values.tin.trim())) return setFeedback(elements.encodingFeedback, 'Add a Store Name and either an Address or TIN before contributing.');
+      const candidate = { storeName: values.store, address: values.address, tin: values.tin, vat: values.vat };
+      const resolution = resolveSharedContributionCandidate(candidate, sharedStoreProfiles);
+      if (resolution.status === 'existing') return setFeedback(elements.encodingFeedback, 'This store already exists in the Company Store Directory.');
+      if (resolution.status === 'ambiguous') return setFeedback(elements.encodingFeedback, 'Multiple Company profiles match. Add an Address or TIN before contributing.');
+      event.currentTarget.disabled = true;
+      try {
+        await sharedStoreService.contributeSharedStore(candidate, currentUser.id);
+        await reloadSharedStores();
+        setFeedback(elements.encodingFeedback, 'Store added to the Company Store Directory.');
+      } catch (error) {
+        if (error?.name === 'SharedStoreDuplicateError') { await reloadSharedStores(); resolveSharedContributionCandidate(candidate, sharedStoreProfiles); setFeedback(elements.encodingFeedback, 'This store was already added to the Company Store Directory.'); }
+        else setFeedback(elements.encodingFeedback, `Could not add this store: ${error.message}`);
+      } finally { event.currentTarget.disabled = false; }
+    });
     row.querySelector('.restore-receipt').addEventListener('click', event => restoreReceipt([...elements.list.children].indexOf(row), event.currentTarget));
     installStoreAutocomplete(row);
     const storeInput = row.querySelector('.receipt-store');
@@ -816,6 +872,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       const receipts = await receiptService.loadReceipts();
       storeSourceReceipts = receipts;
       rebuildStoreProfiles();
+      await reloadSharedStores();
       elements.list.replaceChildren();
       clearSelection();
       receipts.forEach(receipt => addReceipt(receipt, { refresh: false }));
@@ -838,7 +895,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       } catch { return 'encoding'; }
     },
     setWorkspace,
-    clearForLogout() { currentUser = undefined; toolbarState = defaultOptimizationToolbarState(); encodingDisplayState = { compartment: 'all' }; storeSourceReceipts = []; rebuildStoreProfiles(); syncToolbarControls(); elements.encodingAmountCompartment.value = 'all'; setActiveStrategy(optimizationStrategies.closest, { persist: false }); elements.list.replaceChildren(); elements.target.value = ''; clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); closeEditModal(); closeExportConfirmation({ force: true }); },
+    clearForLogout() { currentUser = undefined; sharedStoreProfiles = []; toolbarState = defaultOptimizationToolbarState(); encodingDisplayState = { compartment: 'all' }; storeSourceReceipts = []; rebuildStoreProfiles(); syncToolbarControls(); elements.encodingAmountCompartment.value = 'all'; setActiveStrategy(optimizationStrategies.closest, { persist: false }); elements.list.replaceChildren(); elements.target.value = ''; clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); closeEditModal(); closeExportConfirmation({ force: true }); },
     importLegacyDraft,
     start() {
       renderEncodingAmountCompartmentOptions();

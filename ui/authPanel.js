@@ -6,7 +6,7 @@ export function createAuthPanel(elements, { onLogin, onRegister, onPasswordReset
   };
   const showError = error => { elements.authMessage.textContent = error.message || 'Authentication failed. Please try again.'; };
 
-  elements.showRegister.addEventListener('click', () => showMode('register'));
+  elements.showRegister?.addEventListener('click', () => showMode('register'));
   elements.showLogin.addEventListener('click', () => showMode('login'));
   elements.showReset?.addEventListener('click', () => showMode('reset'));
   elements.backToLogin?.addEventListener('click', () => showMode('login'));
