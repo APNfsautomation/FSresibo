@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { deduplicateDirectoryCandidates, floatingAddVisibleForStatus, persistedStoreFingerprint, persistReceiptsBeforeDirectoryPrompts, postSaveDirectoryDecision } from '../ui/receiptUi.js';
+import { deduplicateDirectoryCandidates, finalizeDirectoryPromptFingerprints, floatingAddVisibleForStatus, persistedStoreFingerprint, persistReceiptsBeforeDirectoryPrompts, postSaveDirectoryDecision } from '../ui/receiptUi.js';
 
 const candidate = (overrides = {}) => ({ store: 'North Cafe', address: 'North Avenue', tin: '123-456', vat: 'VAT', ...overrides });
 const companyProfiles = [{ id: 'north', storeName: 'North Cafe', address: 'North Avenue', tin: '123456' }];
@@ -45,19 +45,54 @@ test('receipt persistence completes before candidates can be processed for contr
   const calls = [];
   const result = await persistReceiptsBeforeDirectoryPrompts(['one', 'two'], async row => {
     calls.push(`save:${row}`);
-    return postSaveDirectoryDecision({ values: candidate({ store: `Cafe ${row}` }), profiles: [] });
+    const values = candidate({ store: `Cafe ${row}` });
+    return { row: { dataset: {} }, fingerprint: persistedStoreFingerprint(values), decision: postSaveDirectoryDecision({ values, profiles: [] }) };
   });
   calls.push(...result.candidates.map(item => `prompt:${item.candidate.storeName}`));
   assert.deepEqual(calls, ['save:one', 'save:two', 'prompt:Cafe one', 'prompt:Cafe two']);
 });
 
-test('failed receipt persistence does not return a candidate for contribution', async () => {
-  const result = await persistReceiptsBeforeDirectoryPrompts(['saved', 'failed'], async row => {
+test('a save batch stops on its first persistence failure and never processes later rows or candidates', async () => {
+  const calls = [];
+  const result = await persistReceiptsBeforeDirectoryPrompts(['saved', 'failed', 'later'], async row => {
+    calls.push(`save:${row}`);
     if (row === 'failed') throw new Error('save failed');
-    return postSaveDirectoryDecision({ values: candidate(), profiles: [] });
+    const values = candidate({ store: `Cafe ${row}` });
+    return { row: { dataset: {} }, fingerprint: persistedStoreFingerprint(values), decision: postSaveDirectoryDecision({ values, profiles: [] }) };
   });
+  assert.deepEqual(calls, ['save:saved', 'save:failed']);
+  assert.equal(result.error.message, 'save failed');
+  assert.equal(result.candidates.length, 0);
+  assert.equal(result.persisted.length, 1);
+});
+
+test('an aborted batch preserves the prior prompt fingerprint while retaining an earlier new-row dbId', async () => {
+  const row = { dataset: { persistedStoreFingerprint: '', receiptDbId: '' } };
+  const values = candidate();
+  const result = await persistReceiptsBeforeDirectoryPrompts(['first', 'failed'], async item => {
+    if (item === 'failed') throw new Error('save failed');
+    row.dataset.receiptDbId = 'new-row-id';
+    return { row, fingerprint: persistedStoreFingerprint(values), decision: postSaveDirectoryDecision({ values, previousFingerprint: row.dataset.persistedStoreFingerprint, profiles: [] }) };
+  });
+  assert.equal(row.dataset.receiptDbId, 'new-row-id');
+  assert.equal(row.dataset.persistedStoreFingerprint, '');
+  assert.equal(result.candidates.length, 0);
+  assert.equal(postSaveDirectoryDecision({ values, previousFingerprint: row.dataset.persistedStoreFingerprint, profiles: [] }).status, 'new');
+});
+
+test('a later all-successful save finalizes fingerprints and restores prompt eligibility', async () => {
+  const row = { dataset: { persistedStoreFingerprint: '' } };
+  const values = candidate();
+  const result = await persistReceiptsBeforeDirectoryPrompts([row], async savedRow => ({
+    row: savedRow,
+    fingerprint: persistedStoreFingerprint(values),
+    decision: postSaveDirectoryDecision({ values, previousFingerprint: savedRow.dataset.persistedStoreFingerprint, profiles: [] })
+  }));
+  assert.equal(result.error, undefined);
   assert.equal(result.candidates.length, 1);
-  assert.equal(result.errors.length, 1);
+  finalizeDirectoryPromptFingerprints(result.persisted);
+  assert.equal(row.dataset.persistedStoreFingerprint, persistedStoreFingerprint(values));
+  assert.equal(postSaveDirectoryDecision({ values, previousFingerprint: row.dataset.persistedStoreFingerprint, profiles: [] }).status, 'unchanged');
 });
 
 test('floating Add Receipt is visible for Available and All but hidden for Consumed', () => {

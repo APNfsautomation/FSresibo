@@ -271,16 +271,16 @@ export function deduplicateDirectoryCandidates(candidates) {
 }
 export const floatingAddVisibleForStatus = status => status !== 'consumed';
 export async function persistReceiptsBeforeDirectoryPrompts(rows, persistRow) {
-  const candidates = [];
-  const errors = [];
+  const persisted = [];
   for (const row of rows) {
     try {
-      const decision = await persistRow(row);
-      if (decision?.status === 'new' || decision?.status === 'ambiguous') candidates.push(decision);
-    } catch (error) { errors.push(error); }
+      const result = await persistRow(row);
+      if (result) persisted.push(result);
+    } catch (error) { return { persisted, candidates: [], error }; }
   }
-  return { candidates, errors };
+  return { persisted, candidates: persisted.map(result => result.decision).filter(decision => decision?.status === 'new' || decision?.status === 'ambiguous'), error: undefined };
 }
+export const finalizeDirectoryPromptFingerprints = persisted => persisted.forEach(({ row, fingerprint }) => { row.dataset.persistedStoreFingerprint = fingerprint; });
 export function combineStoreProfiles(sharedProfiles, historyProfiles) {
   const shared = sharedProfiles.map(profile => ({ ...profile, source: 'shared', store: profile.storeName, normalizedStore: normalizeStoreText(profile.storeName), addressKey: normalizeStoreText(profile.address), tinKey: normalizeStoreTin(profile.tin) }));
   const identity = profile => `${profile.normalizedStore || normalizeStoreText(profile.store)}\u0000${profile.addressKey || normalizeStoreText(profile.address)}\u0000${profile.tinKey || normalizeStoreTin(profile.tin)}`;
@@ -742,7 +742,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     savePending = true;
     elements.saveDraft.disabled = true;
     try {
-      const { candidates, errors } = await persistReceiptsBeforeDirectoryPrompts([...elements.list.children], async row => {
+      const { persisted, candidates, error } = await persistReceiptsBeforeDirectoryPrompts([...elements.list.children], async row => {
         if (receiptStatus(row) === 'consumed') return undefined;
         const receipt = rowValues(row);
         if (isBlankUnsavedReceipt(row)) return undefined;
@@ -750,16 +750,17 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
         const saved = row.dataset.receiptDbId ? await receiptService.updateReceipt(row.dataset.receiptDbId, receipt, currentUser.id) : await receiptService.createReceipt(receipt, currentUser.id);
         row.dataset.receiptDbId = saved.dbId;
         if (saved.updatedAt) row.dataset.receiptUpdatedAt = saved.updatedAt;
-        row.dataset.persistedStoreFingerprint = persistedStoreFingerprint(receipt);
         upsertStoreSourceReceipt(saved);
-        return postSaveDirectoryDecision({ values: receipt, previousFingerprint, profiles: sharedStoreProfiles });
+        const fingerprint = persistedStoreFingerprint(receipt);
+        return { row, fingerprint, decision: postSaveDirectoryDecision({ values: receipt, previousFingerprint, profiles: sharedStoreProfiles }) };
       });
-      refreshEncodingCards();
-      refreshOptimizationCards();
-      if (errors.length) {
-        setFeedback(elements.encodingFeedback, `Could not save receipt changes: ${errors[0].message}`);
+      if (error) {
+        setFeedback(elements.encodingFeedback, `Could not save receipt changes: ${error.message}`);
         return;
       }
+      finalizeDirectoryPromptFingerprints(persisted);
+      refreshEncodingCards();
+      refreshOptimizationCards();
       setFeedback(elements.encodingFeedback, 'Receipt changes saved.');
       await processPostSaveDirectoryCandidates(candidates);
     } catch (error) { setFeedback(elements.encodingFeedback, `Could not save receipt changes: ${error.message}`); }
