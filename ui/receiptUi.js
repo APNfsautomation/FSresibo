@@ -244,6 +244,43 @@ export function resolveSharedContributionCandidate(candidate, profiles) {
   if (compatible.length > 1) return { status: 'ambiguous', profiles: compatible };
   return { status: 'new' };
 }
+export const persistedStoreFingerprint = values => [
+  normalizeStoreText(values.storeName || values.store),
+  normalizeStoreText(values.address),
+  normalizeStoreTin(values.tin)
+].join('\u0000');
+export const hasContributableStoreDetails = values => Boolean(
+  String(values.storeName || values.store || '').trim() &&
+  (String(values.address || '').trim() || String(values.tin || '').trim())
+);
+export function postSaveDirectoryDecision({ values, previousFingerprint, profiles }) {
+  const candidate = { storeName: values.store, address: values.address, tin: values.tin, vat: values.vat };
+  const fingerprint = persistedStoreFingerprint(candidate);
+  if (!hasContributableStoreDetails(candidate)) return { status: 'ineligible', fingerprint };
+  if (previousFingerprint === fingerprint) return { status: 'unchanged', fingerprint };
+  return { ...resolveSharedContributionCandidate(candidate, profiles), fingerprint, candidate };
+}
+export function deduplicateDirectoryCandidates(candidates) {
+  const seen = new Set();
+  return candidates.filter(candidate => {
+    const key = sharedProfileIdentity(candidate.candidate || candidate);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+export const floatingAddVisibleForStatus = status => status !== 'consumed';
+export async function persistReceiptsBeforeDirectoryPrompts(rows, persistRow) {
+  const candidates = [];
+  const errors = [];
+  for (const row of rows) {
+    try {
+      const decision = await persistRow(row);
+      if (decision?.status === 'new' || decision?.status === 'ambiguous') candidates.push(decision);
+    } catch (error) { errors.push(error); }
+  }
+  return { candidates, errors };
+}
 export function combineStoreProfiles(sharedProfiles, historyProfiles) {
   const shared = sharedProfiles.map(profile => ({ ...profile, source: 'shared', store: profile.storeName, normalizedStore: normalizeStoreText(profile.storeName), addressKey: normalizeStoreText(profile.address), tinKey: normalizeStoreTin(profile.tin) }));
   const identity = profile => `${profile.normalizedStore || normalizeStoreText(profile.store)}\u0000${profile.addressKey || normalizeStoreText(profile.address)}\u0000${profile.tinKey || normalizeStoreTin(profile.tin)}`;
@@ -397,6 +434,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     });
     const total = availableReceiptTotalCents(storeSourceReceipts.map(receipt => ({ status: receipt.status, cents: toCents(receipt.amount) })));
     elements.availableTotal.textContent = `Available Total — ${format(total)}`;
+    elements.floatingAdd.hidden = !floatingAddVisibleForStatus(toolbarState.status);
   };
   const applyReceiptStatusState = row => {
     const consumed = receiptStatus(row) === 'consumed';
@@ -404,6 +442,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     row.querySelector('.receipt-status-badge').hidden = !consumed;
     row.querySelector('.delete-receipt').hidden = consumed;
     row.querySelector('.restore-receipt').hidden = !consumed;
+    row.querySelector('.contribute-store').hidden = consumed;
     row.querySelectorAll('input, select').forEach(field => { field.disabled = consumed; });
   };
   const refreshReceiptIds = () => {
@@ -595,6 +634,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     if (values.dbId) row.dataset.receiptDbId = values.dbId;
     if (values.updatedAt) row.dataset.receiptUpdatedAt = values.updatedAt;
     row.dataset.receiptStatus = normalizeReceiptStatus(values.status);
+    if (values.dbId) row.dataset.persistedStoreFingerprint = persistedStoreFingerprint(values);
     for (const [key, value] of Object.entries(values)) { const field = row.querySelector(`.receipt-${key}`); if (field) field.value = value; }
     row.querySelector('.receipt-photo').addEventListener('change', event => { const file = event.currentTarget.files[0]; if (file) scanPrintedDetails(file, row, refreshSummary); });
     row.querySelector('.delete-receipt').addEventListener('click', createReceiptDeleteHandler({
@@ -614,6 +654,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       feedbackTarget: elements.encodingFeedback
     }));
     row.querySelector('.contribute-store').addEventListener('click', async event => {
+      if (receiptStatus(row) === 'consumed') return;
       const values = rowValues(row);
       if (!currentUser || !values.store.trim() || (!values.address.trim() && !values.tin.trim())) return setFeedback(elements.encodingFeedback, 'Add a Store Name and either an Address or TIN before contributing.');
       const candidate = { storeName: values.store, address: values.address, tin: values.tin, vat: values.vat };
@@ -656,24 +697,71 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     const pendingReceipt = [...elements.list.children].find(isBlankUnsavedReceipt);
     focusReceiptForEncoding(pendingReceipt || addReceipt());
   };
+  const candidateMessage = candidate => {
+    const details = [candidate.address && `Address: ${candidate.address}`, candidate.tin && `TIN: ${candidate.tin}`].filter(Boolean);
+    return `“${candidate.storeName}” is not currently in the Company Directory. Adding it will make its store details available to other FSResibo users.${details.length ? ` ${details.join(' · ')}` : ''}`;
+  };
+  const contributeAfterReceiptSave = async candidate => {
+    try {
+      await sharedStoreService.contributeSharedStore(candidate, currentUser.id);
+      await reloadSharedStores();
+      setFeedback(elements.encodingFeedback, 'Receipt saved. Store added to the Company Directory.');
+    } catch (error) {
+      if (error?.name === 'SharedStoreDuplicateError') {
+        await reloadSharedStores();
+        setFeedback(elements.encodingFeedback, 'Receipt saved. This store is already in the Company Directory.');
+      } else {
+        setFeedback(elements.encodingFeedback, `Receipt saved, but the store could not be added to the Company Directory: ${error.message}`);
+      }
+    }
+  };
+  const processPostSaveDirectoryCandidates = async candidates => {
+    for (const decision of deduplicateDirectoryCandidates(candidates)) {
+      if (decision.status === 'ambiguous') {
+        setFeedback(elements.encodingFeedback, 'Receipt saved. Multiple Company profiles match this store; add more identifying information before adding it to the directory.');
+        continue;
+      }
+      if (decision.status !== 'new') continue;
+      const confirmed = await confirmAction({
+        title: 'Add store to Company Directory?',
+        message: candidateMessage(decision.candidate),
+        confirmLabel: 'Add to Company Directory',
+        cancelLabel: 'Keep in My Receipt History',
+        trigger: elements.saveDraft
+      });
+      if (!confirmed) {
+        setFeedback(elements.encodingFeedback, 'Receipt saved. Store kept in My Receipt History.');
+        continue;
+      }
+      await contributeAfterReceiptSave(decision.candidate);
+    }
+  };
   const saveDraft = async () => {
     if (savePending) return;
     if (!currentUser) return setFeedback(elements.encodingFeedback, 'Please sign in before saving receipts.');
     savePending = true;
     elements.saveDraft.disabled = true;
     try {
-      for (const row of elements.list.children) {
-        if (receiptStatus(row) === 'consumed') continue;
+      const { candidates, errors } = await persistReceiptsBeforeDirectoryPrompts([...elements.list.children], async row => {
+        if (receiptStatus(row) === 'consumed') return undefined;
         const receipt = rowValues(row);
-        if (isBlankUnsavedReceipt(row)) continue;
+        if (isBlankUnsavedReceipt(row)) return undefined;
+        const previousFingerprint = row.dataset.persistedStoreFingerprint;
         const saved = row.dataset.receiptDbId ? await receiptService.updateReceipt(row.dataset.receiptDbId, receipt, currentUser.id) : await receiptService.createReceipt(receipt, currentUser.id);
         row.dataset.receiptDbId = saved.dbId;
         if (saved.updatedAt) row.dataset.receiptUpdatedAt = saved.updatedAt;
+        row.dataset.persistedStoreFingerprint = persistedStoreFingerprint(receipt);
         upsertStoreSourceReceipt(saved);
-      }
+        return postSaveDirectoryDecision({ values: receipt, previousFingerprint, profiles: sharedStoreProfiles });
+      });
       refreshEncodingCards();
       refreshOptimizationCards();
+      if (errors.length) {
+        setFeedback(elements.encodingFeedback, `Could not save receipt changes: ${errors[0].message}`);
+        return;
+      }
       setFeedback(elements.encodingFeedback, 'Receipt changes saved.');
+      await processPostSaveDirectoryCandidates(candidates);
     } catch (error) { setFeedback(elements.encodingFeedback, `Could not save receipt changes: ${error.message}`); }
     finally { savePending = false; elements.saveDraft.disabled = false; }
   };
