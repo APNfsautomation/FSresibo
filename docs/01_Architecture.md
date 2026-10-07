@@ -67,7 +67,7 @@ They must not query, optimize, export, update lifecycle state, or clear/delete e
 
 `public.shared_store_directory` is the live canonical company-wide reference source for Receipt Encoding and Monthly Filing. It is reference/master data, not transaction data. Both transaction domains retain Store/Address/TIN/VAT snapshots, so later canonical corrections never rewrite historical receipt values.
 
-Receipt Encoding now loads active company profiles ahead of the current user's receipt-history fallback. Normal receipt edits never silently update canonical store profiles. New shared-profile contribution is explicit, requires a store name plus an address or TIN, and does not overwrite conflicting existing profiles. Initial administrative correction may occur through Supabase administration until an authorized in-app screen is deliberately implemented.
+Receipt Encoding now loads active company profiles ahead of the current user's receipt-history fallback. After a successful new or materially changed receipt save, an eligible unmatched store can be added through an explicit post-save consent prompt; declining keeps it only in personal receipt history. Normal receipt edits never silently update canonical store profiles. New shared-profile contribution requires a store name plus an address or TIN and does not overwrite conflicting existing profiles. Initial administrative correction may occur through Supabase administration until an authorized in-app screen is deliberately implemented.
 
 Company-wide directory access is restricted to company-controlled accounts. Public self-registration is disabled; new users are provisioned administratively. FSResibo remains a single-company deployment, and multi-company architecture is out of scope.
 
@@ -86,6 +86,8 @@ One reusable Expense Detailed Report workbook builder will preserve the official
 ## Current UI Direction
 Only the receipt list scrolls.
 Header, summary, and optimization controls remain visible.
+
+When the Encoding status view is Consumed, Add Receipt is hidden so read-only receipt review cannot start a new receipt.
 
 Selected receipts should always be visually highlighted.
 
