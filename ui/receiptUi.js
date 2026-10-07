@@ -534,6 +534,11 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     elements.optimizationTab.setAttribute('aria-selected', String(!encoding));
     if (!encoding) refreshOptimizationCards();
   };
+  const setModuleVisible = visible => {
+    elements.workspaceSwitcher.hidden = !visible;
+    elements.receiptStatusControl.hidden = !visible;
+    if (!visible) { elements.encodingWorkspace.hidden = true; elements.optimizationWorkspace.hidden = true; }
+  };
   const closeEditModal = () => { elements.editModal.hidden = true; delete elements.editModal.dataset.receiptIndex; };
   const openEditModal = index => {
     const row = elements.list.children[index];
@@ -984,6 +989,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       } catch { return 'encoding'; }
     },
     setWorkspace,
+    setModuleVisible,
     clearForLogout() { currentUser = undefined; sharedStoreProfiles = []; toolbarState = defaultOptimizationToolbarState(); encodingDisplayState = { compartment: 'all' }; storeSourceReceipts = []; rebuildStoreProfiles(); syncToolbarControls(); elements.encodingAmountCompartment.value = 'all'; setActiveStrategy(optimizationStrategies.closest, { persist: false }); elements.list.replaceChildren(); elements.target.value = ''; clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); closeEditModal(); closeExportConfirmation({ force: true }); },
     importLegacyDraft,
     start() {

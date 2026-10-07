@@ -72,11 +72,11 @@
         </div>
       </header>
 
-      <nav class="workspace-switcher" aria-label="Receipt workspaces" role="tablist">
+      <nav class="workspace-switcher" id="receiptWorkspaceSwitcher" aria-label="Receipt workspaces" role="tablist">
         <button class="workspace-tab" id="encodingTab" type="button" role="tab" aria-controls="encodingWorkspace" aria-selected="true">Receipt Encoding</button>
         <button class="workspace-tab" id="optimizationTab" type="button" role="tab" aria-controls="optimizationWorkspace" aria-selected="false">Receipt Optimization</button>
       </nav>
-      <label class="receipt-status-filter">View receipts<select id="receiptStatusFilter"><option value="available">Available</option><option value="consumed">Consumed</option><option value="all">All</option></select></label>
+      <label class="receipt-status-filter" id="receiptStatusControl">View receipts<select id="receiptStatusFilter"><option value="available">Available</option><option value="consumed">Consumed</option><option value="all">All</option></select></label>
 
       <section class="workspace-view encoding-workspace" id="encodingWorkspace" role="tabpanel" aria-labelledby="encodingTab">
         <div class="workspace-heading">

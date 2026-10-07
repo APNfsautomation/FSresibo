@@ -36,7 +36,7 @@ const elements = {
   exportConfirmModal: document.querySelector('#exportConfirmModal'), exportConfirmBackdrop: document.querySelector('#exportConfirmBackdrop'), exportConfirmMessage: document.querySelector('#exportConfirmMessage'), confirmExport: document.querySelector('#confirmExport'), cancelExport: document.querySelector('#cancelExport'),
   confirmationModal: document.querySelector('#confirmationModal'), confirmationBackdrop: document.querySelector('#confirmationBackdrop'), confirmationTitle: document.querySelector('#confirmationTitle'), confirmationMessage: document.querySelector('#confirmationMessage'), confirmationConfirm: document.querySelector('#confirmationConfirm'), confirmationCancel: document.querySelector('#confirmationCancel'),
   encodingFeedback: document.querySelector('#encodingFeedback'), editFeedback: document.querySelector('#editFeedback'), sessionFeedback: document.querySelector('#sessionFeedback'),
-  themePreference: document.querySelector('#themePreference'), authVersion: document.querySelector('#authVersion'), appVersion: document.querySelector('#appVersion')
+  themePreference: document.querySelector('#themePreference'), authVersion: document.querySelector('#authVersion'), appVersion: document.querySelector('#appVersion'), receiptWorkspaceSwitcher: document.querySelector('#receiptWorkspaceSwitcher'), receiptStatusControl: document.querySelector('#receiptStatusControl')
   , monthlyFilingWorkspace: document.querySelector('#monthlyFilingWorkspace'), monthlyFilingList: document.querySelector('#monthlyFilingList'), monthlyFilingTemplate: document.querySelector('#monthlyFilingReceiptTemplate'), monthlyFilingAdd: document.querySelector('#monthlyFilingAdd'), monthlyFilingSave: document.querySelector('#monthlyFilingSave'), monthlyFilingFeedback: document.querySelector('#monthlyFilingFeedback')
 };
 
@@ -58,7 +58,7 @@ void supabaseConfig;
 const confirmationDialog = createConfirmationDialog({ modal: elements.confirmationModal, backdrop: elements.confirmationBackdrop, title: elements.confirmationTitle, message: elements.confirmationMessage, confirmButton: elements.confirmationConfirm, cancelButton: elements.confirmationCancel });
 const receiptUi = createReceiptUi({ elements, findBest, optimizationStrategies, toCents, scanPrintedDetails, downloadSelectedReceipts, receiptService, sharedStoreService, confirmAction: confirmationDialog.confirm });
 const monthlyFilingUi = createMonthlyFilingUi({ elements: { workspace: elements.monthlyFilingWorkspace, list: elements.monthlyFilingList, template: elements.monthlyFilingTemplate, add: elements.monthlyFilingAdd, save: elements.monthlyFilingSave, feedback: elements.monthlyFilingFeedback }, monthlyFilingService, sharedStoreService, confirmAction: confirmationDialog.confirm });
-const navigationController = createNavigationController({ elements: navigationElements, onRoute: workspace => { const monthly = workspace === 'monthly-filing'; monthlyFilingUi.setVisible(monthly); if (!monthly) receiptUi.setWorkspace(workspace); } });
+const navigationController = createNavigationController({ elements: navigationElements, onRoute: workspace => { const monthly = workspace === 'monthly-filing'; monthlyFilingUi.setVisible(monthly); receiptUi.setModuleVisible(!monthly); if (!monthly) receiptUi.setWorkspace(workspace); } });
 const themeController = createThemeController({ select: elements.themePreference });
 const authPanel = createAuthPanel(authElements, {
   onLogin: login,

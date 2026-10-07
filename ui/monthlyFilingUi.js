@@ -1,6 +1,14 @@
 export const monthlyFilingProfileSnapshot = profile => ({ sharedStoreId: profile.id, store: profile.storeName, address: profile.address || '', tin: profile.tin || '', vat: profile.vat || '' });
 export const clearsSharedStoreAssociation = (before, after) => ['store', 'address', 'tin'].some(key => String(before[key] || '').trim() !== String(after[key] || '').trim());
 export const monthlyFilingIsReadOnly = receipt => receipt.status === 'archived';
+export async function persistMonthlyFilingRows(rows, persistRow) {
+  const saved = [];
+  for (const row of rows) {
+    try { saved.push(await persistRow(row)); }
+    catch (error) { return { saved, error }; }
+  }
+  return { saved, error: undefined };
+}
 
 export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedStoreService, confirmAction = async () => false }) {
   let currentUser;
@@ -12,7 +20,7 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
   const render = () => {
     elements.list.replaceChildren();
     if (!records.length) { const empty = document.createElement('p'); empty.className = 'monthly-empty'; empty.textContent = 'No Monthly Filing receipts yet. Add one to begin.'; elements.list.append(empty); return; }
-    records.forEach(record => {
+    records.forEach((record, recordIndex) => {
       const row = elements.template.content.firstElementChild.cloneNode(true);
       row.dataset.monthlyId = record.dbId || '';
       row.dataset.sharedStoreId = record.sharedStoreId || '';
@@ -35,7 +43,9 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
       store.addEventListener('input', showSuggestions);
       ['store', 'address', 'tin'].forEach(key => row.querySelector(`.monthly-${key}`).addEventListener('input', () => { if (row.dataset.sharedStoreId) row.dataset.sharedStoreId = ''; }));
       row.querySelector('.monthly-delete').addEventListener('click', async event => {
-        if (!record.dbId || archived || !await confirmAction({ title: 'Delete Monthly Filing receipt?', message: 'This removes this receipt from Monthly Filing only.', confirmLabel: 'Delete Receipt', cancelLabel: 'Cancel', danger: true, trigger: event.currentTarget })) return;
+        if (archived) return;
+        if (!record.dbId) { records.splice(recordIndex, 1); render(); feedback('Unsaved Monthly Filing receipt removed.'); return; }
+        if (!await confirmAction({ title: 'Delete Monthly Filing receipt?', message: 'This removes this receipt from Monthly Filing only.', confirmLabel: 'Delete Receipt', cancelLabel: 'Cancel', danger: true, trigger: event.currentTarget })) return;
         try { await monthlyFilingService.deleteMonthlyFilingReceipt(record.dbId); records = records.filter(item => item.dbId !== record.dbId); render(); feedback('Monthly Filing receipt deleted.'); } catch (error) { feedback(`Could not delete Monthly Filing receipt: ${error.message}`); }
       });
       elements.list.append(row);
@@ -47,7 +57,17 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
     loading = true; elements.save.disabled = true;
     try {
       const rows = [...elements.list.children].filter(row => row.matches('.monthly-card') && row.dataset.status !== 'archived');
-      for (const row of rows) { const receipt = { ...values(row), sharedStoreId: row.dataset.sharedStoreId || '' }; const saved = row.dataset.monthlyId ? await monthlyFilingService.updateMonthlyFilingReceipt(row.dataset.monthlyId, receipt, currentUser.id) : await monthlyFilingService.createMonthlyFilingReceipt(receipt, currentUser.id); const index = records.findIndex(item => item.dbId === row.dataset.monthlyId); if (index >= 0) records[index] = saved; else records.push(saved); }
+      const { error } = await persistMonthlyFilingRows(rows, async row => {
+        const recordIndex = [...elements.list.children].indexOf(row);
+        const receipt = { ...values(row), sharedStoreId: row.dataset.sharedStoreId || '' };
+        const saved = row.dataset.monthlyId ? await monthlyFilingService.updateMonthlyFilingReceipt(row.dataset.monthlyId, receipt, currentUser.id) : await monthlyFilingService.createMonthlyFilingReceipt(receipt, currentUser.id);
+        records[recordIndex] = saved;
+        row.dataset.monthlyId = saved.dbId;
+        row.dataset.sharedStoreId = saved.sharedStoreId || '';
+        row.dataset.status = saved.status;
+        return saved;
+      });
+      if (error) throw error;
       records = records.filter(record => record.dbId); render(); feedback('Monthly Filing changes saved.');
     } catch (error) { feedback(`Could not save Monthly Filing changes: ${error.message}`); } finally { loading = false; elements.save.disabled = false; }
   };
