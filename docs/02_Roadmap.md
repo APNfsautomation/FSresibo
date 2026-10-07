@@ -56,12 +56,12 @@ Hosted Supabase now has the reviewed directory migration and validated RLS; publ
 - Explicit profile contribution, branch-aware matching, and duplicate/conflict handling
 - Temporary receipt-history fallback and controlled historical-backfill approach if needed
 
-### Milestone 3.4 ✅ — Monthly Filing Foundation
+### Milestone 3.4 — Monthly Filing Foundation
 - Separate Monthly Filing transaction table, lifecycle status, service, UI, and user RLS
 - Create/edit/delete/review and Shared Store Directory autocomplete
 - Transaction-domain isolation tests
 
-Implemented locally only. Migration 003 requires technical review, hosted Supabase deployment, and real RLS validation before Monthly Filing is operational against production.
+Migration 003 is deployed to hosted Supabase. Live schema/RLS validation, including two-user ownership isolation, passed. Browser/user acceptance and merge of PR #13 remain pending before Milestone 3.4 is treated as production-complete.
 
 ### Milestone 3.5 — Monthly Filing Lifecycle & Export
 - Active to Archived export lifecycle

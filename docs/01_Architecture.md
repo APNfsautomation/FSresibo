@@ -61,9 +61,9 @@ Long-term receipts and Monthly Filing receipts are separate transaction domains:
 public.receipts != public.monthly_filing_receipts
 ```
 
-They must not query, optimize, export, update lifecycle state, or clear/delete each other's records. Monthly Filing will have its own user-scoped table, service, UI controller, and Active/Archived lifecycle. It may return archived records to Active for correction and re-export before final approval.
+They must not query, optimize, export, update lifecycle state, or clear/delete each other's records. Monthly Filing has its own user-scoped table, service, UI controller, and Active/Archived lifecycle. Milestone 3.5 will add deliberate archive/return-to-active workflow behavior.
 
-Milestone 3.4 implements the Monthly Filing foundation locally through `public.monthly_filing_receipts`, `monthlyFilingService.js`, and a dedicated `#monthly-filing` workspace. Monthly Filing transaction snapshots retain Store/Address/TIN/VAT values; selecting a Shared Store Directory profile records its current snapshot and optional `shared_store_id`, while later canonical corrections never rewrite the transaction snapshot.
+Milestone 3.4 provides the Monthly Filing foundation through `public.monthly_filing_receipts`, `monthlyFilingService.js`, and a dedicated `#monthly-filing` workspace. Migration 003 is deployed to hosted Supabase; live schema/RLS validation, including two-user ownership isolation, passed. Browser/user acceptance and merge of PR #13 remain pending. Monthly Filing transaction snapshots retain Store/Address/TIN/VAT values; selecting a Shared Store Directory profile records its current snapshot and optional `shared_store_id`, while later canonical corrections never rewrite the transaction snapshot.
 
 ### Shared Store Reference Data
 
