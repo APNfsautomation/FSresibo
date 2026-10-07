@@ -6,7 +6,7 @@ export const receiptRoutes = Object.freeze({
 export const routeRegistry = Object.freeze({
   [receiptRoutes.encoding]: Object.freeze({ module: 'receipts', workspace: 'encoding', available: true }),
   [receiptRoutes.optimization]: Object.freeze({ module: 'receipts', workspace: 'optimization', available: true }),
-  'monthly-filing': Object.freeze({ module: 'monthly-filing', available: false }),
+  'monthly-filing': Object.freeze({ module: 'monthly-filing', available: true }),
   'quick-optimizer': Object.freeze({ module: 'quick-optimizer', available: false }),
   'store-directory': Object.freeze({ module: 'store-directory', available: false })
 });
@@ -43,11 +43,13 @@ export function createNavigationController({ window = globalThis.window, documen
 
   const renderRoute = route => {
     activeRoute = route;
+    const monthly = route === 'monthly-filing';
     const optimization = route === receiptRoutes.optimization;
-    elements.receiptsNav.setAttribute('aria-current', 'page');
+    elements.receiptsNav.setAttribute('aria-current', monthly ? 'false' : 'page');
+    elements.monthlyNav.setAttribute('aria-current', monthly ? 'page' : 'false');
     elements.encodingTab.setAttribute('aria-selected', String(!optimization));
     elements.optimizationTab.setAttribute('aria-selected', String(optimization));
-    onRoute(optimization ? 'optimization' : 'encoding');
+    onRoute(monthly ? 'monthly-filing' : optimization ? 'optimization' : 'encoding');
   };
 
   const replaceRoute = route => {
@@ -78,6 +80,7 @@ export function createNavigationController({ window = globalThis.window, documen
       elements.menuButton.addEventListener('click', () => setDrawer(elements.drawer.hidden));
       elements.drawerBackdrop.addEventListener('click', () => setDrawer(false, { restoreFocus: true }));
       elements.receiptsNav.addEventListener('click', () => { navigate(receiptRoutes.encoding); setDrawer(false); });
+      elements.monthlyNav.addEventListener('click', () => { navigate('monthly-filing'); setDrawer(false); });
       elements.encodingTab.addEventListener('click', () => navigate(receiptRoutes.encoding));
       elements.optimizationTab.addEventListener('click', () => navigate(receiptRoutes.optimization));
       window.addEventListener('hashchange', () => applyLocation());

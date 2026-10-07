@@ -63,6 +63,8 @@ public.receipts != public.monthly_filing_receipts
 
 They must not query, optimize, export, update lifecycle state, or clear/delete each other's records. Monthly Filing will have its own user-scoped table, service, UI controller, and Active/Archived lifecycle. It may return archived records to Active for correction and re-export before final approval.
 
+Milestone 3.4 implements the Monthly Filing foundation locally through `public.monthly_filing_receipts`, `monthlyFilingService.js`, and a dedicated `#monthly-filing` workspace. Monthly Filing transaction snapshots retain Store/Address/TIN/VAT values; selecting a Shared Store Directory profile records its current snapshot and optional `shared_store_id`, while later canonical corrections never rewrite the transaction snapshot.
+
 ### Shared Store Reference Data
 
 `public.shared_store_directory` is the live canonical company-wide reference source for Receipt Encoding and Monthly Filing. It is reference/master data, not transaction data. Both transaction domains retain Store/Address/TIN/VAT snapshots, so later canonical corrections never rewrite historical receipt values.
@@ -102,3 +104,7 @@ Selected receipts should always be visually highlighted.
 ## Database and Deployment Principle
 
 Supabase migrations and static frontend deployments are separate operations. For a database-backed milestone: apply and verify the additive source-controlled migration, test RLS/security, deploy the dependent frontend, then perform deployment acceptance testing. New frontend code must not be deployed ahead of required tables or policies.
+
+### Pre-production release gate
+
+Before colleague rollout, remove development/test data from `public.receipts`, `public.monthly_filing_receipts`, and `public.shared_store_directory` while preserving schema, migrations, RLS, and authentication users unless separately approved. Prepare an administrator maintenance runbook for Company Directory entries, long-term receipt history, and Monthly Filing entries. This is a release gate only; no reset is implemented here.

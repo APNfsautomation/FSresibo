@@ -1,0 +1,6 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import test from 'node:test';
+const migration = () => readFile(new URL('../supabase/migrations/003_create_monthly_filing_receipts.sql', import.meta.url), 'utf8');
+test('Monthly Filing migration creates the separate transaction table and intended indexes', async () => { const sql = await migration(); assert.match(sql, /create table public\.monthly_filing_receipts/i); assert.match(sql, /shared_store_id uuid references public\.shared_store_directory\(id\) on delete set null/i); assert.match(sql, /user_id, status, receipt_date/i); assert.match(sql, /user_id, created_at/i); assert.match(sql, /shared_store_id\)/i); assert.doesNotMatch(sql, /unique[^\n]*(invoice|store)/i); });
+test('Monthly Filing migration provides authenticated ownership CRUD and no broad anon grant', async () => { const sql = await migration(); assert.match(sql, /enable row level security/i); assert.match(sql, /revoke all on table public\.monthly_filing_receipts from anon, authenticated/i); assert.match(sql, /grant select, insert, update, delete .* authenticated/i); assert.match(sql, /for update to authenticated[\s\S]*using \(\(select auth\.uid\(\)\) = user_id\)[\s\S]*with check \(\(select auth\.uid\(\)\) = user_id\)/i); assert.match(sql, /for delete to authenticated/i); });
