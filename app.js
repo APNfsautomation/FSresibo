@@ -2,7 +2,7 @@ import { isSupabaseConfigured, supabaseConfig } from './config/supabase.js';
 import { appMetadata } from './config/appMetadata.js';
 import { authRedirectUrl, getCurrentSession, hasPasswordRecoveryIntent, login, logout, onAuthStateChange, recoveryCallbackError, register, requestPasswordReset, updatePassword } from './services/authService.js';
 import { scanPrintedDetails } from './services/ocrService.js';
-import { downloadSelectedReceipts } from './services/exportService.js';
+import { downloadExpenseDetailedReport, downloadSelectedReceipts } from './services/exportService.js';
 import { findBest, optimizationStrategies, toCents } from './services/optimizationService.js';
 import * as receiptService from './services/receiptService.js';
 import * as monthlyFilingService from './services/monthlyFilingService.js';
@@ -37,7 +37,7 @@ const elements = {
   confirmationModal: document.querySelector('#confirmationModal'), confirmationBackdrop: document.querySelector('#confirmationBackdrop'), confirmationTitle: document.querySelector('#confirmationTitle'), confirmationMessage: document.querySelector('#confirmationMessage'), confirmationConfirm: document.querySelector('#confirmationConfirm'), confirmationCancel: document.querySelector('#confirmationCancel'),
   encodingFeedback: document.querySelector('#encodingFeedback'), editFeedback: document.querySelector('#editFeedback'), sessionFeedback: document.querySelector('#sessionFeedback'),
   themePreference: document.querySelector('#themePreference'), authVersion: document.querySelector('#authVersion'), appVersion: document.querySelector('#appVersion'), receiptWorkspaceSwitcher: document.querySelector('#receiptWorkspaceSwitcher'), receiptStatusControl: document.querySelector('#receiptStatusControl')
-  , monthlyFilingWorkspace: document.querySelector('#monthlyFilingWorkspace'), monthlyFilingList: document.querySelector('#monthlyFilingList'), monthlyFilingTemplate: document.querySelector('#monthlyFilingReceiptTemplate'), monthlyFilingAdd: document.querySelector('#monthlyFilingAdd'), monthlyFilingSave: document.querySelector('#monthlyFilingSave'), monthlyFilingFeedback: document.querySelector('#monthlyFilingFeedback')
+  , monthlyFilingWorkspace: document.querySelector('#monthlyFilingWorkspace'), monthlyFilingList: document.querySelector('#monthlyFilingList'), monthlyFilingTemplate: document.querySelector('#monthlyFilingReceiptTemplate'), monthlyFilingAdd: document.querySelector('#monthlyFilingAdd'), monthlyFilingSave: document.querySelector('#monthlyFilingSave'), monthlyFilingExportActive: document.querySelector('#monthlyFilingExportActive'), monthlyFilingClear: document.querySelector('#monthlyFilingClear'), monthlyFilingFeedback: document.querySelector('#monthlyFilingFeedback')
 };
 
 const navigationElements = {
@@ -57,7 +57,7 @@ const authElements = {
 void supabaseConfig;
 const confirmationDialog = createConfirmationDialog({ modal: elements.confirmationModal, backdrop: elements.confirmationBackdrop, title: elements.confirmationTitle, message: elements.confirmationMessage, confirmButton: elements.confirmationConfirm, cancelButton: elements.confirmationCancel });
 const receiptUi = createReceiptUi({ elements, findBest, optimizationStrategies, toCents, scanPrintedDetails, downloadSelectedReceipts, receiptService, sharedStoreService, confirmAction: confirmationDialog.confirm });
-const monthlyFilingUi = createMonthlyFilingUi({ elements: { workspace: elements.monthlyFilingWorkspace, list: elements.monthlyFilingList, template: elements.monthlyFilingTemplate, add: elements.monthlyFilingAdd, save: elements.monthlyFilingSave, feedback: elements.monthlyFilingFeedback }, monthlyFilingService, sharedStoreService, confirmAction: confirmationDialog.confirm });
+const monthlyFilingUi = createMonthlyFilingUi({ elements: { workspace: elements.monthlyFilingWorkspace, list: elements.monthlyFilingList, template: elements.monthlyFilingTemplate, add: elements.monthlyFilingAdd, save: elements.monthlyFilingSave, exportActive: elements.monthlyFilingExportActive, clear: elements.monthlyFilingClear, feedback: elements.monthlyFilingFeedback }, monthlyFilingService, sharedStoreService, downloadExpenseDetailedReport, confirmAction: confirmationDialog.confirm });
 const navigationController = createNavigationController({ elements: navigationElements, onRoute: workspace => { const monthly = workspace === 'monthly-filing'; monthlyFilingUi.setVisible(monthly); receiptUi.setModuleVisible(!monthly); if (!monthly) receiptUi.setWorkspace(workspace); } });
 const themeController = createThemeController({ select: elements.themePreference });
 const authPanel = createAuthPanel(authElements, {

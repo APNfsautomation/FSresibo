@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createSelectedReceiptsWorkbook, buildExpenseDetailedReportRows, expenseDetailedReportHeaders } from '../services/exportService.js';
+import { createExpenseDetailedReportWorkbook, createSelectedReceiptsWorkbook, buildExpenseDetailedReportRows, expenseDetailedReportHeaders } from '../services/exportService.js';
 import { read, write } from '../vendor/sheetjs/xlsx-0.20.3.mjs';
 
 const receipts = [
@@ -37,6 +37,17 @@ test('workbook uses one Selected Receipts worksheet with date and amount cells',
   assert.equal(sheet.H3.t, 'n');
   assert.equal(sheet.H3.v, 27998);
   ['I', 'J', 'K', 'L', 'M', 'N', 'O'].forEach(column => assert.deepEqual(sheet[`${column}3`], { t: 's', v: '' }));
+});
+
+test('Monthly Filing reuses the authoritative Expense Detailed Report builder for an explicit array', () => {
+  const monthly = [{ dbId: 'monthly-1', receiptDate: '2026-08-01', store: 'Monthly Store', address: 'Pasig', vat: 'VAT', tin: '789', invoice: 'MF-1', amount: '500.25' }];
+  const workbook = createExpenseDetailedReportWorkbook(monthly);
+  const sheet = workbook.Sheets['Selected Receipts'];
+  assert.equal(createExpenseDetailedReportWorkbook, createSelectedReceiptsWorkbook);
+  assert.equal(sheet.B3.t, 'd');
+  assert.equal(sheet.H3.t, 'n');
+  assert.deepEqual([sheet.C3.v, sheet.D3.v, sheet.E3.v, sheet.F3.v, sheet.G3.v], ['Monthly Store', 'Pasig', 'VAT', '789', 'MF-1']);
+  assert.equal(sheet.H3.v, 500.25);
 });
 
 test('the vendored SheetJS build generates and reads an XLSX workbook without network access', () => {

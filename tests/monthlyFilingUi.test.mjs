@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { clearsSharedStoreAssociation, monthlyFilingIsReadOnly, monthlyFilingProfileSnapshot, persistMonthlyFilingRows } from '../ui/monthlyFilingUi.js';
+import { activeMonthlyFilingSnapshot, clearsSharedStoreAssociation, monthlyFilingExportFilename, monthlyFilingIsReadOnly, monthlyFilingProfileSnapshot, persistMonthlyFilingRows } from '../ui/monthlyFilingUi.js';
 
 test('Company profile selection copies a transaction snapshot and retains sharedStoreId', () => {
   assert.deepEqual(monthlyFilingProfileSnapshot({ id: 'shared-1', storeName: 'Cafe', address: 'A', tin: '123', vat: 'VAT' }), { sharedStoreId: 'shared-1', store: 'Cafe', address: 'A', tin: '123', vat: 'VAT' });
@@ -38,4 +38,10 @@ test('an unsaved active row is removable locally while archived rows remain prot
   records.splice(0, 1);
   assert.deepEqual(records, [{ dbId: 'archived-id', status: 'archived' }]);
   assert.equal(monthlyFilingIsReadOnly(records[0]), true);
+});
+
+test('only persisted Active Monthly Filing records form the export snapshot', () => {
+  const snapshot = activeMonthlyFilingSnapshot([{ dbId: 'a', status: 'active' }, { dbId: 'b', status: 'archived' }, { dbId: '', status: 'active' }]);
+  assert.deepEqual(snapshot.map(record => record.dbId), ['a']);
+  assert.equal(monthlyFilingExportFilename(new Date('2026-10-07T00:00:00Z')), 'fsresibo-monthly-filing-2026-10-07.xlsx');
 });
