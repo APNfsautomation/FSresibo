@@ -535,7 +535,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     if (!encoding) refreshOptimizationCards();
   };
   const setModuleVisible = visible => {
-    elements.workspaceSwitcher.hidden = !visible;
+    elements.receiptWorkspaceSwitcher.hidden = !visible;
     elements.receiptStatusControl.hidden = !visible;
     if (!visible) { elements.encodingWorkspace.hidden = true; elements.optimizationWorkspace.hidden = true; }
   };
