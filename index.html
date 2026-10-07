@@ -56,6 +56,7 @@
         <p class="navigation-label">WORKFLOWS</p>
         <nav>
           <button class="navigation-item" id="receiptsNavigationItem" type="button" aria-current="page">Receipts</button>
+          <button class="navigation-item" id="monthlyFilingNavigationItem" type="button" aria-current="false">Monthly Filing</button>
         </nav>
       </aside>
       <div class="application-content">
@@ -71,11 +72,11 @@
         </div>
       </header>
 
-      <nav class="workspace-switcher" aria-label="Receipt workspaces" role="tablist">
+      <nav class="workspace-switcher" id="receiptWorkspaceSwitcher" aria-label="Receipt workspaces" role="tablist">
         <button class="workspace-tab" id="encodingTab" type="button" role="tab" aria-controls="encodingWorkspace" aria-selected="true">Receipt Encoding</button>
         <button class="workspace-tab" id="optimizationTab" type="button" role="tab" aria-controls="optimizationWorkspace" aria-selected="false">Receipt Optimization</button>
       </nav>
-      <label class="receipt-status-filter">View receipts<select id="receiptStatusFilter"><option value="available">Available</option><option value="consumed">Consumed</option><option value="all">All</option></select></label>
+      <label class="receipt-status-filter" id="receiptStatusControl">View receipts<select id="receiptStatusFilter"><option value="available">Available</option><option value="consumed">Consumed</option><option value="all">All</option></select></label>
 
       <section class="workspace-view encoding-workspace" id="encodingWorkspace" role="tabpanel" aria-labelledby="encodingTab">
         <div class="workspace-heading">
@@ -159,6 +160,13 @@
         </div>
       </section>
 
+      <section class="workspace-view monthly-filing-workspace" id="monthlyFilingWorkspace" hidden aria-label="Monthly Filing">
+        <div class="workspace-heading"><div><p class="eyebrow">WORKFLOW 2</p><h2>Monthly Filing</h2><p>A separate monthly receipt workspace. It does not affect long-term receipt totals or optimization.</p></div></div>
+        <div class="panel monthly-filing-panel"><div class="panel-heading"><div><h3>Monthly Filing receipts</h3><p>Active entries can be edited or removed. Archived entries are read-only.</p></div></div><div id="monthlyFilingList" class="monthly-filing-list" aria-live="polite"></div></div>
+        <div class="encoding-actions"><button class="primary" id="monthlyFilingSave" type="button">Save Changes</button><button class="ghost" id="monthlyFilingAdd" type="button">Add Receipt</button></div>
+        <p class="workflow-feedback" id="monthlyFilingFeedback" role="status" aria-live="polite"></p>
+      </section>
+
       </div>
     </main>
 
@@ -218,6 +226,7 @@
         <button class="ghost compact-edit" type="button">Edit</button><button class="secondary compact-restore" type="button" hidden>Mark Available</button>
       </article>
     </template>
+    <template id="monthlyFilingReceiptTemplate"><article class="receipt-card monthly-card"><div class="receipt-content"><div class="receipt-form-group"><p class="form-group-title">Monthly Filing receipt <span class="monthly-status" hidden></span></p><div class="receipt-fields"><label class="wide store-name-field">Store<input class="monthly-store" placeholder="Store name" autocomplete="off" /><div class="store-suggestions monthly-suggestions" hidden></div></label><label class="wide">Address<input class="monthly-address" placeholder="Address" /></label><label>TIN<input class="monthly-tin" placeholder="TIN" /></label><label>VAT Status<select class="monthly-vat"><option value="">Not set</option><option value="VAT">VAT</option><option value="Non-VAT">Non-VAT</option></select></label><label>Amount<input class="monthly-amount" inputmode="decimal" placeholder="0.00" /></label><label>Receipt Date<input class="monthly-receiptDate" type="date" /></label><label>Invoice Number<input class="monthly-invoice" placeholder="Invoice / OR number" /></label></div></div><div class="receipt-form-footer"><button class="delete-receipt monthly-delete" type="button">Delete receipt</button></div></div></article></template>
     <section class="edit-modal" id="exportConfirmModal" role="dialog" aria-modal="true" aria-labelledby="exportConfirmTitle" hidden>
       <div class="modal-backdrop" id="exportConfirmBackdrop"></div>
       <div class="modal-card export-confirm-card"><p class="eyebrow">EXPORT SELECTED</p><h2 id="exportConfirmTitle">Export selected receipts?</h2><p id="exportConfirmMessage">After the export is prepared, these receipts will be marked as Consumed and excluded from future optimization.</p><div class="modal-actions"><button class="primary" id="confirmExport" type="button">Export &amp; Mark Consumed</button><button class="ghost" id="cancelExport" type="button">Cancel</button></div></div>

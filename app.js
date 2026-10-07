@@ -5,12 +5,14 @@ import { scanPrintedDetails } from './services/ocrService.js';
 import { downloadSelectedReceipts } from './services/exportService.js';
 import { findBest, optimizationStrategies, toCents } from './services/optimizationService.js';
 import * as receiptService from './services/receiptService.js';
+import * as monthlyFilingService from './services/monthlyFilingService.js';
 import * as sharedStoreService from './services/sharedStoreService.js';
 import { renderApplicationIdentity } from './ui/appIdentity.js';
 import { createAuthPanel } from './ui/authPanel.js';
 import { createConfirmationDialog } from './ui/confirmationDialog.js';
 import { createNavigationController, receiptRoutes } from './ui/navigationController.js';
 import { createReceiptUi } from './ui/receiptUi.js';
+import { createMonthlyFilingUi } from './ui/monthlyFilingUi.js';
 import { createThemeController } from './ui/themeController.js';
 
 const elements = {
@@ -34,12 +36,13 @@ const elements = {
   exportConfirmModal: document.querySelector('#exportConfirmModal'), exportConfirmBackdrop: document.querySelector('#exportConfirmBackdrop'), exportConfirmMessage: document.querySelector('#exportConfirmMessage'), confirmExport: document.querySelector('#confirmExport'), cancelExport: document.querySelector('#cancelExport'),
   confirmationModal: document.querySelector('#confirmationModal'), confirmationBackdrop: document.querySelector('#confirmationBackdrop'), confirmationTitle: document.querySelector('#confirmationTitle'), confirmationMessage: document.querySelector('#confirmationMessage'), confirmationConfirm: document.querySelector('#confirmationConfirm'), confirmationCancel: document.querySelector('#confirmationCancel'),
   encodingFeedback: document.querySelector('#encodingFeedback'), editFeedback: document.querySelector('#editFeedback'), sessionFeedback: document.querySelector('#sessionFeedback'),
-  themePreference: document.querySelector('#themePreference'), authVersion: document.querySelector('#authVersion'), appVersion: document.querySelector('#appVersion')
+  themePreference: document.querySelector('#themePreference'), authVersion: document.querySelector('#authVersion'), appVersion: document.querySelector('#appVersion'), receiptWorkspaceSwitcher: document.querySelector('#receiptWorkspaceSwitcher'), receiptStatusControl: document.querySelector('#receiptStatusControl')
+  , monthlyFilingWorkspace: document.querySelector('#monthlyFilingWorkspace'), monthlyFilingList: document.querySelector('#monthlyFilingList'), monthlyFilingTemplate: document.querySelector('#monthlyFilingReceiptTemplate'), monthlyFilingAdd: document.querySelector('#monthlyFilingAdd'), monthlyFilingSave: document.querySelector('#monthlyFilingSave'), monthlyFilingFeedback: document.querySelector('#monthlyFilingFeedback')
 };
 
 const navigationElements = {
   menuButton: document.querySelector('#navigationMenuButton'), drawer: document.querySelector('#navigationDrawer'), drawerBackdrop: document.querySelector('#navigationDrawerBackdrop'),
-  receiptsNav: document.querySelector('#receiptsNavigationItem'), encodingTab: elements.encodingTab, optimizationTab: elements.optimizationTab
+  receiptsNav: document.querySelector('#receiptsNavigationItem'), monthlyNav: document.querySelector('#monthlyFilingNavigationItem'), encodingTab: elements.encodingTab, optimizationTab: elements.optimizationTab
 };
 
 const authElements = {
@@ -54,7 +57,8 @@ const authElements = {
 void supabaseConfig;
 const confirmationDialog = createConfirmationDialog({ modal: elements.confirmationModal, backdrop: elements.confirmationBackdrop, title: elements.confirmationTitle, message: elements.confirmationMessage, confirmButton: elements.confirmationConfirm, cancelButton: elements.confirmationCancel });
 const receiptUi = createReceiptUi({ elements, findBest, optimizationStrategies, toCents, scanPrintedDetails, downloadSelectedReceipts, receiptService, sharedStoreService, confirmAction: confirmationDialog.confirm });
-const navigationController = createNavigationController({ elements: navigationElements, onRoute: workspace => receiptUi.setWorkspace(workspace) });
+const monthlyFilingUi = createMonthlyFilingUi({ elements: { workspace: elements.monthlyFilingWorkspace, list: elements.monthlyFilingList, template: elements.monthlyFilingTemplate, add: elements.monthlyFilingAdd, save: elements.monthlyFilingSave, feedback: elements.monthlyFilingFeedback }, monthlyFilingService, sharedStoreService, confirmAction: confirmationDialog.confirm });
+const navigationController = createNavigationController({ elements: navigationElements, onRoute: workspace => { const monthly = workspace === 'monthly-filing'; monthlyFilingUi.setVisible(monthly); receiptUi.setModuleVisible(!monthly); if (!monthly) receiptUi.setWorkspace(workspace); } });
 const themeController = createThemeController({ select: elements.themePreference });
 const authPanel = createAuthPanel(authElements, {
   onLogin: login,
@@ -81,6 +85,7 @@ async function showAuthenticatedUser(user) {
     authPanel.hide();
     authElements.userEmail.textContent = user.email;
     await receiptUi.loadForUser(user);
+    await monthlyFilingUi.loadForUser(user);
     await receiptUi.importLegacyDraft(user);
     navigationController.start({ fallbackRoute: receiptUi.consumeLegacyWorkspace() === 'optimization' ? receiptRoutes.optimization : receiptRoutes.encoding });
     activeUserId = user.id;
@@ -101,6 +106,7 @@ async function handleAuthState(event, nextSession) {
     activeUserId = undefined;
     activatingUserId = undefined;
     receiptUi.clearForLogout();
+    monthlyFilingUi.clearForLogout();
     const message = recoveryCompleted ? 'Password updated. Sign in with your new password.' : '';
     recoveryCompleted = false;
     recoveryMode = false;
@@ -113,6 +119,7 @@ async function handleAuthState(event, nextSession) {
     activeUserId = undefined;
     activatingUserId = undefined;
     receiptUi.clearForLogout();
+    monthlyFilingUi.clearForLogout();
     authPanel.show();
   }
 }
@@ -125,6 +132,7 @@ async function start() {
   renderApplicationIdentity([elements.authVersion, elements.appVersion], appMetadata);
   themeController.restore();
   receiptUi.start();
+  monthlyFilingUi.start();
   if (!isSupabaseConfigured()) {
     authPanel.show();
     authPanel.setMessage('Supabase configuration is required before sign-in can be used.');

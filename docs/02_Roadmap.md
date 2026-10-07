@@ -61,6 +61,8 @@ Hosted Supabase now has the reviewed directory migration and validated RLS; publ
 - Create/edit/delete/review and Shared Store Directory autocomplete
 - Transaction-domain isolation tests
 
+Migration 003 is deployed to hosted Supabase. Live schema/RLS validation, including two-user ownership isolation, passed. Browser/user acceptance and merge of PR #13 remain pending before Milestone 3.4 is treated as production-complete.
+
 ### Milestone 3.5 — Monthly Filing Lifecycle & Export
 - Active to Archived export lifecycle
 - Return to Active for rejected/corrected filings, then re-edit/re-export
