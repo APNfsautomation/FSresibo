@@ -10,6 +10,9 @@ test('Monthly Filing archive RPC is exact-set, authenticated, and security-invok
   assert.match(sql, /set search_path = public, pg_temp/i);
   assert.match(sql, /auth\.uid\(\)/i);
   assert.match(sql, /array_agg\(distinct id\)/i);
+  assert.match(sql, /for update/i);
+  assert.match(sql, /locked_requested_rows/i);
+  assert.match(sql, /archived_count <> requested_count/i);
   assert.match(sql, /status = 'active'/i);
   assert.match(sql, /status = 'archived', archived_at = now\(\)/i);
   assert.match(sql, /revoke all on function .* from public, anon/i);

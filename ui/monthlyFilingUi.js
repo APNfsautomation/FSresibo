@@ -3,6 +3,31 @@ export const clearsSharedStoreAssociation = (before, after) => ['store', 'addres
 export const monthlyFilingIsReadOnly = receipt => receipt.status === 'archived';
 export const activeMonthlyFilingSnapshot = records => records.filter(record => record.dbId && record.status === 'active').map(record => ({ ...record }));
 export const monthlyFilingExportFilename = (date = new Date()) => `fsresibo-monthly-filing-${date.toISOString().slice(0, 10)}.xlsx`;
+export const synchronizeMonthlyFilingRow = (row, saved) => {
+  row.dataset.monthlyId = saved.dbId;
+  row.dataset.sharedStoreId = saved.sharedStoreId || '';
+  row.dataset.status = saved.status;
+};
+export function createMonthlyFilingLifecycleState() {
+  let pending = false;
+  let archiveUncertain = false;
+  return {
+    beginExport: () => { if (pending || archiveUncertain) return false; pending = true; return true; },
+    finishExport: () => { pending = false; },
+    markArchiveUncertain: () => { archiveUncertain = true; },
+    clearArchiveUncertain: () => { archiveUncertain = false; },
+    exportBlocked: () => pending || archiveUncertain,
+    clearBlocked: () => pending || archiveUncertain
+  };
+}
+export async function runMonthlyFilingExport({ save, snapshot, generateWorkbook, archive }) {
+  if (!await save()) return { state: 'save-failed' };
+  const records = snapshot();
+  if (!records.length) return { state: 'empty' };
+  try { generateWorkbook(records); } catch (error) { return { state: 'generation-failed', error }; }
+  try { return { state: 'archived', records, archived: await archive(records.map(record => record.dbId)) }; }
+  catch (error) { return { state: 'archive-failed', records, error }; }
+}
 export async function persistMonthlyFilingRows(rows, persistRow) {
   const saved = [];
   for (const row of rows) { try { saved.push(await persistRow(row)); } catch (error) { return { saved, error }; } }
@@ -11,9 +36,10 @@ export async function persistMonthlyFilingRows(rows, persistRow) {
 
 export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedStoreService, downloadExpenseDetailedReport, confirmAction = async () => false }) {
   let currentUser; let records = []; let profiles = []; let loading = false;
+  const lifecycle = createMonthlyFilingLifecycleState();
   const feedback = text => { elements.feedback.textContent = text || ''; };
   const activeRecords = () => activeMonthlyFilingSnapshot(records);
-  const updateActions = () => { elements.exportActive.disabled = activeRecords().length === 0; elements.clear.disabled = records.length === 0; };
+  const updateActions = () => { elements.exportActive.disabled = lifecycle.exportBlocked() || activeRecords().length === 0; elements.clear.disabled = lifecycle.clearBlocked() || records.length === 0; };
   const values = row => Object.fromEntries(['store', 'address', 'tin', 'vat', 'amount', 'receiptDate', 'invoice'].map(key => [key, row.querySelector(`.monthly-${key}`).value]));
   const render = () => {
     elements.list.replaceChildren(); updateActions();
@@ -50,38 +76,44 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
     });
   };
   const add = () => { records.push({ dbId: '', sharedStoreId: '', store: '', address: '', tin: '', vat: '', amount: '', receiptDate: '', invoice: '', status: 'active' }); render(); };
-  const save = async ({ successFeedback = true } = {}) => {
-    if (loading || !currentUser) return false;
+  const save = async ({ successFeedback = true, fromExport = false } = {}) => {
+    if (loading || !currentUser || (lifecycle.exportBlocked() && !fromExport)) return false;
     loading = true; elements.save.disabled = true;
     try {
       const rows = [...elements.list.children].filter(row => row.matches('.monthly-card') && row.dataset.status !== 'archived');
       const { error } = await persistMonthlyFilingRows(rows, async row => {
         const recordIndex = [...elements.list.children].indexOf(row); const receipt = { ...values(row), sharedStoreId: row.dataset.sharedStoreId || '' };
         const saved = row.dataset.monthlyId ? await monthlyFilingService.updateMonthlyFilingReceipt(row.dataset.monthlyId, receipt, currentUser.id) : await monthlyFilingService.createMonthlyFilingReceipt(receipt, currentUser.id);
-        records[recordIndex] = saved; return saved;
+        records[recordIndex] = saved;
+        synchronizeMonthlyFilingRow(row, saved);
+        return saved;
       });
       if (error) throw error;
       records = records.filter(record => record.dbId); render(); if (successFeedback) feedback('Monthly Filing changes saved.'); return true;
     } catch (error) { feedback(`Could not save Monthly Filing changes: ${error.message}`); return false; } finally { loading = false; elements.save.disabled = false; }
   };
   const exportActive = async event => {
-    if (loading) return;
+    if (!lifecycle.beginExport()) return;
+    updateActions();
+    try {
     const count = records.filter(record => record.status === 'active').length;
     if (!count) return feedback('There are no Active Monthly Filing receipts to export.');
     if (!await confirmAction({ title: 'Export Active Monthly Filing receipts?', message: `This will generate the Expense Detailed Report for all ${count} currently Active Monthly Filing receipt${count === 1 ? '' : 's'}. After the workbook is generated successfully, those receipts will be Archived and become read-only.`, confirmLabel: 'Export & Archive', cancelLabel: 'Cancel', trigger: event.currentTarget })) return;
-    if (!await save({ successFeedback: false })) return;
-    const snapshot = activeRecords(); if (!snapshot.length) return feedback('There are no persisted Active Monthly Filing receipts to export.');
-    try { downloadExpenseDetailedReport(snapshot, monthlyFilingExportFilename()); } catch (error) { return feedback(`Could not prepare the XLSX export: ${error.message}`); }
-    try { const archived = await monthlyFilingService.archiveMonthlyFilingReceipts(snapshot.map(record => record.dbId)); const archivedById = new Map(archived.map(record => [record.dbId, record])); records = records.map(record => archivedById.get(record.dbId) || record); render(); feedback(`Exported and archived ${snapshot.length} Monthly Filing receipt${snapshot.length === 1 ? '' : 's'}.`); }
-    catch (error) { feedback(`Workbook generated, but archive status could not be confirmed. Refresh Monthly Filing before exporting again. (${error.message})`); }
+    const result = await runMonthlyFilingExport({ save: () => save({ successFeedback: false, fromExport: true }), snapshot: activeRecords, generateWorkbook: snapshot => downloadExpenseDetailedReport(snapshot, monthlyFilingExportFilename()), archive: ids => monthlyFilingService.archiveMonthlyFilingReceipts(ids) });
+    if (result.state === 'save-failed') return;
+    if (result.state === 'empty') return feedback('There are no persisted Active Monthly Filing receipts to export.');
+    if (result.state === 'generation-failed') return feedback(`Could not prepare the XLSX export: ${result.error.message}`);
+    if (result.state === 'archive-failed') { lifecycle.markArchiveUncertain(); return feedback(`Workbook generated, but archive status could not be confirmed. Refresh Monthly Filing before exporting again. (${result.error.message})`); }
+    const archivedById = new Map(result.archived.map(record => [record.dbId, record])); records = records.map(record => archivedById.get(record.dbId) || record); render(); feedback(`Exported and archived ${result.records.length} Monthly Filing receipt${result.records.length === 1 ? '' : 's'}.`);
+    } finally { lifecycle.finishExport(); updateActions(); }
   };
   const clear = async event => {
-    if (!records.length || !currentUser) return;
+    if (!records.length || !currentUser || lifecycle.clearBlocked()) return;
     if (!await confirmAction({ title: 'Clear Monthly Filing?', message: 'This permanently deletes all Active and Archived Monthly Filing receipts from your account. Long-term Receipts and the Company Directory are not affected.', confirmLabel: 'Clear Monthly Filing', cancelLabel: 'Cancel', danger: true, trigger: event.currentTarget })) return;
     try { await monthlyFilingService.clearMonthlyFilingReceipts(currentUser.id); records = []; render(); feedback('Monthly Filing cleared.'); } catch (error) { feedback(`Could not clear Monthly Filing: ${error.message}`); }
   };
   return {
-    async loadForUser(user) { currentUser = user; feedback('Loading Monthly Filing…'); try { records = await monthlyFilingService.loadMonthlyFilingReceipts(); } catch (error) { records = []; feedback(`Could not load Monthly Filing receipts: ${error.message}`); } try { profiles = await sharedStoreService.listActiveSharedStores(); if (!elements.feedback.textContent.startsWith('Could not')) feedback(''); } catch { profiles = []; feedback('Company Directory is temporarily unavailable. You can still enter store details manually.'); } render(); },
+    async loadForUser(user) { currentUser = user; feedback('Loading Monthly Filing…'); try { records = await monthlyFilingService.loadMonthlyFilingReceipts(); lifecycle.clearArchiveUncertain(); } catch (error) { records = []; feedback(`Could not load Monthly Filing receipts: ${error.message}`); } try { profiles = await sharedStoreService.listActiveSharedStores(); if (!elements.feedback.textContent.startsWith('Could not')) feedback(''); } catch { profiles = []; feedback('Company Directory is temporarily unavailable. You can still enter store details manually.'); } render(); },
     clearForLogout() { currentUser = undefined; records = []; profiles = []; feedback(''); render(); }, setVisible(visible) { elements.workspace.hidden = !visible; },
     start() { elements.add.addEventListener('click', add); elements.save.addEventListener('click', () => { void save(); }); elements.exportActive.addEventListener('click', exportActive); elements.clear.addEventListener('click', clear); render(); }
   };

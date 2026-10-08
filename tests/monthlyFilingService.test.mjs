@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { fromDatabaseMonthlyFilingReceipt, monthlyFilingTable, toDatabaseMonthlyFilingReceipt } from '../services/monthlyFilingService.js';
+import { fromDatabaseMonthlyFilingReceipt, monthlyFilingTable, toDatabaseMonthlyFilingReceipt, validateArchivedMonthlyFilingReceiptSet } from '../services/monthlyFilingService.js';
 
 test('Monthly Filing service maps the separate table model and defaults creates to Active', () => {
   const database = toDatabaseMonthlyFilingReceipt({ sharedStoreId: 'store-1', store: 'Cafe', address: 'A', tin: '123', vat: 'VAT', amount: '12.50', receiptDate: '2026-10-01', invoice: 'OR-1' }, 'user-1');
@@ -26,4 +26,11 @@ test('Monthly Filing lifecycle uses exact RPC archive, archived-only return, and
   assert.doesNotMatch(source, /update\([^)]*status:\s*'archived'[^)]*\)\.eq\('status', 'active'\)/);
   assert.match(source, /update\(\{ status: 'active', archived_at: null \}\)\.eq\('id', id\)\.eq\('status', 'archived'\)/);
   assert.match(source, /from\(monthlyFilingTable\)\.delete\(\)\.eq\('user_id', userId\)/);
+});
+
+test('archive return validation rejects mismatched or non-archived RPC records', () => {
+  const archived = [{ dbId: 'a', status: 'archived' }, { dbId: 'b', status: 'archived' }];
+  assert.equal(validateArchivedMonthlyFilingReceiptSet(['a', 'b'], archived), archived);
+  assert.throws(() => validateArchivedMonthlyFilingReceiptSet(['a', 'b'], [{ dbId: 'a', status: 'archived' }]));
+  assert.throws(() => validateArchivedMonthlyFilingReceiptSet(['a'], [{ dbId: 'a', status: 'active' }]));
 });

@@ -8,6 +8,8 @@ declare
   requested_ids uuid[];
   requested_count integer;
   eligible_count integer;
+  archived_count integer := 0;
+  archived_record public.monthly_filing_receipts%rowtype;
 begin
   if auth.uid() is null then
     raise exception 'Authentication is required';
@@ -20,20 +22,31 @@ begin
     raise exception 'At least one Monthly Filing receipt is required';
   end if;
   select count(*) into eligible_count
-  from public.monthly_filing_receipts
-  where id = any(requested_ids)
-    and user_id = auth.uid()
-    and status = 'active';
+  from (
+    select id
+    from public.monthly_filing_receipts
+    where id = any(requested_ids)
+      and user_id = auth.uid()
+      and status = 'active'
+    for update
+  ) as locked_requested_rows;
   if eligible_count <> requested_count then
     raise exception 'Every requested Monthly Filing receipt must be owned and Active';
   end if;
-  return query
-  update public.monthly_filing_receipts
-  set status = 'archived', archived_at = now()
-  where id = any(requested_ids)
-    and user_id = auth.uid()
-    and status = 'active'
-  returning *;
+  for archived_record in
+    update public.monthly_filing_receipts
+    set status = 'archived', archived_at = now()
+    where id = any(requested_ids)
+      and user_id = auth.uid()
+      and status = 'active'
+    returning *
+  loop
+    archived_count := archived_count + 1;
+    return next archived_record;
+  end loop;
+  if archived_count <> requested_count then
+    raise exception 'Monthly Filing archive integrity check failed';
+  end if;
 end;
 $$;
 
