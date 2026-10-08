@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { deduplicateDirectoryCandidates, postSaveDirectoryDecision } from '../domain/sharedStoreProfiles.js';
-import { activeMonthlyFilingSnapshot, clearsSharedStoreAssociation, createMonthlyFilingLifecycleState, isBlankUnsavedMonthlyFilingRecord, monthlyFilingExportFilename, monthlyFilingIsReadOnly, monthlyFilingProfileSnapshot, persistMonthlyFilingRows, runMonthlyFilingExport, synchronizeMonthlyFilingRow } from '../ui/monthlyFilingUi.js';
+import { activeMonthlyFilingSnapshot, clearsSharedStoreAssociation, createMonthlyFilingLifecycleState, directoryOutcomeFeedback, isBlankUnsavedMonthlyFilingRecord, matchingDirectoryEntries, monthlyFilingActiveExportCount, monthlyFilingExportFilename, monthlyFilingIsReadOnly, monthlyFilingProfileSnapshot, persistMonthlyFilingRows, runMonthlyFilingExport, synchronizeMonthlyFilingRow } from '../ui/monthlyFilingUi.js';
 
 test('Company profile selection copies a transaction snapshot and retains sharedStoreId', () => {
   assert.deepEqual(monthlyFilingProfileSnapshot({ id: 'shared-1', storeName: 'Cafe', address: 'A', tin: '123', vat: 'VAT' }), { sharedStoreId: 'shared-1', store: 'Cafe', address: 'A', tin: '123', vat: 'VAT' });
@@ -118,4 +118,29 @@ test('export remains automatic save-before-workbook and archive without a prior 
   });
   assert.equal(result.state, 'archived');
   assert.deepEqual(calls, ['auto-save', 'workbook:saved-during-export', 'archive:saved-during-export']);
+});
+
+test('live export eligibility counts typed nonblank Active rows while excluding blank placeholders and archived rows', () => {
+  const blank = { dbId: '', status: 'active', store: '', address: '', tin: '', vat: '', amount: '', receiptDate: '', invoice: '' };
+  assert.equal(monthlyFilingActiveExportCount([blank]), 0);
+  assert.equal(monthlyFilingActiveExportCount([{ ...blank, amount: '500' }]), 1);
+  assert.equal(monthlyFilingActiveExportCount([{ ...blank, amount: '500' }, { ...blank, dbId: 'archived', status: 'archived', amount: '100' }]), 1);
+  assert.equal(monthlyFilingActiveExportCount([{ ...blank, dbId: 'saved', amount: '500' }, blank]), 1);
+});
+
+test('mixed directory decisions only associate rows carrying the matching new candidate', () => {
+  const candidate = { storeName: 'TEST STORE', address: 'TEST ADDRESS', tin: '', vat: '' };
+  const entries = [
+    { id: 'no-store', decision: { status: 'ineligible' } },
+    { id: 'unchanged', decision: { status: 'unchanged' } },
+    { id: 'new-store', decision: { status: 'new', candidate } },
+    { id: 'different', decision: { status: 'new', candidate: { ...candidate, storeName: 'OTHER STORE' } } }
+  ];
+  assert.deepEqual(matchingDirectoryEntries(entries, candidate).map(entry => entry.id), ['new-store']);
+});
+
+test('directory outcome feedback retains warnings and contribution results instead of replacing them with generic save feedback', () => {
+  assert.match(directoryOutcomeFeedback([{ type: 'declined', message: 'Monthly Filing saved. Store kept only in Monthly Filing.' }]), /kept only/i);
+  assert.match(directoryOutcomeFeedback([{ type: 'association-failed', message: 'Monthly Filing saved, but its Company Directory association could not be recorded: denied.' }]), /could not be recorded/i);
+  assert.match(directoryOutcomeFeedback([{ type: 'contributed', message: 'Monthly Filing saved. Store added to the Company Directory.' }]), /added to the Company Directory/i);
 });

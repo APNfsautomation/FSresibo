@@ -5,6 +5,7 @@ export const monthlyFilingProfileSnapshot = profile => ({ sharedStoreId: profile
 export const clearsSharedStoreAssociation = (before, after) => ['store', 'address', 'tin'].some(key => String(before[key] || '').trim() !== String(after[key] || '').trim());
 export const isBlankUnsavedMonthlyFilingRecord = record => !record.dbId && monthlyFilingEditableFields.every(key => !String(record[key] || '').trim());
 export const monthlyFilingIsReadOnly = receipt => receipt.status === 'archived';
+export const monthlyFilingActiveExportCount = records => records.filter(record => record.status === 'active' && !isBlankUnsavedMonthlyFilingRecord(record)).length;
 export const activeMonthlyFilingSnapshot = records => records.filter(record => record.dbId && record.status === 'active').map(record => ({ ...record }));
 export const monthlyFilingExportFilename = (date = new Date()) => `fsresibo-monthly-filing-${date.toISOString().slice(0, 10)}.xlsx`;
 export const synchronizeMonthlyFilingRow = (row, saved) => {
@@ -37,15 +38,20 @@ export async function persistMonthlyFilingRows(rows, persistRow) {
   for (const row of rows) { try { saved.push(await persistRow(row)); } catch (error) { return { saved, error }; } }
   return { saved, error: undefined };
 }
+export const matchingDirectoryEntries = (entries, candidate) => {
+  const key = persistedStoreFingerprint(candidate);
+  return entries.filter(entry => entry.decision?.candidate && persistedStoreFingerprint(entry.decision.candidate) === key);
+};
+export const directoryOutcomeFeedback = outcomes => outcomes.map(outcome => outcome.message).filter(Boolean).join(' ');
 
 export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedStoreService, downloadExpenseDetailedReport, confirmAction = async () => false }) {
-  let currentUser; let records = []; let profiles = []; let loading = false;
+  let currentUser; let records = []; let profiles = []; let loading = false; let lastDirectoryFeedback = '';
   const lifecycle = createMonthlyFilingLifecycleState();
   const feedback = text => { elements.feedback.textContent = text || ''; };
   const activeRecords = () => activeMonthlyFilingSnapshot(records);
-  const hasExportableActiveRecord = () => records.some(record => record.status === 'active' && !isBlankUnsavedMonthlyFilingRecord(record));
-  const updateActions = () => { elements.exportActive.disabled = lifecycle.exportBlocked() || !hasExportableActiveRecord(); elements.clear.disabled = lifecycle.clearBlocked() || records.length === 0; };
   const values = row => Object.fromEntries(monthlyFilingEditableFields.map(key => [key, row.querySelector(`.monthly-${key}`).value]));
+  const liveActiveExportCount = () => monthlyFilingActiveExportCount([...elements.list.children].filter(row => row.matches('.monthly-card')).map(row => ({ dbId: row.dataset.monthlyId, status: row.dataset.status, ...values(row) })));
+  const updateActions = () => { elements.exportActive.disabled = lifecycle.exportBlocked() || liveActiveExportCount() === 0; elements.clear.disabled = lifecycle.clearBlocked() || records.length === 0; };
   const setRecord = (index, saved, fingerprint) => { records[index] = { ...saved, persistedStoreFingerprint: fingerprint ?? records[index]?.persistedStoreFingerprint ?? '' }; };
   const reloadSharedStores = async () => { profiles = await sharedStoreService.listActiveSharedStores(); return profiles; };
   const candidateMessage = candidate => {
@@ -77,6 +83,7 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
       };
       store.addEventListener('input', showSuggestions);
       ['store', 'address', 'tin'].forEach(key => row.querySelector(`.monthly-${key}`).addEventListener('input', () => { if (row.dataset.sharedStoreId) row.dataset.sharedStoreId = ''; }));
+      row.querySelectorAll('input, select').forEach(field => { field.addEventListener('input', updateActions); field.addEventListener('change', updateActions); });
       row.querySelector('.monthly-delete').addEventListener('click', async event => {
         if (archived) return;
         if (!record.dbId) { records.splice(recordIndex, 1); render(); feedback('Unsaved Monthly Filing receipt removed.'); return; }
@@ -85,46 +92,55 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
       });
       elements.list.append(row);
     });
+    updateActions();
   };
   const associateEntry = async (entry, profile) => {
-    if (!profile?.id || entry.saved.sharedStoreId === profile.id) return;
+    if (!profile?.id || entry.saved.sharedStoreId === profile.id) return undefined;
     try {
       const associated = await monthlyFilingService.associateMonthlyFilingSharedStore(entry.saved.dbId, profile.id);
       entry.saved = associated; setRecord(entry.recordIndex, associated, entry.fingerprint); synchronizeMonthlyFilingRow(entry.row, associated);
-    } catch (error) { feedback(`Monthly Filing saved, but its Company Directory association could not be recorded: ${error.message}`); }
+    } catch (error) { return { type: 'association-failed', message: `Monthly Filing saved, but its Company Directory association could not be recorded: ${error.message}` }; }
   };
   const associateMatchingEntries = async (entries, candidate, profile) => {
-    const key = persistedStoreFingerprint(candidate);
-    for (const entry of entries.filter(item => persistedStoreFingerprint(item.decision.candidate) === key)) await associateEntry(entry, profile);
+    const outcomes = [];
+    for (const entry of matchingDirectoryEntries(entries, candidate)) {
+      const outcome = await associateEntry(entry, profile);
+      if (outcome) outcomes.push(outcome);
+    }
+    return outcomes;
   };
   const processDirectoryDecisions = async entries => {
+    const outcomes = [];
     for (const entry of entries) {
       entry.decision = postSaveDirectoryDecision({ values: entry.receipt, previousFingerprint: entry.previousFingerprint, profiles });
       entry.fingerprint = entry.decision.fingerprint;
       entry.row.dataset.persistedStoreFingerprint = entry.fingerprint;
       records[entry.recordIndex].persistedStoreFingerprint = entry.fingerprint;
-      if (entry.decision.status === 'existing') await associateEntry(entry, entry.decision.profile);
+      if (entry.decision.status === 'existing') {
+        const outcome = await associateEntry(entry, entry.decision.profile);
+        if (outcome) outcomes.push(outcome);
+      }
     }
     for (const decision of deduplicateDirectoryCandidates(entries.map(entry => entry.decision).filter(decision => decision.status === 'new' || decision.status === 'ambiguous'))) {
-      if (decision.status === 'ambiguous') { feedback('Monthly Filing saved. Multiple Company profiles match this store; add more identifying information before adding it to the directory.'); continue; }
+      if (decision.status === 'ambiguous') { outcomes.push({ type: 'ambiguous', message: 'Monthly Filing saved. Multiple Company profiles match this store; add more identifying information before adding it to the directory.' }); continue; }
       const confirmed = await confirmAction({ title: 'Add store to Company Directory?', message: candidateMessage(decision.candidate), confirmLabel: 'Add to Company Directory', cancelLabel: 'Keep only in Monthly Filing', trigger: elements.save });
-      if (!confirmed) { feedback('Monthly Filing saved. Store kept only in Monthly Filing.'); continue; }
+      if (!confirmed) { outcomes.push({ type: 'declined', message: 'Monthly Filing saved. Store kept only in Monthly Filing.' }); continue; }
       try {
         const profile = await sharedStoreService.contributeSharedStore(decision.candidate, currentUser.id);
         await reloadSharedStores();
-        await associateMatchingEntries(entries, decision.candidate, profile);
-        feedback('Monthly Filing saved. Store added to the Company Directory.');
+        outcomes.push({ type: 'contributed', message: 'Monthly Filing saved. Store added to the Company Directory.' }, ...await associateMatchingEntries(entries, decision.candidate, profile));
       } catch (error) {
         if (error?.name === 'SharedStoreDuplicateError') {
           try {
             await reloadSharedStores();
             const resolved = resolveSharedContributionCandidate(decision.candidate, profiles);
-            if (resolved.status === 'existing') await associateMatchingEntries(entries, decision.candidate, resolved.profile);
-            feedback('Monthly Filing saved. This store is already in the Company Directory.');
-          } catch { feedback('Monthly Filing saved. The Company Directory changed; refresh before trying this store again.'); }
-        } else feedback(`Monthly Filing saved, but the store could not be added to the Company Directory: ${error.message}`);
+            if (resolved.status === 'existing') outcomes.push(...await associateMatchingEntries(entries, decision.candidate, resolved.profile));
+            outcomes.push({ type: 'duplicate-reused', message: 'Monthly Filing saved. This store is already in the Company Directory.' });
+          } catch { outcomes.push({ type: 'directory-failed', message: 'Monthly Filing saved. The Company Directory changed; refresh before trying this store again.' }); }
+        } else outcomes.push({ type: 'directory-failed', message: `Monthly Filing saved, but the store could not be added to the Company Directory: ${error.message}` });
       }
     }
+    return outcomes;
   };
   const add = () => { records.push({ dbId: '', sharedStoreId: '', store: '', address: '', tin: '', vat: '', amount: '', receiptDate: '', invoice: '', status: 'active', persistedStoreFingerprint: '' }); render(); };
   const save = async ({ successFeedback = true, fromExport = false } = {}) => {
@@ -140,23 +156,23 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
         return { row, recordIndex, receipt, previousFingerprint, saved: stored };
       });
       if (error) throw error;
-      await processDirectoryDecisions(saved);
-      render(); if (successFeedback) feedback('Monthly Filing changes saved.'); return true;
+      lastDirectoryFeedback = directoryOutcomeFeedback(await processDirectoryDecisions(saved));
+      render(); if (successFeedback) feedback(lastDirectoryFeedback || 'Monthly Filing changes saved.'); return true;
     } catch (error) { feedback(`Could not save Monthly Filing changes: ${error.message}`); return false; } finally { loading = false; elements.save.disabled = false; }
   };
   const exportActive = async event => {
     if (!lifecycle.beginExport()) return;
     updateActions();
     try {
-    const count = records.filter(record => record.status === 'active' && !isBlankUnsavedMonthlyFilingRecord(record)).length;
+    const count = liveActiveExportCount();
     if (!count) return feedback('There are no Active Monthly Filing receipts to export.');
     if (!await confirmAction({ title: 'Export Active Monthly Filing receipts?', message: `This will generate the Expense Detailed Report for all ${count} currently Active Monthly Filing receipt${count === 1 ? '' : 's'}. After the workbook is generated successfully, those receipts will be Archived and become read-only.`, confirmLabel: 'Export & Archive', cancelLabel: 'Cancel', trigger: event.currentTarget })) return;
     const result = await runMonthlyFilingExport({ save: () => save({ successFeedback: false, fromExport: true }), snapshot: activeRecords, generateWorkbook: snapshot => downloadExpenseDetailedReport(snapshot, monthlyFilingExportFilename()), archive: ids => monthlyFilingService.archiveMonthlyFilingReceipts(ids) });
     if (result.state === 'save-failed') return;
     if (result.state === 'empty') return feedback('There are no persisted Active Monthly Filing receipts to export.');
     if (result.state === 'generation-failed') return feedback(`Could not prepare the XLSX export: ${result.error.message}`);
-    if (result.state === 'archive-failed') { lifecycle.markArchiveUncertain(); return feedback(`Workbook generated, but archive status could not be confirmed. Refresh Monthly Filing before exporting again. (${result.error.message})`); }
-    const archivedById = new Map(result.archived.map(record => [record.dbId, record])); records = records.map(record => archivedById.has(record.dbId) ? { ...archivedById.get(record.dbId), persistedStoreFingerprint: record.persistedStoreFingerprint } : record); render(); feedback(`Exported and archived ${result.records.length} Monthly Filing receipt${result.records.length === 1 ? '' : 's'}.`);
+    if (result.state === 'archive-failed') { lifecycle.markArchiveUncertain(); return feedback(`Workbook generated, but archive status could not be confirmed. Refresh Monthly Filing before exporting again. (${result.error.message})${lastDirectoryFeedback ? ` ${lastDirectoryFeedback}` : ''}`); }
+    const archivedById = new Map(result.archived.map(record => [record.dbId, record])); records = records.map(record => archivedById.has(record.dbId) ? { ...archivedById.get(record.dbId), persistedStoreFingerprint: record.persistedStoreFingerprint } : record); render(); feedback(`Exported and archived ${result.records.length} Monthly Filing receipt${result.records.length === 1 ? '' : 's'}.${lastDirectoryFeedback ? ` ${lastDirectoryFeedback}` : ''}`);
     } finally { lifecycle.finishExport(); updateActions(); }
   };
   const clear = async event => {
