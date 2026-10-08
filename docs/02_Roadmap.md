@@ -68,7 +68,7 @@ Migration 003 is deployed to hosted Supabase. Live two-user RLS validation, brow
 - Return to Active for rejected/corrected filings, then re-edit/re-export
 - Official workbook reuse, export-before-archive sequencing, archive-failure handling, and Clear Monthly Filing
 
-Implemented in the repository only. Migration 004 requires technical review, hosted Supabase deployment, real RPC/RLS validation, and browser acceptance before Milestone 3.5 is production-complete.
+Migration 004 is deployed. Hosted RPC/security/concurrency validation and browser lifecycle acceptance passed. The focused Monthly Filing Company Directory contribution acceptance remains before Milestone 3.5 merge.
 
 ### Milestone 3.6 — Quick Optimizer
 - Stateless R1/R2/R3 temporary amount workflow

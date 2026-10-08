@@ -1,3 +1,7 @@
+import { deduplicateDirectoryCandidates, finalizeDirectoryPromptFingerprints, findCompatibleSharedProfiles, hasContributableStoreDetails, normalizeStoreTin, persistedStoreFingerprint, postSaveDirectoryDecision, resolveSharedContributionCandidate, sharedProfileIdentity } from '../domain/sharedStoreProfiles.js';
+
+export { deduplicateDirectoryCandidates, finalizeDirectoryPromptFingerprints, findCompatibleSharedProfiles, hasContributableStoreDetails, normalizeStoreTin, persistedStoreFingerprint, postSaveDirectoryDecision, resolveSharedContributionCandidate, sharedProfileIdentity } from '../domain/sharedStoreProfiles.js';
+
 const draftKey = 'receipt-match-draft-v2';
 const money = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' });
 const dateFormatter = new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium' });
@@ -224,51 +228,6 @@ export function createReceiptDeleteHandler({ row, triggerFallback, getCurrentUse
     }
   };
 }
-export const normalizeStoreTin = value => String(value || '').replace(/\D/g, '');
-export const sharedProfileIdentity = profile => `${normalizeStoreText(profile.storeName || profile.store)}\u0000${normalizeStoreText(profile.address)}\u0000${normalizeStoreTin(profile.tin)}`;
-export function findCompatibleSharedProfiles(candidate, profiles) {
-  const store = normalizeStoreText(candidate.storeName || candidate.store);
-  const address = normalizeStoreText(candidate.address);
-  const tin = normalizeStoreTin(candidate.tin);
-  return profiles.filter(profile => {
-    const existingAddress = normalizeStoreText(profile.address);
-    const existingTin = normalizeStoreTin(profile.tin);
-    return store && normalizeStoreText(profile.storeName || profile.store) === store && (!address || !existingAddress || address === existingAddress) && (!tin || !existingTin || tin === existingTin);
-  });
-}
-export function resolveSharedContributionCandidate(candidate, profiles) {
-  const exact = profiles.find(profile => sharedProfileIdentity(profile) === sharedProfileIdentity(candidate));
-  if (exact) return { status: 'existing', profile: exact };
-  const compatible = findCompatibleSharedProfiles(candidate, profiles);
-  if (compatible.length === 1) return { status: 'existing', profile: compatible[0] };
-  if (compatible.length > 1) return { status: 'ambiguous', profiles: compatible };
-  return { status: 'new' };
-}
-export const persistedStoreFingerprint = values => [
-  normalizeStoreText(values.storeName || values.store),
-  normalizeStoreText(values.address),
-  normalizeStoreTin(values.tin)
-].join('\u0000');
-export const hasContributableStoreDetails = values => Boolean(
-  String(values.storeName || values.store || '').trim() &&
-  (String(values.address || '').trim() || String(values.tin || '').trim())
-);
-export function postSaveDirectoryDecision({ values, previousFingerprint, profiles }) {
-  const candidate = { storeName: values.store, address: values.address, tin: values.tin, vat: values.vat };
-  const fingerprint = persistedStoreFingerprint(candidate);
-  if (!hasContributableStoreDetails(candidate)) return { status: 'ineligible', fingerprint };
-  if (previousFingerprint === fingerprint) return { status: 'unchanged', fingerprint };
-  return { ...resolveSharedContributionCandidate(candidate, profiles), fingerprint, candidate };
-}
-export function deduplicateDirectoryCandidates(candidates) {
-  const seen = new Set();
-  return candidates.filter(candidate => {
-    const key = sharedProfileIdentity(candidate.candidate || candidate);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
 export const floatingAddVisibleForStatus = status => status !== 'consumed';
 export async function persistReceiptsBeforeDirectoryPrompts(rows, persistRow) {
   const persisted = [];
@@ -280,7 +239,6 @@ export async function persistReceiptsBeforeDirectoryPrompts(rows, persistRow) {
   }
   return { persisted, candidates: persisted.map(result => result.decision).filter(decision => decision?.status === 'new' || decision?.status === 'ambiguous'), error: undefined };
 }
-export const finalizeDirectoryPromptFingerprints = persisted => persisted.forEach(({ row, fingerprint }) => { row.dataset.persistedStoreFingerprint = fingerprint; });
 export function combineStoreProfiles(sharedProfiles, historyProfiles) {
   const shared = sharedProfiles.map(profile => ({ ...profile, source: 'shared', store: profile.storeName, normalizedStore: normalizeStoreText(profile.storeName), addressKey: normalizeStoreText(profile.address), tinKey: normalizeStoreTin(profile.tin) }));
   const identity = profile => `${profile.normalizedStore || normalizeStoreText(profile.store)}\u0000${profile.addressKey || normalizeStoreText(profile.address)}\u0000${profile.tinKey || normalizeStoreTin(profile.tin)}`;

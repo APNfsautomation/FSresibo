@@ -22,6 +22,7 @@ test('Monthly Filing service stays isolated from long-term receipts and active-g
 test('Monthly Filing lifecycle uses exact RPC archive, archived-only return, and user-scoped clear', async () => {
   const source = await readFile(new URL('../services/monthlyFilingService.js', import.meta.url), 'utf8');
   assert.match(source, /rpc\('archive_monthly_filing_receipts', \{ p_ids: exactIds \}\)/);
+  assert.match(source, /associateMonthlyFilingSharedStore[\s\S]*update\(\{ shared_store_id: sharedStoreId \|\| null \}\)[\s\S]*eq\('status', 'active'\)/);
   assert.match(source, /new Set\(ids\.filter\(Boolean\)\)/);
   assert.doesNotMatch(source, /update\([^)]*status:\s*'archived'[^)]*\)\.eq\('status', 'active'\)/);
   assert.match(source, /update\(\{ status: 'active', archived_at: null \}\)\.eq\('id', id\)\.eq\('status', 'archived'\)/);

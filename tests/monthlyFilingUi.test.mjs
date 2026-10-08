@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { activeMonthlyFilingSnapshot, clearsSharedStoreAssociation, createMonthlyFilingLifecycleState, monthlyFilingExportFilename, monthlyFilingIsReadOnly, monthlyFilingProfileSnapshot, persistMonthlyFilingRows, runMonthlyFilingExport, synchronizeMonthlyFilingRow } from '../ui/monthlyFilingUi.js';
+import { deduplicateDirectoryCandidates, postSaveDirectoryDecision } from '../domain/sharedStoreProfiles.js';
+import { activeMonthlyFilingSnapshot, clearsSharedStoreAssociation, createMonthlyFilingLifecycleState, isBlankUnsavedMonthlyFilingRecord, monthlyFilingExportFilename, monthlyFilingIsReadOnly, monthlyFilingProfileSnapshot, persistMonthlyFilingRows, runMonthlyFilingExport, synchronizeMonthlyFilingRow } from '../ui/monthlyFilingUi.js';
 
 test('Company profile selection copies a transaction snapshot and retains sharedStoreId', () => {
   assert.deepEqual(monthlyFilingProfileSnapshot({ id: 'shared-1', storeName: 'Cafe', address: 'A', tin: '123', vat: 'VAT' }), { sharedStoreId: 'shared-1', store: 'Cafe', address: 'A', tin: '123', vat: 'VAT' });
@@ -84,4 +85,37 @@ test('only persisted Active Monthly Filing records form the export snapshot', ()
   const snapshot = activeMonthlyFilingSnapshot([{ dbId: 'a', status: 'active' }, { dbId: 'b', status: 'archived' }, { dbId: '', status: 'active' }]);
   assert.deepEqual(snapshot.map(record => record.dbId), ['a']);
   assert.equal(monthlyFilingExportFilename(new Date('2026-10-07T00:00:00Z')), 'fsresibo-monthly-filing-2026-10-07.xlsx');
+});
+
+test('a completely blank new placeholder is skipped while a partial Monthly Filing row remains persistable', () => {
+  const blank = { dbId: '', store: '', address: '', tin: '', vat: '', amount: '', receiptDate: '', invoice: '' };
+  assert.equal(isBlankUnsavedMonthlyFilingRecord(blank), true);
+  assert.equal(isBlankUnsavedMonthlyFilingRecord({ ...blank, invoice: 'OR-1' }), false);
+  assert.equal(isBlankUnsavedMonthlyFilingRecord({ ...blank, dbId: 'saved-blank' }), false);
+  assert.deepEqual(activeMonthlyFilingSnapshot([{ ...blank, status: 'active' }, { ...blank, dbId: 'persisted', status: 'active' }]).map(record => record.dbId), ['persisted']);
+});
+
+test('Monthly Filing uses the shared post-save directory governance for existing, ambiguous, and new candidates', () => {
+  const values = { store: 'North Cafe', address: 'North Avenue', tin: '123-456', vat: 'VAT' };
+  const existing = [{ id: 'north', storeName: 'North Cafe', address: 'North Avenue', tin: '123456' }];
+  assert.equal(postSaveDirectoryDecision({ values, profiles: existing }).status, 'existing');
+  assert.equal(postSaveDirectoryDecision({ values: { ...values, address: '', tin: '' }, profiles: [] }).status, 'ineligible');
+  const ambiguous = [{ id: 'a', storeName: 'North Cafe', address: '', tin: '1' }, { id: 'b', storeName: 'North Cafe', address: '', tin: '2' }];
+  assert.equal(postSaveDirectoryDecision({ values: { ...values, address: 'Different', tin: '' }, profiles: ambiguous }).status, 'ambiguous');
+  const first = postSaveDirectoryDecision({ values, profiles: [] });
+  const duplicate = postSaveDirectoryDecision({ values: { ...values, store: ' north  cafe ', tin: '123456' }, profiles: [] });
+  assert.equal(first.status, 'new');
+  assert.equal(deduplicateDirectoryCandidates([first, duplicate]).length, 1);
+});
+
+test('export remains automatic save-before-workbook and archive without a prior manual Save click', async () => {
+  const calls = [];
+  const result = await runMonthlyFilingExport({
+    save: async () => { calls.push('auto-save'); return true; },
+    snapshot: () => [{ dbId: 'saved-during-export', status: 'active' }],
+    generateWorkbook: records => calls.push(`workbook:${records[0].dbId}`),
+    archive: async ids => { calls.push(`archive:${ids.join(',')}`); return [{ dbId: ids[0], status: 'archived' }]; }
+  });
+  assert.equal(result.state, 'archived');
+  assert.deepEqual(calls, ['auto-save', 'workbook:saved-during-export', 'archive:saved-during-export']);
 });
