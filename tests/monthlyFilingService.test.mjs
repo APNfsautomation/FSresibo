@@ -28,9 +28,11 @@ test('Monthly Filing lifecycle uses exact RPC archive, archived-only return, and
   assert.match(source, /from\(monthlyFilingTable\)\.delete\(\)\.eq\('user_id', userId\)/);
 });
 
-test('archive return validation rejects mismatched or non-archived RPC records', () => {
+test('archive return validation requires exact count, exact IDs, and archived statuses', () => {
   const archived = [{ dbId: 'a', status: 'archived' }, { dbId: 'b', status: 'archived' }];
   assert.equal(validateArchivedMonthlyFilingReceiptSet(['a', 'b'], archived), archived);
   assert.throws(() => validateArchivedMonthlyFilingReceiptSet(['a', 'b'], [{ dbId: 'a', status: 'archived' }]));
+  assert.throws(() => validateArchivedMonthlyFilingReceiptSet(['a', 'b'], [{ dbId: 'a', status: 'archived' }, { dbId: 'unexpected', status: 'archived' }]));
+  assert.throws(() => validateArchivedMonthlyFilingReceiptSet(['a', 'b'], [{ dbId: 'a', status: 'archived' }, { dbId: 'b', status: 'archived' }, { dbId: 'b', status: 'archived' }]));
   assert.throws(() => validateArchivedMonthlyFilingReceiptSet(['a'], [{ dbId: 'a', status: 'active' }]));
 });

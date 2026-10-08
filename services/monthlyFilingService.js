@@ -17,7 +17,7 @@ export async function deleteMonthlyFilingReceipt(id) { const client = await clie
 export function validateArchivedMonthlyFilingReceiptSet(ids, archivedRecords) {
   const expected = new Set(ids);
   const received = new Set(archivedRecords.map(record => record.dbId));
-  if (expected.size !== received.size || [...expected].some(id => !received.has(id)) || archivedRecords.some(record => record.status !== 'archived')) throw new Error('Monthly Filing archive integrity check failed.');
+  if (archivedRecords.length !== expected.size || received.size !== expected.size || [...expected].some(id => !received.has(id)) || archivedRecords.some(record => record.status !== 'archived')) throw new Error('Monthly Filing archive integrity check failed.');
   return archivedRecords;
 }
 export async function archiveMonthlyFilingReceipts(ids) {
