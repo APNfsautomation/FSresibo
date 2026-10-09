@@ -27,7 +27,7 @@ test('Monthly Filing lifecycle uses exact RPC archive, archived-only return, and
   assert.doesNotMatch(source, /update\([^)]*status:\s*'archived'[^)]*\)\.eq\('status', 'active'\)/);
   assert.match(source, /update\(\{ status: 'active', archived_at: null \}\)\.eq\('id', id\)\.eq\('status', 'archived'\)/);
   assert.match(source, /from\(monthlyFilingTable\)\.delete\(\)\.eq\('user_id', userId\)/);
-  assert.match(source, /clearArchivedMonthlyFilingReceipts[\s\S]*from\(monthlyFilingTable\)\.delete\(\)\.eq\('user_id', userId\)\.eq\('status', 'archived'\)/);
+  assert.match(source, /clearArchivedMonthlyFilingReceipts[\s\S]*new Set\(ids\.filter\(Boolean\)\)[\s\S]*from\(monthlyFilingTable\)\.delete\(\)\.in\('id', exactIds\)\.eq\('user_id', userId\)\.eq\('status', 'archived'\)\.select\('id'\)/);
   assert.doesNotMatch(source, /from\('receipts'\)|shared_store_directory/);
 });
 

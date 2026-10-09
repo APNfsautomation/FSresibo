@@ -40,8 +40,11 @@ export async function clearMonthlyFilingReceipts(userId) {
   const { error } = await client.from(monthlyFilingTable).delete().eq('user_id', userId);
   if (error) throw error;
 }
-export async function clearArchivedMonthlyFilingReceipts(userId) {
+export async function clearArchivedMonthlyFilingReceipts(userId, ids = []) {
+  const exactIds = [...new Set(ids.filter(Boolean))];
+  if (!exactIds.length) return [];
   const client = await clientOrThrow();
-  const { error } = await client.from(monthlyFilingTable).delete().eq('user_id', userId).eq('status', 'archived');
+  const { data, error } = await client.from(monthlyFilingTable).delete().in('id', exactIds).eq('user_id', userId).eq('status', 'archived').select('id');
   if (error) throw error;
+  return (data || []).map(row => row.id);
 }

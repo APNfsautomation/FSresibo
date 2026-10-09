@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { deduplicateDirectoryCandidates, postSaveDirectoryDecision } from '../domain/sharedStoreProfiles.js';
-import { activeMonthlyFilingSnapshot, clearsSharedStoreAssociation, createMonthlyFilingLifecycleState, directoryOutcomeFeedback, isBlankUnsavedMonthlyFilingRecord, matchingDirectoryEntries, monthlyFilingActiveExportCount, monthlyFilingExportFilename, monthlyFilingIsReadOnly, monthlyFilingProfileSnapshot, monthlyFilingRecordsForTab, monthlyFilingTabCounts, persistMonthlyFilingRows, runMonthlyFilingExport, synchronizeMonthlyFilingRow } from '../ui/monthlyFilingUi.js';
+import { activeMonthlyFilingSnapshot, clearsSharedStoreAssociation, createMonthlyFilingLifecycleState, createMonthlyFilingMutationState, directoryOutcomeFeedback, isBlankUnsavedMonthlyFilingRecord, matchingDirectoryEntries, monthlyFilingActiveExportCount, monthlyFilingExportFilename, monthlyFilingIsReadOnly, monthlyFilingProfileSnapshot, monthlyFilingRecordsForTab, monthlyFilingTabCounts, persistMonthlyFilingRows, reconcileArchivedMonthlyFilingDeletion, runMonthlyFilingExport, synchronizeMonthlyFilingRow } from '../ui/monthlyFilingUi.js';
 
 test('Company profile selection copies a transaction snapshot and retains sharedStoreId', () => {
   assert.deepEqual(monthlyFilingProfileSnapshot({ id: 'shared-1', storeName: 'Cafe', address: 'A', tin: '123', vat: 'VAT' }), { sharedStoreId: 'shared-1', store: 'Cafe', address: 'A', tin: '123', vat: 'VAT' });
@@ -175,4 +175,34 @@ test('clear Archived local-state transition preserves Active drafts, while Clear
   assert.equal(afterClearArchived[0].store, 'Draft');
   const afterClearAll = [];
   assert.deepEqual(afterClearAll, []);
+});
+
+test('one shared mutation guard blocks overlapping Save, Clear, Return, and Delete operations but permits Export internal Save', () => {
+  const mutations = createMonthlyFilingMutationState();
+  assert.equal(mutations.begin('save'), true);
+  assert.equal(mutations.begin('clear-all'), false);
+  assert.equal(mutations.begin('return-to-active'), false);
+  assert.equal(mutations.begin('delete'), false);
+  mutations.finish();
+  assert.equal(mutations.begin('clear-archived'), true);
+  assert.equal(mutations.begin('save'), false);
+  assert.equal(mutations.begin('clear-all'), false);
+  mutations.finish();
+  assert.equal(mutations.begin('export'), true);
+  assert.equal(mutations.permitsInternalExportSave(), true);
+  mutations.finish();
+  assert.equal(mutations.pending(), false);
+  assert.equal(mutations.begin('clear-all'), true);
+});
+
+test('Archived deletion reconciliation removes only returned IDs and preserves Active changes, newer archives, and unsaved drafts', () => {
+  const records = [
+    { dbId: 'archived-confirmed', status: 'archived' },
+    { dbId: 'changed-active', status: 'active' },
+    { dbId: 'newly-archived', status: 'archived' },
+    { dbId: '', status: 'active', store: 'Draft', amount: '1' }
+  ];
+  const reconciled = reconcileArchivedMonthlyFilingDeletion(records, ['archived-confirmed']);
+  assert.deepEqual(reconciled.map(record => record.dbId), ['changed-active', 'newly-archived', '']);
+  assert.equal(reconciled.at(-1).store, 'Draft');
 });

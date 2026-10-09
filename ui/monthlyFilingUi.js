@@ -8,6 +8,10 @@ export const monthlyFilingIsReadOnly = receipt => receipt.status === 'archived';
 export const monthlyFilingActiveExportCount = records => records.filter(record => record.status === 'active' && !isBlankUnsavedMonthlyFilingRecord(record)).length;
 export const monthlyFilingTabCounts = records => ({ active: monthlyFilingActiveExportCount(records), archived: records.filter(record => record.dbId && record.status === 'archived').length });
 export const monthlyFilingRecordsForTab = (records, tab) => records.filter(record => tab === 'archived' ? record.dbId && record.status === 'archived' : record.status === 'active');
+export const reconcileArchivedMonthlyFilingDeletion = (records, deletedIds) => {
+  const deleted = new Set(deletedIds);
+  return records.filter(record => !deleted.has(record.dbId));
+};
 export const activeMonthlyFilingSnapshot = records => records.filter(record => record.dbId && record.status === 'active').map(record => ({ ...record }));
 export const monthlyFilingExportFilename = (date = new Date()) => `fsresibo-monthly-filing-${date.toISOString().slice(0, 10)}.xlsx`;
 export const synchronizeMonthlyFilingRow = (row, saved) => {
@@ -25,6 +29,16 @@ export function createMonthlyFilingLifecycleState() {
     clearArchiveUncertain: () => { archiveUncertain = false; },
     exportBlocked: () => pending || archiveUncertain,
     clearBlocked: () => pending || archiveUncertain
+  };
+}
+export function createMonthlyFilingMutationState() {
+  let operation = '';
+  return {
+    begin: next => { if (operation) return false; operation = next; return true; },
+    permitsInternalExportSave: () => operation === 'export',
+    pending: () => Boolean(operation),
+    current: () => operation,
+    finish: () => { operation = ''; }
   };
 }
 export async function runMonthlyFilingExport({ save, snapshot, generateWorkbook, archive }) {
@@ -49,6 +63,7 @@ export const directoryOutcomeFeedback = outcomes => outcomes.map(outcome => outc
 export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedStoreService, downloadExpenseDetailedReport, confirmAction = async () => false }) {
   let currentUser; let records = []; let profiles = []; let loading = false; let lastDirectoryFeedback = ''; let activeTab = 'active';
   const lifecycle = createMonthlyFilingLifecycleState();
+  const mutations = createMonthlyFilingMutationState();
   const feedback = text => { elements.feedback.textContent = text || ''; };
   const activeRecords = () => activeMonthlyFilingSnapshot(records);
   const values = row => Object.fromEntries(monthlyFilingEditableFields.map(key => [key, row.querySelector(`.monthly-${key}`).value]));
@@ -65,7 +80,7 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
     elements.activeTab.tabIndex = activeTab === 'active' ? 0 : -1; elements.archivedTab.tabIndex = activeTab === 'archived' ? 0 : -1;
     elements.activeActions.hidden = activeTab !== 'active'; elements.exportHelper.hidden = activeTab !== 'active'; elements.archivedActions.hidden = activeTab !== 'archived';
   };
-  const updateActions = () => { const counts = monthlyFilingTabCounts(records); elements.exportActive.disabled = lifecycle.exportBlocked() || counts.active === 0; elements.clearArchived.disabled = lifecycle.clearBlocked() || counts.archived === 0; elements.clearAll.disabled = lifecycle.clearBlocked() || records.length === 0; updateTabControls(); };
+  const updateActions = () => { const counts = monthlyFilingTabCounts(records); const blocked = mutations.pending(); elements.save.disabled = blocked || counts.active === 0; elements.add.disabled = blocked; elements.exportActive.disabled = blocked || lifecycle.exportBlocked() || counts.active === 0; elements.clearArchived.disabled = blocked || lifecycle.clearBlocked() || counts.archived === 0; elements.clearAll.disabled = blocked || lifecycle.clearBlocked() || records.length === 0; updateTabControls(); };
   const setRecord = (index, saved, fingerprint) => { records[index] = { ...saved, persistedStoreFingerprint: fingerprint ?? records[index]?.persistedStoreFingerprint ?? '' }; };
   const reloadSharedStores = async () => { profiles = await sharedStoreService.listActiveSharedStores(); return profiles; };
   const candidateMessage = candidate => {
@@ -87,8 +102,12 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
       row.querySelector('.monthly-delete').hidden = archived;
       const returnButton = row.querySelector('.monthly-return-active'); returnButton.hidden = !archived;
       returnButton.addEventListener('click', async event => {
-        if (!archived || lifecycle.clearBlocked() || !await confirmAction({ title: 'Return receipt to Active?', message: 'This receipt will become editable again and will be included in the next Monthly Filing export.', confirmLabel: 'Return to Active', cancelLabel: 'Cancel', trigger: event.currentTarget })) return;
-        try { setRecord(recordIndex, await monthlyFilingService.returnMonthlyFilingReceiptToActive(record.dbId)); activeTab = 'active'; render(); requestAnimationFrame(() => elements.list.querySelector(`[data-record-index="${recordIndex}"] .monthly-store`)?.focus({ preventScroll: true })); feedback('Monthly Filing receipt returned to Active.'); } catch (error) { feedback(`Could not return receipt to Active: ${error.message}`); }
+        if (!archived || lifecycle.clearBlocked() || !mutations.begin('return-to-active')) return;
+        updateActions();
+        try {
+          if (!await confirmAction({ title: 'Return receipt to Active?', message: 'This receipt will become editable again and will be included in the next Monthly Filing export.', confirmLabel: 'Return to Active', cancelLabel: 'Cancel', trigger: event.currentTarget })) return;
+          setRecord(recordIndex, await monthlyFilingService.returnMonthlyFilingReceiptToActive(record.dbId)); activeTab = 'active'; render(); requestAnimationFrame(() => elements.list.querySelector(`[data-record-index="${recordIndex}"] .monthly-store`)?.focus({ preventScroll: true })); feedback('Monthly Filing receipt returned to Active.');
+        } catch (error) { feedback(`Could not return receipt to Active: ${error.message}`); } finally { mutations.finish(); updateActions(); }
       });
       const store = row.querySelector('.monthly-store'); const suggestions = row.querySelector('.monthly-suggestions');
       const showSuggestions = () => {
@@ -102,9 +121,13 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
       row.querySelectorAll('input, select').forEach(field => { const sync = () => { synchronizeActiveRow(row); updateActions(); }; field.addEventListener('input', sync); field.addEventListener('change', sync); });
       row.querySelector('.monthly-delete').addEventListener('click', async event => {
         if (archived) return;
-        if (!record.dbId) { records.splice(recordIndex, 1); render(); feedback('Unsaved Monthly Filing receipt removed.'); return; }
-        if (!await confirmAction({ title: 'Delete Monthly Filing receipt?', message: 'This removes this receipt from Monthly Filing only.', confirmLabel: 'Delete Receipt', cancelLabel: 'Cancel', danger: true, trigger: event.currentTarget })) return;
-        try { await monthlyFilingService.deleteMonthlyFilingReceipt(record.dbId); records = records.filter(item => item.dbId !== record.dbId); render(); feedback('Monthly Filing receipt deleted.'); } catch (error) { feedback(`Could not delete Monthly Filing receipt: ${error.message}`); }
+        if (!mutations.begin('delete')) return;
+        updateActions();
+        try {
+          if (!record.dbId) { records.splice(recordIndex, 1); render(); feedback('Unsaved Monthly Filing receipt removed.'); return; }
+          if (!await confirmAction({ title: 'Delete Monthly Filing receipt?', message: 'This removes this receipt from Monthly Filing only.', confirmLabel: 'Delete Receipt', cancelLabel: 'Cancel', danger: true, trigger: event.currentTarget })) return;
+          await monthlyFilingService.deleteMonthlyFilingReceipt(record.dbId); records = records.filter(item => item.dbId !== record.dbId); render(); feedback('Monthly Filing receipt deleted.');
+        } catch (error) { feedback(`Could not delete Monthly Filing receipt: ${error.message}`); } finally { mutations.finish(); updateActions(); }
       });
       elements.list.append(row);
     });
@@ -160,7 +183,7 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
   };
   const add = () => { records.push({ dbId: '', sharedStoreId: '', store: '', address: '', tin: '', vat: '', amount: '', receiptDate: '', invoice: '', status: 'active', persistedStoreFingerprint: '' }); render(); };
   const save = async ({ successFeedback = true, fromExport = false } = {}) => {
-    if (loading || !currentUser || (lifecycle.exportBlocked() && !fromExport)) return false;
+    if (loading || !currentUser || (lifecycle.exportBlocked() && !fromExport) || (fromExport ? !mutations.permitsInternalExportSave() : !mutations.begin('save'))) return false;
     loading = true; elements.save.disabled = true;
     try {
       synchronizeVisibleActiveDrafts();
@@ -176,10 +199,11 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
       if (error) throw error;
       lastDirectoryFeedback = directoryOutcomeFeedback(await processDirectoryDecisions(saved));
       render(); if (successFeedback) feedback(lastDirectoryFeedback || 'Monthly Filing changes saved.'); return true;
-    } catch (error) { feedback(`Could not save Monthly Filing changes: ${error.message}`); return false; } finally { loading = false; elements.save.disabled = false; }
+    } catch (error) { feedback(`Could not save Monthly Filing changes: ${error.message}`); return false; } finally { loading = false; if (!fromExport) mutations.finish(); updateActions(); }
   };
   const exportActive = async event => {
     if (!lifecycle.beginExport()) return;
+    if (!mutations.begin('export')) { lifecycle.finishExport(); return; }
     updateActions();
     try {
     synchronizeVisibleActiveDrafts();
@@ -192,22 +216,36 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
     if (result.state === 'generation-failed') return feedback(`Could not prepare the XLSX export: ${result.error.message}`);
     if (result.state === 'archive-failed') { lifecycle.markArchiveUncertain(); return feedback(`Workbook generated, but archive status could not be confirmed. Refresh Monthly Filing before exporting again. (${result.error.message})${lastDirectoryFeedback ? ` ${lastDirectoryFeedback}` : ''}`); }
     const archivedById = new Map(result.archived.map(record => [record.dbId, record])); records = records.map(record => archivedById.has(record.dbId) ? { ...archivedById.get(record.dbId), persistedStoreFingerprint: record.persistedStoreFingerprint } : record); render(); feedback(`Exported and archived ${result.records.length} Monthly Filing receipt${result.records.length === 1 ? '' : 's'}.${lastDirectoryFeedback ? ` ${lastDirectoryFeedback}` : ''}`);
-    } finally { lifecycle.finishExport(); updateActions(); }
+    } finally { lifecycle.finishExport(); mutations.finish(); updateActions(); }
   };
   const clearArchived = async event => {
-    const count = monthlyFilingTabCounts(records).archived;
-    if (!count || !currentUser || lifecycle.clearBlocked()) return;
-    if (!await confirmAction({ title: 'Clear Archived receipts?', message: `This permanently deletes your ${count} Archived Monthly Filing receipt${count === 1 ? '' : 's'}. Active receipts will be preserved.`, confirmLabel: 'Clear Archived', cancelLabel: 'Cancel', danger: true, trigger: event.currentTarget })) return;
-    try { await monthlyFilingService.clearArchivedMonthlyFilingReceipts(currentUser.id); records = records.filter(record => record.status !== 'archived'); render(); feedback('Archived Monthly Filing receipts cleared. Active receipts were preserved.'); } catch (error) { feedback(`Could not clear Archived Monthly Filing receipts: ${error.message}`); }
+    const snapshotIds = records.filter(record => record.dbId && record.status === 'archived').map(record => record.dbId);
+    if (!snapshotIds.length || !currentUser || lifecycle.clearBlocked() || !mutations.begin('clear-archived')) return;
+    updateActions();
+    try {
+      if (!await confirmAction({ title: 'Clear Archived receipts?', message: `This permanently deletes your ${snapshotIds.length} Archived Monthly Filing receipt${snapshotIds.length === 1 ? '' : 's'}. Active receipts will be preserved.`, confirmLabel: 'Clear Archived', cancelLabel: 'Cancel', danger: true, trigger: event.currentTarget })) return;
+      const deletedIds = await monthlyFilingService.clearArchivedMonthlyFilingReceipts(currentUser.id, snapshotIds);
+      records = reconcileArchivedMonthlyFilingDeletion(records, deletedIds);
+      if (deletedIds.length === snapshotIds.length) feedback('Archived Monthly Filing receipts cleared. Active receipts were preserved.');
+      else {
+        const drafts = records.filter(record => !record.dbId && record.status === 'active');
+        try { records = [...await monthlyFilingService.loadMonthlyFilingReceipts(), ...drafts]; feedback('Archived receipts changed in another session. Confirmed deletions were reconciled and Monthly Filing was refreshed.'); }
+        catch { feedback('Archived receipts changed in another session. Confirmed deletions were reconciled; refresh Monthly Filing before further cleanup.'); }
+      }
+      render();
+    } catch (error) { feedback(`Could not clear Archived Monthly Filing receipts: ${error.message}`); } finally { mutations.finish(); updateActions(); }
   };
   const clearAll = async event => {
-    if (!records.length || !currentUser || lifecycle.clearBlocked()) return;
+    if (!records.length || !currentUser || lifecycle.clearBlocked() || !mutations.begin('clear-all')) return;
+    updateActions();
     const counts = monthlyFilingTabCounts(records);
-    if (!await confirmAction({ title: 'Clear ALL Monthly Filing receipts?', message: `This permanently deletes ALL your Monthly Filing receipts, including ${counts.active} Active and ${counts.archived} Archived receipt${counts.active + counts.archived === 1 ? '' : 's'}. This cannot be undone. Long-term Receipts and the Company Directory are not affected.`, confirmLabel: 'Clear All Monthly Filing', cancelLabel: 'Cancel', danger: true, trigger: event.currentTarget })) return;
-    try { await monthlyFilingService.clearMonthlyFilingReceipts(currentUser.id); records = []; activeTab = 'active'; render(); feedback('All Monthly Filing receipts cleared.'); } catch (error) { feedback(`Could not clear all Monthly Filing receipts: ${error.message}`); }
+    try {
+      if (!await confirmAction({ title: 'Clear ALL Monthly Filing receipts?', message: `This permanently deletes ALL your Monthly Filing receipts, including ${counts.active} Active and ${counts.archived} Archived receipt${counts.active + counts.archived === 1 ? '' : 's'}. This cannot be undone. Long-term Receipts and the Company Directory are not affected.`, confirmLabel: 'Clear All Monthly Filing', cancelLabel: 'Cancel', danger: true, trigger: event.currentTarget })) return;
+      await monthlyFilingService.clearMonthlyFilingReceipts(currentUser.id); records = []; activeTab = 'active'; render(); feedback('All Monthly Filing receipts cleared.');
+    } catch (error) { feedback(`Could not clear all Monthly Filing receipts: ${error.message}`); } finally { mutations.finish(); updateActions(); }
   };
   const switchTab = tab => {
-    if (tab === activeTab) return;
+    if (tab === activeTab || mutations.pending()) return;
     synchronizeVisibleActiveDrafts(); activeTab = tab; render();
     (tab === 'active' ? elements.activeTab : elements.archivedTab).focus({ preventScroll: true });
   };
