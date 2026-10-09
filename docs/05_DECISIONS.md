@@ -438,3 +438,25 @@ The official A:O mapping and grouped Supplier Details header must remain consist
 Workbook generation remains reusable and pure. Long-term export receives only long-term receipt records; Monthly Filing export receives only Monthly Filing records. Monthly Filing archives records only after workbook generation succeeds.
 
 ---
+
+# Decision 017
+
+## Monthly Filing Cleanup Safety
+
+**Status**
+
+Accepted
+
+### Decision
+
+Active and Archived remain lifecycle statuses in the single `public.monthly_filing_receipts` table, but Monthly Filing presents them as separate UI views. Clear Archived is the ordinary cleanup action and preserves all Active records. Clear All Monthly Filing remains available as a deliberate full reset.
+
+### Reason
+
+An exported receipt can be returned to Active for correction. A routine cleanup action must not delete that correction work alongside unrelated Archived receipts.
+
+### Consequences
+
+Archived means exported and read-only until returned to Active; it does not mean accounting-approved, permanently retained, or backed up. No monthly batches, historical batch management, approval status, or new persistence infrastructure is added. This refines Decision 014 without altering its historical record.
+
+---

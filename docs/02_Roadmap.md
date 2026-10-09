@@ -64,11 +64,11 @@ Hosted Supabase now has the reviewed directory migration and validated RLS; publ
 Migration 003 is deployed to hosted Supabase. Live two-user RLS validation, browser acceptance, and mobile smoke testing passed. PR #13 is merged.
 
 ### Milestone 3.5 — Monthly Filing Lifecycle & Export
-- Active to Archived export lifecycle
+- Active and Archived workspace views of one transaction table
 - Return to Active for rejected/corrected filings, then re-edit/re-export
-- Official workbook reuse, export-before-archive sequencing, archive-failure handling, and Clear Monthly Filing
+- Official workbook reuse, export-before-archive sequencing, archive-failure handling, Clear Archived, and a deliberate Clear All Monthly Filing reset
 
-Migration 004 is deployed. Hosted RPC/security/concurrency validation and browser lifecycle acceptance passed. The focused Monthly Filing Company Directory contribution acceptance remains before Milestone 3.5 merge.
+Migration 004 is deployed. Hosted RPC/security/concurrency validation and browser lifecycle acceptance passed. Focused acceptance remains for Monthly Filing Company Directory contribution and Active/Archived cleanup UX before Milestone 3.5 merge.
 
 ### Milestone 3.6 — Quick Optimizer
 - Stateless R1/R2/R3 temporary amount workflow

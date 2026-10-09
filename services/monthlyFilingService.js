@@ -40,3 +40,8 @@ export async function clearMonthlyFilingReceipts(userId) {
   const { error } = await client.from(monthlyFilingTable).delete().eq('user_id', userId);
   if (error) throw error;
 }
+export async function clearArchivedMonthlyFilingReceipts(userId) {
+  const client = await clientOrThrow();
+  const { error } = await client.from(monthlyFilingTable).delete().eq('user_id', userId).eq('status', 'archived');
+  if (error) throw error;
+}

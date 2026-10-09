@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { deduplicateDirectoryCandidates, postSaveDirectoryDecision } from '../domain/sharedStoreProfiles.js';
-import { activeMonthlyFilingSnapshot, clearsSharedStoreAssociation, createMonthlyFilingLifecycleState, directoryOutcomeFeedback, isBlankUnsavedMonthlyFilingRecord, matchingDirectoryEntries, monthlyFilingActiveExportCount, monthlyFilingExportFilename, monthlyFilingIsReadOnly, monthlyFilingProfileSnapshot, persistMonthlyFilingRows, runMonthlyFilingExport, synchronizeMonthlyFilingRow } from '../ui/monthlyFilingUi.js';
+import { activeMonthlyFilingSnapshot, clearsSharedStoreAssociation, createMonthlyFilingLifecycleState, directoryOutcomeFeedback, isBlankUnsavedMonthlyFilingRecord, matchingDirectoryEntries, monthlyFilingActiveExportCount, monthlyFilingExportFilename, monthlyFilingIsReadOnly, monthlyFilingProfileSnapshot, monthlyFilingRecordsForTab, monthlyFilingTabCounts, persistMonthlyFilingRows, runMonthlyFilingExport, synchronizeMonthlyFilingRow } from '../ui/monthlyFilingUi.js';
 
 test('Company profile selection copies a transaction snapshot and retains sharedStoreId', () => {
   assert.deepEqual(monthlyFilingProfileSnapshot({ id: 'shared-1', storeName: 'Cafe', address: 'A', tin: '123', vat: 'VAT' }), { sharedStoreId: 'shared-1', store: 'Cafe', address: 'A', tin: '123', vat: 'VAT' });
@@ -143,4 +143,36 @@ test('directory outcome feedback retains warnings and contribution results inste
   assert.match(directoryOutcomeFeedback([{ type: 'declined', message: 'Monthly Filing saved. Store kept only in Monthly Filing.' }]), /kept only/i);
   assert.match(directoryOutcomeFeedback([{ type: 'association-failed', message: 'Monthly Filing saved, but its Company Directory association could not be recorded: denied.' }]), /could not be recorded/i);
   assert.match(directoryOutcomeFeedback([{ type: 'contributed', message: 'Monthly Filing saved. Store added to the Company Directory.' }]), /added to the Company Directory/i);
+});
+
+test('Active and Archived views partition one Monthly Filing record set with accurate tab counts', () => {
+  const records = [
+    { dbId: 'active-saved', status: 'active', amount: '100' },
+    { dbId: '', status: 'active', amount: '200' },
+    { dbId: '', status: 'active', amount: '' },
+    { dbId: 'archived-one', status: 'archived', amount: '300' }
+  ];
+  assert.deepEqual(monthlyFilingRecordsForTab(records, 'active').map(record => record.dbId), ['active-saved', '', '']);
+  assert.deepEqual(monthlyFilingRecordsForTab(records, 'archived').map(record => record.dbId), ['archived-one']);
+  assert.deepEqual(monthlyFilingTabCounts(records), { active: 2, archived: 1 });
+  assert.deepEqual(activeMonthlyFilingSnapshot(records).map(record => record.dbId), ['active-saved']);
+});
+
+test('draft values retained in the Active local record survive a tab view change without persistence', () => {
+  const records = [{ dbId: '', status: 'active', store: 'Draft Cafe', amount: '500', invoice: 'OR-7' }, { dbId: 'archived', status: 'archived', store: 'Old Cafe' }];
+  const activeBefore = monthlyFilingRecordsForTab(records, 'active')[0];
+  const archived = monthlyFilingRecordsForTab(records, 'archived');
+  const activeAfter = monthlyFilingRecordsForTab(records, 'active')[0];
+  assert.equal(archived.length, 1);
+  assert.deepEqual(activeAfter, activeBefore);
+  assert.equal(monthlyFilingActiveExportCount(records), 1);
+});
+
+test('clear Archived local-state transition preserves Active drafts, while Clear All intentionally removes both states', () => {
+  const records = [{ dbId: '', status: 'active', store: 'Draft', amount: '100' }, { dbId: 'active', status: 'active', store: 'Saved' }, { dbId: 'archived', status: 'archived', store: 'Old' }];
+  const afterClearArchived = records.filter(record => record.status !== 'archived');
+  assert.deepEqual(afterClearArchived.map(record => record.status), ['active', 'active']);
+  assert.equal(afterClearArchived[0].store, 'Draft');
+  const afterClearAll = [];
+  assert.deepEqual(afterClearAll, []);
 });

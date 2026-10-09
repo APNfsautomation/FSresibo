@@ -27,6 +27,8 @@ test('Monthly Filing lifecycle uses exact RPC archive, archived-only return, and
   assert.doesNotMatch(source, /update\([^)]*status:\s*'archived'[^)]*\)\.eq\('status', 'active'\)/);
   assert.match(source, /update\(\{ status: 'active', archived_at: null \}\)\.eq\('id', id\)\.eq\('status', 'archived'\)/);
   assert.match(source, /from\(monthlyFilingTable\)\.delete\(\)\.eq\('user_id', userId\)/);
+  assert.match(source, /clearArchivedMonthlyFilingReceipts[\s\S]*from\(monthlyFilingTable\)\.delete\(\)\.eq\('user_id', userId\)\.eq\('status', 'archived'\)/);
+  assert.doesNotMatch(source, /from\('receipts'\)|shared_store_directory/);
 });
 
 test('archive return validation requires exact count, exact IDs, and archived statuses', () => {
