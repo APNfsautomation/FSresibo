@@ -12,6 +12,19 @@ export const reconcileArchivedMonthlyFilingDeletion = (records, deletedIds) => {
   const deleted = new Set(deletedIds);
   return records.filter(record => !deleted.has(record.dbId));
 };
+export const monthlyFilingLocalEditableFields = Object.freeze(['store', 'address', 'tin', 'vat', 'amount', 'receiptDate', 'invoice', 'sharedStoreId', 'persistedStoreFingerprint']);
+export const reconcileMonthlyFilingReload = (localRecords, reloadedRecords) => {
+  const localActive = new Map(localRecords.filter(record => record.dbId && record.status === 'active').map(record => [record.dbId, record]));
+  const drafts = localRecords.filter(record => !record.dbId && record.status === 'active');
+  return [
+    ...reloadedRecords.map(record => {
+      const local = localActive.get(record.dbId);
+      if (!local || record.status !== 'active') return record;
+      return { ...record, ...Object.fromEntries(monthlyFilingLocalEditableFields.map(key => [key, local[key] ?? record[key] ?? ''])) };
+    }),
+    ...drafts
+  ];
+};
 export const activeMonthlyFilingSnapshot = records => records.filter(record => record.dbId && record.status === 'active').map(record => ({ ...record }));
 export const monthlyFilingExportFilename = (date = new Date()) => `fsresibo-monthly-filing-${date.toISOString().slice(0, 10)}.xlsx`;
 export const synchronizeMonthlyFilingRow = (row, saved) => {
@@ -228,8 +241,7 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
       records = reconcileArchivedMonthlyFilingDeletion(records, deletedIds);
       if (deletedIds.length === snapshotIds.length) feedback('Archived Monthly Filing receipts cleared. Active receipts were preserved.');
       else {
-        const drafts = records.filter(record => !record.dbId && record.status === 'active');
-        try { records = [...await monthlyFilingService.loadMonthlyFilingReceipts(), ...drafts]; feedback('Archived receipts changed in another session. Confirmed deletions were reconciled and Monthly Filing was refreshed.'); }
+        try { records = reconcileMonthlyFilingReload(records, await monthlyFilingService.loadMonthlyFilingReceipts()); feedback('Archived receipts changed in another session. Confirmed deletions were reconciled and local Active edits were preserved.'); }
         catch { feedback('Archived receipts changed in another session. Confirmed deletions were reconciled; refresh Monthly Filing before further cleanup.'); }
       }
       render();

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { deduplicateDirectoryCandidates, postSaveDirectoryDecision } from '../domain/sharedStoreProfiles.js';
-import { activeMonthlyFilingSnapshot, clearsSharedStoreAssociation, createMonthlyFilingLifecycleState, createMonthlyFilingMutationState, directoryOutcomeFeedback, isBlankUnsavedMonthlyFilingRecord, matchingDirectoryEntries, monthlyFilingActiveExportCount, monthlyFilingExportFilename, monthlyFilingIsReadOnly, monthlyFilingProfileSnapshot, monthlyFilingRecordsForTab, monthlyFilingTabCounts, persistMonthlyFilingRows, reconcileArchivedMonthlyFilingDeletion, runMonthlyFilingExport, synchronizeMonthlyFilingRow } from '../ui/monthlyFilingUi.js';
+import { activeMonthlyFilingSnapshot, clearsSharedStoreAssociation, createMonthlyFilingLifecycleState, createMonthlyFilingMutationState, directoryOutcomeFeedback, isBlankUnsavedMonthlyFilingRecord, matchingDirectoryEntries, monthlyFilingActiveExportCount, monthlyFilingExportFilename, monthlyFilingIsReadOnly, monthlyFilingProfileSnapshot, monthlyFilingRecordsForTab, monthlyFilingTabCounts, persistMonthlyFilingRows, reconcileArchivedMonthlyFilingDeletion, reconcileMonthlyFilingReload, runMonthlyFilingExport, synchronizeMonthlyFilingRow } from '../ui/monthlyFilingUi.js';
 
 test('Company profile selection copies a transaction snapshot and retains sharedStoreId', () => {
   assert.deepEqual(monthlyFilingProfileSnapshot({ id: 'shared-1', storeName: 'Cafe', address: 'A', tin: '123', vat: 'VAT' }), { sharedStoreId: 'shared-1', store: 'Cafe', address: 'A', tin: '123', vat: 'VAT' });
@@ -205,4 +205,24 @@ test('Archived deletion reconciliation removes only returned IDs and preserves A
   const reconciled = reconcileArchivedMonthlyFilingDeletion(records, ['archived-confirmed']);
   assert.deepEqual(reconciled.map(record => record.dbId), ['changed-active', 'newly-archived', '']);
   assert.equal(reconciled.at(-1).store, 'Draft');
+});
+
+test('reload reconciliation preserves editable local values only for persisted records still Active on the server', () => {
+  const local = [
+    { dbId: 'active-edited', status: 'active', store: 'Local Store', address: 'Local Address', tin: '123', vat: 'VAT', amount: '700', receiptDate: '2026-10-09', invoice: 'LOCAL-OR', sharedStoreId: 'shared-local', persistedStoreFingerprint: 'local-key' },
+    { dbId: 'server-deleted', status: 'active', amount: '400' },
+    { dbId: 'server-archived', status: 'active', amount: '600', store: 'Should not restore' },
+    { dbId: '', status: 'active', store: 'New Draft', amount: '100' }
+  ];
+  const reloaded = [
+    { dbId: 'active-edited', status: 'active', store: 'Server Store', address: 'Server Address', tin: '999', vat: 'Non-VAT', amount: '500', receiptDate: '2026-10-01', invoice: 'SERVER-OR', sharedStoreId: 'shared-server' },
+    { dbId: 'server-archived', status: 'archived', amount: '600', store: 'Server Archived' }
+  ];
+  const reconciled = reconcileMonthlyFilingReload(local, reloaded);
+  const active = reconciled.find(record => record.dbId === 'active-edited');
+  assert.deepEqual({ store: active.store, address: active.address, tin: active.tin, vat: active.vat, amount: active.amount, receiptDate: active.receiptDate, invoice: active.invoice, sharedStoreId: active.sharedStoreId, persistedStoreFingerprint: active.persistedStoreFingerprint }, { store: 'Local Store', address: 'Local Address', tin: '123', vat: 'VAT', amount: '700', receiptDate: '2026-10-09', invoice: 'LOCAL-OR', sharedStoreId: 'shared-local', persistedStoreFingerprint: 'local-key' });
+  assert.equal(reconciled.some(record => record.dbId === 'server-deleted'), false);
+  assert.deepEqual(reconciled.find(record => record.dbId === 'server-archived'), reloaded[1]);
+  assert.equal(reconciled.at(-1).store, 'New Draft');
+  assert.deepEqual(activeMonthlyFilingSnapshot(reconciled).map(record => record.dbId), ['active-edited']);
 });
