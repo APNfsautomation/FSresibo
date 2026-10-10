@@ -56,17 +56,22 @@ Hosted Supabase now has the reviewed directory migration and validated RLS; publ
 - Explicit profile contribution, branch-aware matching, and duplicate/conflict handling
 - Temporary receipt-history fallback and controlled historical-backfill approach if needed
 
-### Milestone 3.4 — Monthly Filing Foundation
+### Milestone 3.4 ✅ — Monthly Filing Foundation
 - Separate Monthly Filing transaction table, lifecycle status, service, UI, and user RLS
 - Create/edit/delete/review and Shared Store Directory autocomplete
 - Transaction-domain isolation tests
 
-Migration 003 is deployed to hosted Supabase. Live schema/RLS validation, including two-user ownership isolation, passed. Browser/user acceptance and merge of PR #13 remain pending before Milestone 3.4 is treated as production-complete.
+Migration 003 is deployed to hosted Supabase. Live two-user RLS validation, browser acceptance, and mobile smoke testing passed. PR #13 is merged.
 
-### Milestone 3.5 — Monthly Filing Lifecycle & Export
-- Active to Archived export lifecycle
+### Milestone 3.5 ✅ — Monthly Filing Lifecycle & Export
+- Active and Archived workspace views of one transaction table
+- Automatic save-before-export, authoritative Expense Detailed Report workbook, and exact-set archive RPC
 - Return to Active for rejected/corrected filings, then re-edit/re-export
-- Official workbook reuse, export-before-archive sequencing, archive-failure handling, and Clear Monthly Filing
+- Explicit Company Directory contribution, draft preservation, mutation coordination, and cross-session cleanup reconciliation
+- Clear Archived preserving Active receipts, plus a deliberate Clear All Monthly Filing reset under More Actions
+- Long-term Receipt transaction isolation
+
+Migration 004 is deployed. Hosted RPC/security/two-user/concurrency validation passed. Original lifecycle, Company Directory, final Active/Archived cleanup, and mobile browser acceptance passed. The milestone functionality and acceptance are complete; PR #14 remains Draft and unmerged pending final approval.
 
 ### Milestone 3.6 — Quick Optimizer
 - Stateless R1/R2/R3 temporary amount workflow

@@ -34,7 +34,7 @@ export const buildExpenseDetailedReportRows = receipts => [
   ])
 ];
 
-export function createSelectedReceiptsWorkbook(receipts, xlsx = { utils }) {
+export function createExpenseDetailedReportWorkbook(receipts, xlsx = { utils }) {
   const worksheet = xlsx.utils.aoa_to_sheet(buildExpenseDetailedReportRows(receipts), { cellDates: true });
   receipts.forEach((receipt, index) => {
     const cell = worksheet[`B${index + 3}`];
@@ -50,7 +50,12 @@ export function createSelectedReceiptsWorkbook(receipts, xlsx = { utils }) {
   return workbook;
 }
 
-export function downloadSelectedReceipts(receipts, filename = `fsresibo-selected-receipts-${new Date().toISOString().slice(0, 10)}.xlsx`) {
-  const workbook = createSelectedReceiptsWorkbook(receipts);
+export function downloadExpenseDetailedReport(receipts, filename) {
+  const workbook = createExpenseDetailedReportWorkbook(receipts);
   writeFileXLSX(workbook, filename, { compression: true });
+}
+
+export const createSelectedReceiptsWorkbook = createExpenseDetailedReportWorkbook;
+export function downloadSelectedReceipts(receipts, filename = `fsresibo-selected-receipts-${new Date().toISOString().slice(0, 10)}.xlsx`) {
+  downloadExpenseDetailedReport(receipts, filename);
 }
