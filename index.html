@@ -101,7 +101,7 @@
             <div class="target-card" aria-labelledby="target-label">
               <label id="target-label" for="targetAmount">Amount to fill</label>
               <div class="currency-input target-input"><span>₱</span><input id="targetAmount" inputmode="decimal" placeholder="0.00" aria-label="Target amount" /></div>
-              <label class="strategy-label" for="optimizationStrategy">Optimization strategy</label>
+              <label class="strategy-label" for="optimizationStrategy">Strategy</label>
               <select id="optimizationStrategy" class="optimization-strategy">
                 <option value="closest">Closest Match</option>
                 <option value="fewest">Fewest Receipts</option>
@@ -112,7 +112,7 @@
               <button class="secondary export-selected" id="exportSelected" type="button" disabled>Export Selected (0)</button>
             </div>
             <aside class="panel result-panel" aria-live="polite">
-              <p class="eyebrow">RECOMMENDATION</p><h2 id="resultTitle">Add receipts to begin</h2>
+              <p class="result-label">Recommendation</p><h2 id="resultTitle">Add receipts to begin</h2>
               <div id="resultAmount" class="result-amount">₱0.00</div>
               <p id="difference" class="difference">Enter a target and receipt amounts.</p>
               <dl id="optimizationResultSummary" class="optimization-result-summary" hidden>
@@ -122,7 +122,7 @@
                 <div><dt>Receipts</dt><dd id="summaryReceiptCount">—</dd></div>
                 <div><dt>Strategy</dt><dd id="summaryStrategy">—</dd></div>
               </dl>
-              <div id="keptReceipts" class="kept-receipts"></div>
+              <details class="kept-details" open><summary>Receipts to pull</summary><div id="keptReceipts" class="kept-receipts"></div></details>
               <details class="admin"><summary>Calculation details</summary><div id="adminContent" class="admin-content">Run a calculation to view the selection logic.</div></details>
             </aside>
           </section>
@@ -134,12 +134,12 @@
                 <input id="optimizationSearch" type="search" autocomplete="off" placeholder="Search store, invoice number, TIN, or receipt…" />
                 <button id="clearOptimizationSearch" class="toolbar-clear-search" type="button" aria-label="Clear receipt search" hidden>Clear</button>
               </div>
+              <label class="toolbar-sort">Sort<select id="optimizationSort"><option value="default">Receipt number: current order</option><option value="receipt-asc">Receipt number: ascending</option><option value="receipt-desc">Receipt number: descending</option><option value="date-desc">Date: newest first</option><option value="date-asc">Date: oldest first</option><option value="amount-desc">Amount: highest first</option><option value="amount-asc">Amount: lowest first</option><option value="store-asc">Store: A–Z</option><option value="store-desc">Store: Z–A</option></select></label>
               <div class="optimization-toolbar-status">
                 <p id="optimizationResultCount" aria-live="polite">Showing 0 of 0 receipts</p>
                 <p id="optimizationFilterStatus" class="filter-status" aria-live="polite" hidden>Filters active</p>
                 <button id="clearOptimizationFilters" class="ghost toolbar-clear-filters" type="button" hidden>Clear filters</button>
               </div>
-              <label class="toolbar-sort">Sort<select id="optimizationSort"><option value="default">Receipt number: current order</option><option value="receipt-asc">Receipt number: ascending</option><option value="receipt-desc">Receipt number: descending</option><option value="date-desc">Date: newest first</option><option value="date-asc">Date: oldest first</option><option value="amount-desc">Amount: highest first</option><option value="amount-asc">Amount: lowest first</option><option value="store-asc">Store: A–Z</option><option value="store-desc">Store: Z–A</option></select></label>
               <details class="more-filters" id="optimizationMoreFilters">
                 <summary>More filters</summary>
                 <div class="filter-fields">
@@ -168,18 +168,26 @@
       <section class="workspace-view quick-optimizer-workspace" id="quickOptimizerWorkspace" hidden aria-labelledby="quickOptimizerTitle">
         <div class="workspace-heading"><div><h1 id="quickOptimizerTitle">Quick Optimizer</h1><p class="page-sub">Temporary amounts only. Up to 32 receipts; nothing is saved.</p></div></div>
         <div class="quick-optimizer-grid">
-          <div class="panel quick-controls">
-            <label for="quickTarget">Target Amount</label><input id="quickTarget" data-quick="target" type="text" inputmode="decimal" autocomplete="off">
-            <label for="quickStrategy">Optimization Strategy</label><select id="quickStrategy" data-quick="strategy" aria-describedby="quickStrategyHelper"><option value="closest">Closest Match</option><option value="fewest">Fewest Receipts</option><option value="without-exceeding">Do Not Exceed Target</option></select>
+          <div class="panel quick-setup quick-controls">
+            <div class="quick-setup-fields">
+              <div class="field"><label for="quickTarget">Target amount</label><input id="quickTarget" data-quick="target" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00"></div>
+              <div class="field"><label for="quickStrategy">Strategy</label><select id="quickStrategy" data-quick="strategy" aria-describedby="quickStrategyHelper"><option value="closest">Closest Match</option><option value="fewest">Fewest Receipts</option><option value="without-exceeding">Do Not Exceed Target</option></select></div>
+              <button type="button" class="primary quick-calculate" data-quick="calculate">Find Best Match</button>
+            </div>
             <p class="form-helper" id="quickStrategyHelper" data-quick="helper">Maximum ₱50.00 above target.</p>
-            <h2>Receipt Amount List</h2><p class="form-helper">Maximum 32 receipt amounts. Blank rows are ignored.</p><div data-quick="rows" class="quick-amount-list"></div>
-            <button type="button" class="ghost" data-quick="add">Add Amount</button>
-            <label for="quickBulk">Bulk Paste — one amount per line</label><textarea id="quickBulk" data-quick="bulk" rows="5" placeholder="500&#10;1,500.00&#10;500"></textarea>
-            <button type="button" class="secondary" data-quick="append">Append Amounts</button>
-            <div class="quick-actions"><button type="button" class="ghost" data-quick="clear">Clear Calculator</button><button type="button" class="primary" data-quick="calculate">Find Best Match</button></div>
             <p class="workflow-feedback" data-quick="feedback" role="status" aria-live="polite"></p>
           </div>
-          <div class="panel quick-results-panel"><h2>Recommended combinations</h2><div data-quick="results" class="quick-results" aria-busy="false"></div><h2>Selected receipt breakdown</h2><ul data-quick="breakdown"><li>No match selected.</li></ul></div>
+          <div class="panel quick-results-panel" id="quickResultsPanel">
+            <div class="panel-heading"><h2>Recommended combinations</h2><button type="button" class="ghost quick-edit-amounts" data-quick="edit-amounts" hidden>Edit amounts</button></div>
+            <div data-quick="results" class="quick-results" aria-busy="false"></div>
+            <h2>Selected receipt breakdown</h2><ul data-quick="breakdown"><li>No match selected.</li></ul>
+          </div>
+          <div class="panel quick-entry quick-controls" id="quickEntryPanel">
+            <div class="panel-heading"><div><h2 id="quickEntryHeading" data-quick="entry-heading" tabindex="-1">Receipt amounts</h2><p class="form-helper">Maximum 32 amounts. Blank rows are ignored.</p></div><button type="button" class="ghost" data-quick="clear">Clear Calculator</button></div>
+            <div data-quick="rows" class="quick-amount-list"></div>
+            <div class="quick-entry-actions"><button type="button" class="secondary" data-quick="add">Add Amount</button></div>
+            <details class="quick-bulk"><summary>Bulk paste</summary><label for="quickBulk">One amount per line</label><textarea id="quickBulk" data-quick="bulk" rows="5" placeholder="500&#10;1,500.00&#10;500"></textarea><button type="button" class="secondary" data-quick="append">Append Amounts</button></details>
+          </div>
         </div>
       </section>
       </div>

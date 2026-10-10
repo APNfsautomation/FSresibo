@@ -320,58 +320,79 @@ button[aria-busy="true"] { cursor: progress; opacity: .8; }
 .store-suggestion:hover, .store-suggestion.is-active { background: var(--primary-soft); color: var(--text); }
 .receipt-store[aria-expanded="true"] { position: relative; z-index: 16; border-bottom-right-radius: 0; border-bottom-left-radius: 0; }
 
-/* ---- 8b. Receipt Optimization ----------------------------------------------------- */
-.optimization-layout { display: grid; grid-template-columns: minmax(300px, .8fr) minmax(0, 1.2fr); align-items: start; gap: 20px; }
-.optimization-controls { position: sticky; top: 18px; display: grid; gap: 14px; }
-.target-card { padding: 22px; border: var(--border-width) solid var(--border-strong); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-md); }
-.target-card label { display: block; margin-bottom: 10px; color: var(--text); font-weight: var(--weight-bold); }
-.target-card .primary { width: 100%; }
-.target-card .strategy-label, .strategy-label { margin: 2px 0 0; font-size: var(--text-sm); }
-.strategy-helper { min-height: 34px; margin: 0; color: var(--muted); font-size: var(--text-sm); line-height: 1.4; }
-.result-panel { background: var(--surface); }
-.result-panel .eyebrow { color: var(--muted); }
-.result-amount { margin: var(--space-4) 0 var(--space-1); color: var(--primary); font-size: 2.3rem; font-weight: var(--weight-heavy); letter-spacing: -.04em; }
-.difference { min-height: 42px; color: var(--muted); line-height: 1.35; }
-.optimization-result-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); margin: 14px 0 2px; }
-.optimization-result-summary div { padding: var(--space-2); border: var(--border-width) solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
-.optimization-result-summary div:last-child { grid-column: 1 / -1; }
-.optimization-result-summary dt { color: var(--muted); font-size: var(--text-xs); font-weight: var(--weight-heavy); letter-spacing: .03em; text-transform: uppercase; }
-.optimization-result-summary dd { margin: 3px 0 0; color: var(--text); font-size: var(--text-sm); font-weight: var(--weight-heavy); }
-.kept-receipts { display: grid; gap: 10px; min-height: 12px; }
-.selected-compartment-group { padding: 10px; border: var(--border-width) solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
-.selected-compartment-group h4 { margin: 0 0 7px; color: var(--muted); font-size: var(--text-xs); letter-spacing: .03em; text-transform: uppercase; }
-.selected-compartment-receipts { display: grid; gap: 6px; }
-.selected-compartment-receipt { display: grid; gap: 2px; min-width: 0; padding: 7px 8px; border-radius: 7px; background: var(--surface); }
-.selected-compartment-receipt strong { overflow: hidden; color: var(--text); font-size: .82rem; text-overflow: ellipsis; white-space: nowrap; }
-.selected-compartment-receipt span { overflow: hidden; color: var(--muted); font-size: .74rem; text-overflow: ellipsis; white-space: nowrap; }
-.admin { margin-top: 18px; border-top: var(--border-width) solid var(--border); color: var(--muted); }
-.admin summary { padding: 14px 0 0; color: var(--text); cursor: pointer; font-weight: var(--weight-bold); }
-.admin-content { font-size: .9rem; line-height: 1.55; }
+/* ---- 8b. Receipt Optimization: command bar, result strip, full-width receipt browser ---------- */
+.optimization-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
+.optimization-controls { display: contents; }
+.target-card { display: grid; grid-template-columns: minmax(180px, 240px) minmax(190px, 260px) auto auto minmax(0, 1fr); grid-template-rows: auto auto auto; gap: 2px var(--space-3); align-items: end; padding: var(--space-3) var(--space-4); border: var(--border-width) solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow-sm); }
+.target-card label { display: block; margin: 0 0 var(--space-1); color: var(--text); font-weight: var(--weight-bold); }
+.target-card #target-label { grid-column: 1; grid-row: 1; }
+.target-card .currency-input { grid-column: 1; grid-row: 2; }
+.target-card .strategy-label { grid-column: 2; grid-row: 1; font-size: var(--text-sm); }
+.target-card .optimization-strategy { grid-column: 2; grid-row: 2; }
+.target-card #calculate { grid-column: 3; grid-row: 2; width: auto; padding: 0 var(--space-5); }
+.target-card .export-selected { grid-column: 4; grid-row: 2; width: auto; white-space: nowrap; }
+.target-card .strategy-helper { grid-column: 1 / -1; grid-row: 3; min-height: 0; margin-top: var(--space-1); }
+.target-input { margin-bottom: 0; }
+.target-card .target-input input { font-size: 1.25rem; }
+.strategy-helper { margin: 0; color: var(--muted); font-size: var(--text-sm); line-height: 1.4; }
+/* The command bar stays in view only where there is room for it (tall desktop windows); elsewhere it scrolls with the page. */
+@media (min-width: 981px) and (min-height: 820px) {
+  .target-card { position: sticky; top: var(--space-3); z-index: 5; box-shadow: 0 6px 16px rgba(19, 35, 61, .12); }
+  html:has(#optimizationWorkspace:not([hidden])) { scroll-padding-top: 190px; }
+}
+.result-panel { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--space-5); padding: var(--space-3) var(--space-4); border-left: 4px solid var(--primary); background: var(--surface); }
+.result-panel > .result-label, .result-panel > h2, .result-panel > .result-amount, .result-panel > .difference { grid-column: 1; }
+.result-label { margin: 0; color: var(--muted); font-size: var(--text-xs); font-weight: var(--weight-heavy); letter-spacing: .06em; text-transform: uppercase; }
+.result-panel h2 { margin: 0; font-size: var(--text-base); }
+.result-amount { margin: var(--space-1) 0; color: var(--primary); font-size: 2rem; font-weight: var(--weight-heavy); letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.difference { min-height: 0; margin: 0; color: var(--muted); line-height: 1.35; }
+.optimization-result-summary { grid-column: 2; grid-row: 1 / 5; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-2); align-self: center; margin: 0; }
+.optimization-result-summary div { padding: var(--space-2) var(--space-3); border: var(--border-width) solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
+.optimization-result-summary dt { color: var(--muted); font-size: var(--text-xs); font-weight: var(--weight-heavy); letter-spacing: .04em; text-transform: uppercase; }
+.optimization-result-summary dd { margin: 2px 0 0; color: var(--text); font-size: var(--text-sm); font-weight: var(--weight-heavy); overflow-wrap: anywhere; }
+.kept-details, .admin { grid-column: 1 / -1; margin-top: var(--space-2); border-top: var(--border-width) solid var(--border); color: var(--muted); }
+.kept-details > summary, .admin > summary, .more-filters > summary { min-height: 44px; padding: 10px 0; color: var(--primary); cursor: pointer; font-size: var(--text-sm); font-weight: var(--weight-heavy); }
+.kept-receipts { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: var(--space-2); min-height: 12px; padding-bottom: var(--space-2); }
+.selected-compartment-group { padding: var(--space-2) var(--space-3); border: var(--border-width) solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
+.selected-compartment-group h4 { margin: 0 0 var(--space-1); color: var(--muted); font-size: var(--text-xs); letter-spacing: .05em; text-transform: uppercase; }
+.selected-compartment-receipts { display: grid; gap: var(--space-1); }
+.selected-compartment-receipt { display: grid; gap: 2px; min-width: 0; padding: 3px var(--space-2); border-radius: 6px; background: var(--surface); }
+.selected-compartment-receipt strong { overflow: hidden; color: var(--text); font-size: var(--text-sm); text-overflow: ellipsis; white-space: nowrap; }
+.selected-compartment-receipt span { overflow: hidden; color: var(--muted); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.admin-content { padding-bottom: var(--space-2); font-size: var(--text-sm); line-height: 1.55; }
 .admin-content ul { margin: var(--space-2) 0 0; padding-left: 20px; }
 
-.optimization-receipts-panel { display: flex; flex-direction: column; height: calc(100vh - 236px); min-height: 450px; }
-.receipt-browser-heading { align-items: flex-start; }
-.optimization-toolbar { display: grid; gap: 11px; margin: 0 0 14px; padding: 14px; border: var(--border-width) solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
-.optimization-search-label { color: var(--text); font-size: var(--text-sm); font-weight: var(--weight-bold); }
-.optimization-toolbar-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+/* Receipt browser: one full-width panel on the page's own scroll (no nested scroller). */
+.optimization-receipts-panel { padding: 0; }
+.optimization-receipts-panel .panel-heading { margin: 0; padding: var(--space-2) var(--space-4); border-bottom: var(--border-width) solid var(--border); border-radius: var(--radius-lg) var(--radius-lg) 0 0; background: var(--surface-2); }
+.receipt-browser-heading > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-3); }
+.receipt-browser-heading h2 { font-size: var(--text-base); }
+.receipt-browser-heading p { margin: 0; }
+.optimization-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) 320px auto; gap: var(--space-2) var(--space-3); align-items: center; padding: var(--space-3) var(--space-4); border-bottom: var(--border-width) solid var(--border); background: var(--surface-2); }
+.optimization-search-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+.optimization-toolbar-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); white-space: nowrap; }
 .optimization-toolbar-status p { margin: 0; color: var(--muted); font-size: var(--text-sm); }
 .optimization-toolbar-status .filter-status { color: var(--primary); font-weight: var(--weight-heavy); }
-.toolbar-sort { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 9px; color: var(--text); font-size: var(--text-sm); font-weight: var(--weight-bold); }
-.more-filters { padding-top: 10px; border-top: var(--border-width) solid var(--border); }
-.more-filters summary { color: var(--primary); cursor: pointer; font-size: .83rem; font-weight: var(--weight-heavy); }
-.filter-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: var(--space-3); }
-.toolbar-validation { margin: 0; color: var(--warning); font-size: var(--text-sm); font-weight: var(--weight-bold); }
-.hidden-selected { margin: 0; color: var(--primary); font-size: var(--text-sm); font-weight: var(--weight-bold); }
-.optimization-receipt-list { display: grid; flex: 1; min-height: 0; gap: 9px; overflow-y: auto; overscroll-behavior: contain; padding-right: 5px; }
-.optimization-receipt-card { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: var(--space-3); padding: 13px; }
-.compact-receipt-details { display: grid; min-width: 0; gap: var(--space-1); }
+.toolbar-sort { display: flex; align-items: center; gap: var(--space-2); color: var(--text); font-size: var(--text-sm); font-weight: var(--weight-bold); }
+.toolbar-sort select { flex: 1 1 auto; }
+.more-filters { grid-column: 1 / -1; border-top: var(--border-width) solid var(--border); }
+.filter-fields { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-3); padding-bottom: var(--space-2); }
+.toolbar-validation { grid-column: 1 / -1; margin: 0; color: var(--warning); font-size: var(--text-sm); font-weight: var(--weight-bold); }
+.hidden-selected { grid-column: 1 / -1; margin: 0; color: var(--primary); font-size: var(--text-sm); font-weight: var(--weight-bold); }
+.optimization-receipt-list { display: block; }
+.optimization-receipt-card { display: grid; grid-template-columns: minmax(0, 1fr) 120px 84px 104px; grid-template-areas: "details amount badge action"; align-items: center; gap: var(--space-3); min-height: 52px; padding: 4px var(--space-4); border: 0; border-bottom: var(--border-width) solid var(--border); border-radius: 0; }
+.optimization-receipt-list > .optimization-receipt-card:last-child { border-bottom: 0; border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+.optimization-receipt-card:hover { background: var(--surface-2); }
+.compact-receipt-details { grid-area: details; display: grid; grid-template-columns: minmax(0, 1fr) 120px auto; align-items: center; gap: var(--space-3); min-width: 0; }
 .compact-store { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.compact-date { color: var(--muted); font-size: .82rem; }
-.compact-amount { white-space: nowrap; }
-.optimization-receipt-card.is-selected { border-color: var(--selected-border); background: var(--selected-bg); box-shadow: inset 3px 0 0 var(--success); }
-.optimization-receipt-card.is-consumed { border-color: var(--border); background: var(--surface-muted); }
-.compact-restore { grid-row: 1 / 3; grid-column: 2; }
-.optimization-empty { padding: 22px 10px; color: var(--muted); text-align: center; }
+.compact-date { color: var(--muted); font-size: var(--text-sm); }
+.compact-amount { grid-area: amount; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.selected-badge { grid-area: badge; justify-self: start; }
+.compact-edit, .compact-restore { grid-area: action; justify-self: end; min-height: 36px; }
+/* Selected receipts are marked by a fill, a bar and the text badge; consumed ones read as muted and stay read-only. */
+.optimization-receipt-card.is-selected { background: var(--selected-bg); box-shadow: inset 5px 0 0 var(--success); }
+.optimization-receipt-card.is-consumed { background: var(--surface-muted); }
+.optimization-empty { padding: var(--space-5); color: var(--muted); text-align: center; }
 
 /* ---- 8c. Monthly Filing ------------------------------------------------------------- */
 .monthly-filing-panel { min-height: 260px; }
@@ -388,21 +409,48 @@ button[aria-busy="true"] { cursor: progress; opacity: .8; }
 .monthly-more-actions summary { cursor: pointer; font-weight: var(--weight-heavy); }
 .monthly-more-actions .delete-receipt { margin-top: var(--space-2); }
 
-/* ---- 8d. Quick Optimizer -------------------------------------------------------------- */
-.quick-optimizer-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
-.quick-controls { display: grid; gap: var(--space-3); }
-.quick-controls .form-helper { margin: 0; }
-.quick-amount-list, .quick-results { display: grid; gap: 10px; }
-.quick-amount-row { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: var(--space-2); align-items: center; padding: var(--space-2); border: var(--border-width) solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
-.quick-amount-row label { min-width: 0; overflow-wrap: anywhere; }
+/* ---- 8d. Quick Optimizer: balanced desktop composition, phone flow ---------------------------------- */
+.quick-optimizer-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "setup results" "entry results"; grid-template-rows: auto 1fr; gap: var(--space-3) var(--space-4); align-items: start; }
+.quick-setup { grid-area: setup; }
+.quick-results-panel { grid-area: results; }
+.quick-entry { grid-area: entry; }
+@media (min-width: 981px) and (min-height: 640px) { .quick-results-panel { position: sticky; top: var(--space-3); max-height: calc(100vh - var(--space-5)); overflow-y: auto; } }
+.quick-setup-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: var(--space-3); align-items: end; }
+.quick-setup-fields .field { display: grid; gap: 6px; }
+.quick-calculate { padding: 0 var(--space-5); }
+.quick-setup .form-helper { margin: var(--space-2) 0 0; }
+.quick-setup .workflow-feedback { min-height: 0; margin-top: var(--space-2); }
+.quick-amount-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
+.quick-results { display: grid; gap: var(--space-2); margin: 0 0 var(--space-3); }
+.quick-amount-row { display: flex; align-items: center; gap: var(--space-2); padding: 2px 2px 2px var(--space-3); border: var(--border-width) solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); scroll-margin-bottom: 96px; }
+.quick-amount-row label { flex: 0 0 34px; min-width: 0; overflow-wrap: anywhere; color: var(--muted); font-weight: var(--weight-bold); }
+.quick-amount-row input { flex: 1 1 auto; border: 0; background: transparent; font-variant-numeric: tabular-nums; }
+.quick-amount-row input:focus-visible { outline-offset: -2px; border-radius: 6px; }
+/* The Remove text is replaced by a close glyph; the button keeps its "Remove Rn" accessible name. */
+.quick-amount-row button { order: 3; flex: 0 0 44px; min-height: 44px; padding: 0; border: 0; background: transparent; color: var(--muted); font-size: 0; }
+.quick-amount-row button::before { content: "×"; font-size: 1.5rem; line-height: 1; }
+.quick-amount-row button:hover { background: var(--danger-soft); color: var(--danger); }
 .quick-amount-row.is-selected { border-color: var(--selected-border); background: var(--selected-bg); box-shadow: inset 4px 0 0 var(--success); }
-.quick-actions { display: flex; flex-wrap: wrap; gap: 10px; }
-.quick-result { display: grid; gap: 7px; width: 100%; min-height: 0; padding: var(--space-4); border: var(--border-width) solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface); color: var(--text); font: inherit; font-weight: var(--weight-regular); text-align: left; overflow-wrap: anywhere; cursor: pointer; }
+.quick-amount-row.is-selected::after { content: "✓"; order: 2; flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--success); color: var(--on-success); font-size: .85rem; font-weight: var(--weight-heavy); }
+.quick-entry-actions { margin-top: var(--space-3); }
+.quick-bulk { margin-top: var(--space-2); border-top: var(--border-width) solid var(--border); }
+.quick-bulk > summary { min-height: 44px; padding: 10px 0; color: var(--primary); cursor: pointer; font-size: var(--text-sm); font-weight: var(--weight-heavy); }
+.quick-bulk label { display: block; margin: var(--space-2) 0; }
+.quick-bulk textarea { margin-bottom: var(--space-2); }
+.quick-result { position: relative; display: grid; gap: 3px; width: 100%; min-height: 0; padding: var(--space-3) var(--space-4); border: var(--border-width) solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface); color: var(--text); font: inherit; font-weight: var(--weight-regular); text-align: left; overflow-wrap: anywhere; cursor: pointer; }
+.quick-result strong { font-size: var(--text-md); }
 .quick-result:hover { background: var(--surface-2); }
-.quick-result span { color: var(--muted); font-size: .88rem; }
+.quick-result span { color: var(--muted); font-size: var(--text-sm); }
+.quick-result span:nth-of-type(2) { color: var(--text); font-weight: var(--weight-medium); }
 .quick-result[aria-pressed="true"] { border-color: var(--success); background: var(--selected-bg); box-shadow: inset 4px 0 0 var(--success); }
-.quick-results-panel h3 { margin-bottom: var(--space-4); }
-.quick-results-panel ul { padding-left: 22px; line-height: 1.8; }
+/* The chosen recommendation also says so in words, not only by colour. */
+.quick-result[aria-pressed="true"]::after { content: "✓ Selected"; position: absolute; top: var(--space-3); right: var(--space-3); padding: 1px 10px; border-radius: var(--radius-pill); background: var(--success); color: var(--on-success); font-size: var(--text-xs); font-weight: var(--weight-heavy); }
+.quick-results:empty::before { content: "Enter a target and amounts, then choose Find Best Match."; color: var(--muted); font-size: var(--text-sm); }
+.quick-results-panel .panel-heading { flex-wrap: wrap; margin-bottom: var(--space-3); }
+.quick-results-panel h2 + .quick-results + h2 { margin-bottom: var(--space-1); }
+.quick-results-panel ul { margin: 0; padding-left: 20px; color: var(--muted); font-size: var(--text-sm); line-height: 1.7; }
+.quick-edit-amounts { display: none; white-space: nowrap; }
+#quickResultsPanel, #quickEntryPanel { scroll-margin-top: calc(var(--topbar-height) + var(--space-3)); }
 
 /* ---- 9. Accessibility (CP4, preserved) ------------------------------------------------ */
 /* Selected tabs (every tablist): solid fill, bolder text and an underline bar, so selection is not shown by colour alone. */
@@ -453,29 +501,54 @@ html[lang] body .receipt-summary:focus-visible { outline-offset: -3px; }
   .receipt-form-footer { justify-content: stretch; }
   .delete-receipt { width: 100%; }
   .store-suggestions { max-height: 210px; }
-  .optimization-layout { grid-template-columns: 1fr; }
-  .optimization-controls { position: static; }
-  .optimization-receipts-panel { height: min(55vh, 520px); min-height: 320px; }
-  .optimization-toolbar { padding: var(--space-3); }
-  .toolbar-sort { grid-template-columns: 1fr; gap: 5px; }
-  .filter-fields { grid-template-columns: 1fr; }
-  .optimization-toolbar-status { align-items: flex-start; }
   .toolbar-clear-filters { margin-left: 0; }
-  .optimization-result-summary { grid-template-columns: 1fr; }
-  .optimization-result-summary div:last-child { grid-column: auto; }
-  .optimization-receipt-card { grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-2); }
-  .selected-badge { grid-column: 1; }
-  .compact-edit { grid-row: 1 / 3; grid-column: 2; }
-  .compact-restore { grid-row: 1 / 3; grid-column: 2; }
   .selected-compartment-group { padding: 9px; }
   .selected-compartment-receipt { padding: var(--space-2) 7px; }
   .monthly-filing-tabs { width: 100%; }
   .monthly-filing-tabs .workspace-tab { flex: 1 1 0; min-width: 0; }
-  .quick-optimizer-grid { grid-template-columns: 1fr; }
-  .quick-actions button { flex: 1 1 auto; }
   .modal-actions { flex-direction: column; }
   .modal-actions .primary, .modal-actions .ghost { width: 100%; }
   .modal-actions .ghost { order: 0; }
   .confirmation-card { max-width: 100%; }
 }
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+@media (max-width: 1100px) {
+  .target-card { grid-template-columns: minmax(150px, 1fr) minmax(170px, 1fr) auto auto; }
+  .optimization-result-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .filter-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 980px) {
+  .optimization-toolbar { grid-template-columns: minmax(0, 1fr) auto; }
+  .optimization-search-wrap { grid-column: 1 / -1; }
+  .quick-optimizer-grid { grid-template-columns: 1fr; grid-template-areas: "setup" "results" "entry"; }
+  .quick-edit-amounts:not([hidden]) { display: inline-flex; align-items: center; }
+}
+@media (max-width: 640px) {
+  .panel, .result-panel { padding: var(--space-3); }
+  .target-card { grid-template-columns: 1fr 1fr; padding: var(--space-3); }
+  .target-card #target-label, .target-card .currency-input, .target-card .strategy-label, .target-card .optimization-strategy, .target-card .strategy-helper { grid-column: 1 / -1; }
+  .target-card .strategy-label { grid-row: 3; }
+  .target-card .optimization-strategy { grid-row: 4; }
+  .target-card #calculate { grid-column: 1; grid-row: 5; padding: 0 var(--space-2); white-space: nowrap; }
+  .target-card .export-selected { grid-column: 2; grid-row: 5; padding: 0 var(--space-2); }
+  .target-card .strategy-helper { grid-row: 6; }
+  .result-panel { grid-template-columns: 1fr; }
+  .optimization-result-summary { grid-column: 1; grid-row: auto; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: var(--space-2); }
+  .optimization-receipts-panel { padding: 0; }
+  .optimization-toolbar { grid-template-columns: 1fr; }
+  .toolbar-sort { display: grid; gap: 3px; }
+  .optimization-toolbar-status { white-space: normal; }
+  .toolbar-clear-filters { margin-left: 0; }
+  .filter-fields { grid-template-columns: 1fr 1fr; }
+  .optimization-receipt-card { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "details amount" "badge action"; gap: var(--space-1) var(--space-3); padding: var(--space-2) var(--space-3); }
+  .compact-receipt-details { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .compact-edit, .compact-restore { min-height: 44px; }
+  /* Quick Optimizer on phones: the one Find Best Match button floats above the safe area while browsing and steps aside while a text field is being edited
+     (the on-screen keyboard). Keyboard focus brings it back; it never needs a second copy of the control. */
+  .quick-optimizer-workspace { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
+  .quick-setup-fields { grid-template-columns: 1fr 1fr; }
+  .quick-calculate { position: fixed; z-index: 15; right: max(var(--space-4), env(safe-area-inset-right)); bottom: calc(var(--space-3) + env(safe-area-inset-bottom)); left: max(var(--space-4), env(safe-area-inset-left)); min-height: 52px; padding: 0 var(--space-4); font-size: var(--text-md); box-shadow: 0 8px 24px rgba(19, 35, 61, .35); transition: transform .15s ease, opacity .15s ease; }
+  .quick-optimizer-workspace.is-editing .quick-calculate:not(:focus) { opacity: 0; pointer-events: none; transform: translateY(calc(100% + 32px)); }
+  .quick-amount-list { grid-template-columns: 1fr; }
+  .quick-entry-actions .secondary, .quick-bulk .secondary { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } html { scroll-behavior: auto; } }

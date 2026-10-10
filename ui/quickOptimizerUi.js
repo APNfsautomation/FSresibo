@@ -33,6 +33,8 @@ export function createQuickOptimizerUi({ root = null, document = root?.ownerDocu
   state = defaults();
   const field = name => root?.querySelector(`[data-quick="${name}"]`);
   const controls = Object.fromEntries(['target', 'strategy', 'helper', 'rows', 'bulk', 'append', 'add', 'clear', 'calculate', 'feedback', 'results', 'breakdown'].map(name => [name, field(name)]));
+  const editAmounts = field('edit-amounts');
+  const entryHeading = field('entry-heading');
   const getState = () => structuredClone(state);
   function invalidate() {
     revision++;
@@ -112,6 +114,7 @@ export function createQuickOptimizerUi({ root = null, document = root?.ownerDocu
     if (target === null || target > Number.MAX_SAFE_INTEGER - maximumOptimizationExcessCents || !receipts || !receipts.length) return fail();
     const currentRevision = revision;
     const strategy = state.strategy;
+    const keepFocus = Boolean(controls.calculate) && document?.activeElement === controls.calculate;
     state.busy = true; state.message = 'Calculating…'; render(false);
     try {
       await nextFrame();
@@ -125,7 +128,7 @@ export function createQuickOptimizerUi({ root = null, document = root?.ownerDocu
       return true;
     } catch { return fail(); }
     finally {
-      if (revision === currentRevision) { state.busy = false; render(false); }
+      if (revision === currentRevision) { state.busy = false; render(false); if (keepFocus) controls.calculate.focus({ preventScroll: true }); if (state.results.length) revealResults(); }
     }
   }
   function selectResult(index) {
@@ -137,6 +140,26 @@ export function createQuickOptimizerUi({ root = null, document = root?.ownerDocu
     if (controls.bulk) controls.bulk.value = '';
     render();
   }
+  // Presentation helpers only: they read layout and move the viewport, never state. Focus stays where the user left it.
+  const stackedLayout = () => document?.defaultView?.matchMedia?.('(max-width: 980px)').matches ?? false;
+  const scrollBehavior = () => document?.defaultView?.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+  // When the results sit below the fold in the stacked (tablet/phone) layout, bring them into view after a successful calculation.
+  function revealResults() {
+    const panel = controls.results?.closest?.('.quick-results-panel');
+    if (!panel?.scrollIntoView || !stackedLayout()) return;
+    const { top } = panel.getBoundingClientRect();
+    const height = document.defaultView.innerHeight;
+    if (top < 0 || top > height * 0.6) panel.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
+  }
+  // "Edit amounts" returns to the temporary amount list; the list heading takes focus (no keyboard pops up, the entered amounts are untouched).
+  function goToAmounts() {
+    const panel = controls.rows?.closest?.('.quick-entry') ?? controls.rows;
+    panel?.scrollIntoView?.({ behavior: scrollBehavior(), block: 'start' });
+    entryHeading?.focus?.({ preventScroll: true });
+  }
+  // While a text field has focus the on-screen keyboard is likely open: the phone layout moves the floating Calculate button away (it returns on blur or when it is focused by keyboard).
+  const isTextEntry = node => Boolean(node?.matches?.('input:not([type="checkbox"]):not([type="radio"]):not([type="button"]), textarea'));
+  function syncEditing() { root.classList.toggle('is-editing', isTextEntry(document.activeElement) && root.contains(document.activeElement)); }
   function setModuleVisible(visible) { if (root) root.hidden = !visible; }
   function element(tag, text, className) {
     const node = document.createElement(tag);
@@ -153,6 +176,7 @@ export function createQuickOptimizerUi({ root = null, document = root?.ownerDocu
     controls.calculate.disabled = state.busy;
     controls.calculate.textContent = state.busy ? 'Calculating…' : 'Find Best Match';
     controls.results.setAttribute('aria-busy', String(state.busy));
+    if (editAmounts) editAmounts.hidden = !state.results.length;
     controls.add.disabled = state.rows.length >= 32;
     if (rebuildRows) {
       controls.rows.replaceChildren(...state.rows.map(row => {
@@ -202,6 +226,11 @@ export function createQuickOptimizerUi({ root = null, document = root?.ownerDocu
     controls.append.addEventListener('click', () => appendBulk(controls.bulk.value));
     controls.clear.addEventListener('click', clear);
     controls.calculate.addEventListener('click', calculate);
+    editAmounts?.addEventListener('click', goToAmounts);
+    if (root.classList && root.addEventListener) {
+      root.addEventListener('focusin', syncEditing);
+      root.addEventListener('focusout', () => setTimeout(syncEditing, 0));
+    }
     render();
   }
   return { getState, setTarget, setStrategy, setAmount, addRow, removeRow, appendBulk, calculate, selectResult, clear, clearForLogout: clear, setModuleVisible };

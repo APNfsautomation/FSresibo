@@ -3,6 +3,7 @@ import { deduplicateDirectoryCandidates, finalizeDirectoryPromptFingerprints, fi
 export { deduplicateDirectoryCandidates, finalizeDirectoryPromptFingerprints, findCompatibleSharedProfiles, hasContributableStoreDetails, normalizeStoreTin, persistedStoreFingerprint, postSaveDirectoryDecision, resolveSharedContributionCandidate, sharedProfileIdentity } from '../domain/sharedStoreProfiles.js';
 
 import { makeTemplateIdsUnique, receiptSummaryAccessibleName } from './receiptAccessibility.js';
+import { collapseKeptReceiptsOnShortWindows } from './optimizationPresentation.js';
 
 const draftKey = 'receipt-match-draft-v2';
 const money = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' });
@@ -1016,6 +1017,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
         refreshEncodingCards();
       });
       document.addEventListener('keydown', event => { if (modalFocus) return; if (event.key === 'Escape' && !elements.editModal.hidden) closeEditModal(); else if (event.key === 'Escape' && !elements.exportConfirmModal.hidden) closeExportConfirmation(); });
+      collapseKeptReceiptsOnShortWindows(elements.keptReceipts);
       refreshReceiptIds();
       setActiveStrategy(getActiveStrategy(), { persist: false });
       refreshOptimizationCards();
