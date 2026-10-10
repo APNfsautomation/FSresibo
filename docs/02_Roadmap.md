@@ -71,12 +71,18 @@ Migration 003 is deployed to hosted Supabase. Live two-user RLS validation, brow
 - Clear Archived preserving Active receipts, plus a deliberate Clear All Monthly Filing reset under More Actions
 - Long-term Receipt transaction isolation
 
-Migration 004 is deployed. Hosted RPC/security/two-user/concurrency validation passed. Original lifecycle, Company Directory, final Active/Archived cleanup, and mobile browser acceptance passed. The milestone functionality and acceptance are complete; PR #14 remains Draft and unmerged pending final approval.
+Migration 004 is deployed. Hosted RPC/security/two-user/concurrency validation passed. Original lifecycle, Company Directory, final Active/Archived cleanup, and mobile browser acceptance passed. PR #14 is merged; Milestone 3.5 is complete.
 
-### Milestone 3.6 — Quick Optimizer
-- Stateless R1/R2/R3 temporary amount workflow
-- Existing Closest Match, Fewest Receipts, and Do Not Exceed Target strategies
-- No persistence, store data, lifecycle, or export
+### Milestone 3.6 — Quick Optimizer & Accounting Tolerance Revision
+- Authenticated top-level workspace, desktop sidebar/mobile drawer, and hash routing
+- In-memory R1/R2/R3 defaults, stable monotonic labels, strict amounts, atomic newline bulk append, and 32-input limit
+- Shared exact top-three engine; alternative selection, highlights, explicit calculation, and stale-result invalidation
+- Fixed PHP 50 maximum excess, target-reaching priority, fixed Fewest Receipts window, and strict Do Not Exceed
+- Existing Receipt Optimization keeps one result and its transaction/export boundaries
+- Exact centavo display, workspace state retention, and refresh/logout/account-change resets
+- No persistence, store data, lifecycle, export, or migration
+
+Implementation complete; technical review and Product Owner browser acceptance pending. Version: `FSResibo v3.6.0-beta.1`. Milestone 3.6 is not yet accepted or merged; production rollout is not complete. See `06_M3.6_Browser_Acceptance.md` for the release acceptance checklist.
 
 ## Future
 - Epic 4 — OCR Improvements

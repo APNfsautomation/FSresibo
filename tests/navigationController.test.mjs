@@ -14,7 +14,7 @@ test('empty and unknown application routes normalize safely to Receipt Encoding'
   assert.deepEqual(routeFromHash('#not-a-route'), { route: receiptRoutes.encoding, normalized: true });
   assert.deepEqual(routeFromHash('#monthly-filing'), { route: 'monthly-filing', normalized: false });
   assert.equal(routeRegistry['monthly-filing'].available, true);
-  assert.equal(routeRegistry['quick-optimizer'].available, false);
+  assert.equal(routeRegistry['quick-optimizer'].available, true);
   assert.equal(routeRegistry['store-directory'].available, false);
 });
 
@@ -34,7 +34,7 @@ test('mobile drawer tracks ARIA state, closes on Escape, and restores trigger fo
   const document = { title: 'FSResibo', ...eventTarget() };
   const location = { href: 'https://example.test/#receipts/encoding', hash: '#receipts/encoding' };
   const window = { location, ...eventTarget(), matchMedia: () => ({ matches: true }), history: { replaceState: (_state, _title, url) => { location.href = String(url); location.hash = new URL(String(url)).hash; } } };
-  const elements = { menuButton: element(), drawer: element(), drawerBackdrop: element(), receiptsNav: element(), monthlyNav: element(), encodingTab: element(), optimizationTab: element() };
+  const elements = { menuButton: element(), drawer: element(), drawerBackdrop: element(), receiptsNav: element(), monthlyNav: element(), quickNav: element(), encodingTab: element(), optimizationTab: element() };
   const controller = createNavigationController({ window, document, elements, onRoute: () => {} });
   controller.start();
   assert.equal(elements.drawer.hidden, true);
@@ -51,7 +51,7 @@ test('an explicit URL beats a legacy workspace fallback and hash history changes
   const document = { title: 'FSResibo', ...eventTarget() };
   const location = { href: 'https://example.test/#receipts/encoding', hash: '#receipts/encoding' };
   const window = { location, ...eventTarget(), matchMedia: () => ({ matches: false }), history: { replaceState: (_state, _title, url) => { location.href = String(url); location.hash = new URL(String(url)).hash; } } };
-  const elements = { menuButton: element(), drawer: element(), drawerBackdrop: element(), receiptsNav: element(), monthlyNav: element(), encodingTab: element(), optimizationTab: element() };
+  const elements = { menuButton: element(), drawer: element(), drawerBackdrop: element(), receiptsNav: element(), monthlyNav: element(), quickNav: element(), encodingTab: element(), optimizationTab: element() };
   const workspaces = [];
   const controller = createNavigationController({ window, document, elements, onRoute: workspace => workspaces.push(workspace) });
   controller.start({ fallbackRoute: receiptRoutes.optimization });
@@ -66,7 +66,7 @@ test('Monthly Filing route renders independently and receipt routes remain avail
   const document = { title: 'FSResibo', ...eventTarget() };
   const location = { href: 'https://example.test/#monthly-filing', hash: '#monthly-filing' };
   const window = { location, ...eventTarget(), matchMedia: () => ({ matches: false }), history: { replaceState: () => {} } };
-  const elements = { menuButton: element(), drawer: element(), drawerBackdrop: element(), receiptsNav: element(), monthlyNav: element(), encodingTab: element(), optimizationTab: element() };
+  const elements = { menuButton: element(), drawer: element(), drawerBackdrop: element(), receiptsNav: element(), monthlyNav: element(), quickNav: element(), encodingTab: element(), optimizationTab: element() };
   const routes = [];
   const controller = createNavigationController({ window, document, elements, onRoute: route => routes.push(route) });
   controller.start();

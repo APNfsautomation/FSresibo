@@ -460,3 +460,27 @@ An exported receipt can be returned to Active for correction. A routine cleanup 
 Archived means exported and read-only until returned to Active; it does not mean accounting-approved, permanently retained, or backed up. No monthly batches, historical batch management, approval status, or new persistence infrastructure is added. This refines Decision 014 without altering its historical record.
 
 ---
+
+# Decision 018
+
+## Fixed PHP 50 Accounting Allowance
+
+**Status**
+
+Accepted accounting/design contract; Milestone 3.6 implementation review and Product Owner browser acceptance pending.
+
+### Decision
+
+Receipt Optimization and Quick Optimizer share integer-centavo calculations with a fixed maximum excess of 5000 centavos. Closest Match and Fewest Receipts consider target-reaching totals in T…T+5000 first; T+5000 is valid and T+5001 is excluded. Closest ranks lowest excess then fewer receipts; Fewest ranks fewer receipts then lowest excess throughout that range.
+
+Under-target Closest ranks highest positive total then fewer receipts. Fewest finds the global closest-under total M independently, then ranks only max(1,M−5000)…M by fewer receipts then highest total. Preferred combinations precede fallback combinations, including when alternatives fill the remaining positions. Do Not Exceed Target allows only positive totals at or below T. Equal totals/counts use lexicographically ascending original input-index vectors, so duplicate amounts keep distinct physical identities. Empty subsets never qualify.
+
+### Reason
+
+A fixed PHP 50 allowance matches the approved accounting workflow; a target-relative 2% tolerance does not. Meeting the target within the allowance must outrank a nearer under-target total.
+
+### Consequences
+
+`findBestMatches()` returns exact ordered top-three combinations through compact meet-in-the-middle subsets and bounded merges; `findBest()` remains its one-result compatibility wrapper. Receipt Optimization retains transaction/export behavior. Quick Optimizer is an isolated amount-only workspace with explicit calculation, stable temporary labels, atomic newline bulk append, and no persistence or export. Navigation preserves its one-instance state; refresh, logout/account changes, and Clear Calculator reset it. Exact display formatting retains centavos. This extends Decision 015 without rewriting it or Decisions 012, 014, 016, and 017. Milestone acceptance, merge, and rollout are separate gates.
+
+---

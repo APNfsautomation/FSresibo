@@ -7,7 +7,7 @@ export const routeRegistry = Object.freeze({
   [receiptRoutes.encoding]: Object.freeze({ module: 'receipts', workspace: 'encoding', available: true }),
   [receiptRoutes.optimization]: Object.freeze({ module: 'receipts', workspace: 'optimization', available: true }),
   'monthly-filing': Object.freeze({ module: 'monthly-filing', available: true }),
-  'quick-optimizer': Object.freeze({ module: 'quick-optimizer', available: false }),
+  'quick-optimizer': Object.freeze({ module: 'quick-optimizer', available: true }),
   'store-directory': Object.freeze({ module: 'store-directory', available: false })
 });
 
@@ -30,7 +30,11 @@ export function routeFromHash(hash = '') {
 export function createNavigationController({ window = globalThis.window, document = globalThis.document, elements, onRoute }) {
   let started = false;
   let activeRoute = receiptRoutes.encoding;
+  let receiptWorkspace = 'encoding';
   const isMobile = () => window.matchMedia?.('(max-width: 980px)').matches ?? false;
+  const moduleNavigation = { receipts: elements.receiptsNav, 'monthly-filing': elements.monthlyNav, 'quick-optimizer': elements.quickNav };
+  const moduleDefaultRoutes = Object.entries(routeRegistry).filter(([, metadata]) => metadata.available)
+    .reduce((routes, [route, metadata]) => { routes[metadata.module] ??= route; return routes; }, {});
 
   const setDrawer = (open, { restoreFocus = false } = {}) => {
     const visible = isMobile() ? open : true;
@@ -43,13 +47,13 @@ export function createNavigationController({ window = globalThis.window, documen
 
   const renderRoute = route => {
     activeRoute = route;
-    const monthly = route === 'monthly-filing';
-    const optimization = route === receiptRoutes.optimization;
-    elements.receiptsNav.setAttribute('aria-current', monthly ? 'false' : 'page');
-    elements.monthlyNav.setAttribute('aria-current', monthly ? 'page' : 'false');
+    const metadata = routeRegistry[route];
+    if (metadata.module === 'receipts') receiptWorkspace = metadata.workspace;
+    const optimization = receiptWorkspace === 'optimization';
+    Object.entries(moduleNavigation).forEach(([module, item]) => item.setAttribute('aria-current', module === metadata.module ? 'page' : 'false'));
     elements.encodingTab.setAttribute('aria-selected', String(!optimization));
     elements.optimizationTab.setAttribute('aria-selected', String(optimization));
-    onRoute(monthly ? 'monthly-filing' : optimization ? 'optimization' : 'encoding');
+    onRoute(metadata.workspace ?? metadata.module, metadata);
   };
 
   const replaceRoute = route => {
@@ -79,8 +83,10 @@ export function createNavigationController({ window = globalThis.window, documen
       started = true;
       elements.menuButton.addEventListener('click', () => setDrawer(elements.drawer.hidden));
       elements.drawerBackdrop.addEventListener('click', () => setDrawer(false, { restoreFocus: true }));
-      elements.receiptsNav.addEventListener('click', () => { navigate(receiptRoutes.encoding); setDrawer(false); });
-      elements.monthlyNav.addEventListener('click', () => { navigate('monthly-filing'); setDrawer(false); });
+      Object.entries(moduleNavigation).forEach(([module, item]) => item.addEventListener('click', () => {
+        navigate(moduleDefaultRoutes[module]);
+        setDrawer(false, { restoreFocus: true });
+      }));
       elements.encodingTab.addEventListener('click', () => navigate(receiptRoutes.encoding));
       elements.optimizationTab.addEventListener('click', () => navigate(receiptRoutes.optimization));
       window.addEventListener('hashchange', () => applyLocation());

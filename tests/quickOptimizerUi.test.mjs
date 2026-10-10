@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
-import { createQuickOptimizerUi, invalidQuickAmountMessage, parseQuickAmount, quickCapacityMessage } from '../ui/quickOptimizerUi.js';
+import { createQuickOptimizerUi, formatQuickDifference, formatQuickMoney, invalidQuickAmountMessage, parseQuickAmount, quickCapacityMessage } from '../ui/quickOptimizerUi.js';
 import { findBestMatches, optimizationStrategies } from '../services/optimizationService.js';
 
 const calculator = options => createQuickOptimizerUi({ nextFrame: async () => {}, ...options });
@@ -13,6 +13,18 @@ test('strict decimal parser accepts approved formats and exact integer centavos'
   for (const [raw, cents] of [['500', 50000], ['500.5', 50050], ['500.50', 50050], ['1,500.00', 150000], ['₱1,500.00', 150000], [' PHP 1,500.00 ', 150000], ['0.01', 1], ['0.29', 29], ['90,071,992,547,409.91', Number.MAX_SAFE_INTEGER]]) {
     assert.equal(parseQuickAmount(raw), cents, raw);
   }
+});
+
+test('money display preserves every centavo through maximum safe integer and groups pesos', () => {
+  for (const [cents, expected] of [[0, '₱0.00'], [1, '₱0.01'], [29, '₱0.29'], [50050, '₱500.50'], [150000, '₱1,500.00'], [Number.MAX_SAFE_INTEGER, '₱90,071,992,547,409.91']]) {
+    assert.equal(formatQuickMoney(cents), expected);
+    assert.equal(formatQuickDifference(cents), cents ? `+${expected}` : expected);
+    if (cents) {
+      assert.equal(formatQuickMoney(-cents), `−${expected}`);
+      assert.equal(formatQuickDifference(-cents), `−${expected}`);
+    }
+  }
+  assert.throws(() => formatQuickMoney(Number.MAX_SAFE_INTEGER + 1), RangeError);
 });
 
 test('strict decimal parser rejects malformed, unsupported and unsafe amounts', () => {
@@ -168,6 +180,18 @@ const dom = () => {
   const root = { ownerDocument: document, hidden: true, querySelector: selector => controls[selector.match(/"(.+)"/)[1]] };
   return { controls, root, ui: calculator({ root }) };
 };
+
+test('result total, difference, individual amount and breakdown preserve large centavo precision', async () => {
+  const { ui, controls } = dom();
+  ui.setTarget('90071992547359.91'); ui.setAmount('R1', '90071992547409.91'); await ui.calculate();
+  const card = controls.results.children[0];
+  assert.equal(card.children[2].textContent, 'Total: ₱90,071,992,547,409.91');
+  assert.equal(card.children[3].textContent, 'Difference: +₱50.00');
+  assert.equal(card.children[5].textContent, 'R1: ₱90,071,992,547,409.91');
+  assert.equal(controls.breakdown.children[0].textContent, 'R1: ₱90,071,992,547,409.91');
+  ui.clear(); ui.setTarget('90071992547359.91'); ui.setAmount('R1', '0.01'); await ui.calculate();
+  assert.equal(controls.results.children[0].children[3].textContent, 'Difference: −₱90,071,992,547,359.90');
+});
 
 test('DOM events render labels, accessible alternatives, signed differences, highlights and breakdown', async () => {
   const { ui, controls, root } = dom();

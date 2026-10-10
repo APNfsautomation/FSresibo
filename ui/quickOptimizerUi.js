@@ -3,7 +3,16 @@ import { findBestMatches, maximumOptimizationExcessCents, optimizationStrategies
 export const invalidQuickAmountMessage = 'Invalid amount detected. Please check your inputs and try again.';
 export const quickCapacityMessage = 'Adding these amounts would exceed the 32-receipt limit. No amounts were added.';
 const money = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' });
-const formatMoney = cents => money.format(cents / 100);
+export function formatQuickMoney(cents) {
+  if (!Number.isSafeInteger(cents)) throw new RangeError('Money requires safe integer centavos.');
+  const value = BigInt(cents);
+  const magnitude = value < 0n ? -value : value;
+  const fraction = String(magnitude % 100n).padStart(2, '0');
+  const formatted = money.formatToParts(magnitude / 100n)
+    .map(part => part.type === 'fraction' ? fraction : part.value).join('');
+  return cents < 0 ? `−${formatted}` : formatted;
+}
+export const formatQuickDifference = cents => cents > 0 ? `+${formatQuickMoney(cents)}` : formatQuickMoney(cents);
 const strategyValues = Object.values(optimizationStrategies);
 
 // Parse decimal digits directly: floating-point rounding is not an input boundary.
@@ -14,7 +23,7 @@ export function parseQuickAmount(raw) {
   return cents > 0n && cents <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(cents) : null;
 }
 
-// Composition is intentionally deferred to Checkpoint 3. Call once per app instance.
+// Call once per application instance; hiding the workspace preserves temporary data.
 // All state is closure-owned; the optional DOM is only a view of that state.
 // Two frame callbacks allow the busy view to paint before synchronous calculation.
 export function createQuickOptimizerUi({ root = null, document = root?.ownerDocument, nextFrame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))) } = {}) {
@@ -173,10 +182,10 @@ export function createQuickOptimizerUi({ root = null, document = root?.ownerDocu
       card.type = 'button'; card.setAttribute('aria-pressed', String(index === state.selectedResult));
       card.append(element('strong', ['Best Match', 'Alternative 1', 'Alternative 2'][index]),
         element('span', result.receipts.map(receipt => receipt.id).join(' + ')),
-        element('span', `Total: ${formatMoney(result.total)}`),
-        element('span', `Difference: ${result.difference > 0 ? '+' : result.difference < 0 ? '−' : ''}${formatMoney(Math.abs(result.difference))}`),
+        element('span', `Total: ${formatQuickMoney(result.total)}`),
+        element('span', `Difference: ${formatQuickDifference(result.difference)}`),
         element('span', `Receipts: ${result.receipts.length}`),
-        element('span', result.receipts.map(receipt => `${receipt.id}: ${formatMoney(receipt.cents)}`).join(' · ')));
+        element('span', result.receipts.map(receipt => `${receipt.id}: ${formatQuickMoney(receipt.cents)}`).join(' · ')));
       card.addEventListener('click', () => {
         selectResult(index);
         // Re-rendered native buttons retain keyboard focus after selection.
@@ -184,7 +193,7 @@ export function createQuickOptimizerUi({ root = null, document = root?.ownerDocu
       });
       return card;
     }));
-    controls.breakdown.replaceChildren(...(selected ? selected.receipts.map(receipt => element('li', `${receipt.id}: ${formatMoney(receipt.cents)}`)) : [element('li', 'No match selected.')]));
+    controls.breakdown.replaceChildren(...(selected ? selected.receipts.map(receipt => element('li', `${receipt.id}: ${formatQuickMoney(receipt.cents)}`)) : [element('li', 'No match selected.')]));
   }
   if (root) {
     controls.target.addEventListener('input', () => setTarget(controls.target.value));
