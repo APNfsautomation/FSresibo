@@ -268,3 +268,96 @@ test('sign-in, recovery and the application swap views without leaving both visi
   panel.hide();
   assert.deepEqual([elements.authView.hidden, elements.appView.hidden], [true, false]);
 });
+
+// ---- CP6 review corrections ----------------------------------------------------------------------------------------------
+const tabShell = ({ mobile = true } = {}) => {
+  const shell = makeShell({ mobile });
+  const stops = ['receiptsNav', 'monthlyNav', 'quickNav'].map(name => shell.elements[name]);
+  const themeSelect = control(); const logout = control();
+  const drawerStops = [...stops, themeSelect, logout];
+  shell.elements.drawer.querySelectorAll = () => drawerStops;
+  shell.document.activeElement = null;
+  const press = (key, { shiftKey = false } = {}, target = shell.elements.drawer) => { let prevented = false; const event = { key, shiftKey, preventDefault() { prevented = true; } }; target.emit('keydown', event); return prevented; };
+  return { ...shell, drawerStops, themeSelect, logout, press };
+};
+
+test('Tab and Shift+Tab stay inside the open phone drawer, wrapping between the menu button and the last control', () => {
+  const shell = tabShell();
+  shell.elements.menuButton.emit('click');
+  shell.document.activeElement = shell.logout;
+  assert.equal(shell.press('Tab'), true);
+  assert.equal(shell.elements.menuButton.focusCount, 1, 'forward from Log out wraps to the first stop (the menu button)');
+  shell.document.activeElement = shell.elements.menuButton;
+  assert.equal(shell.press('Tab', {}, shell.elements.menuButton), true);
+  assert.equal(shell.elements.receiptsNav.focusCount, 2, 'forward from the menu button enters the drawer');
+  shell.document.activeElement = shell.elements.menuButton;
+  const logoutBefore = shell.logout.focusCount;
+  shell.press('Tab', { shiftKey: true }, shell.elements.menuButton);
+  assert.equal(shell.logout.focusCount, logoutBefore + 1, 'Shift+Tab from the first stop wraps to Log out');
+  shell.document.activeElement = shell.themeSelect;
+  shell.press('Tab');
+  assert.equal(shell.logout.focusCount, logoutBefore + 2, 'the theme select and Log out stay reachable in order');
+});
+
+test('drawer Tab handling is inactive on desktop, when the drawer is closed and for modified or already handled keys', () => {
+  const desktop = tabShell({ mobile: false });
+  desktop.document.activeElement = desktop.logout;
+  assert.equal(desktop.press('Tab'), false);
+  const closed = tabShell();
+  closed.document.activeElement = closed.logout;
+  assert.equal(closed.press('Tab'), false);
+  const open = tabShell(); open.elements.menuButton.emit('click'); open.document.activeElement = open.logout;
+  let prevented = false;
+  open.elements.drawer.emit('keydown', { key: 'Tab', ctrlKey: true, preventDefault() { prevented = true; } });
+  open.elements.drawer.emit('keydown', { key: 'Tab', defaultPrevented: true, preventDefault() { prevented = true; } });
+  assert.equal(prevented, false);
+});
+
+test('showing any authentication screen releases the drawer: closed, page interactive, scroll unlocked', () => {
+  const shell = makeShell();
+  const form = () => ({ hidden: false, addEventListener() {} });
+  const elements = { authView: { hidden: true }, appView: { hidden: false }, loginForm: form(), registerForm: form(), resetForm: form(), recoveryForm: form(), showLogin: form(), authMessage: { textContent: '' } };
+  const panel = createAuthPanel(elements, { onShow: () => shell.controller.setDrawer(false) });
+  for (const show of [() => panel.show(), () => panel.showRecovery(), () => panel.showRecoveryUnavailable()]) {
+    shell.elements.menuButton.emit('click');                       // the phone drawer is open, as when Log out is pressed
+    assert.equal(shell.bodyClasses.has('drawer-open'), true);
+    show();
+    assert.equal(shell.bodyClasses.has('drawer-open'), false, 'the login screen can scroll');
+    assert.equal(shell.elements.content.hasAttribute('inert'), false);
+    assert.equal(shell.elements.drawer.hidden, true);
+    assert.equal(shell.elements.menuButton.getAttribute('aria-expanded'), 'false');
+    assert.equal(elements.authView.hidden, false);
+  }
+  shell.elements.menuButton.emit('click');                         // a later session opens and closes the drawer normally
+  assert.equal(shell.elements.drawer.hidden, false);
+});
+
+test('app.js wires the drawer release into the authentication panel and keeps logout failures in the sidebar', async () => {
+  const app = await read('../app.js');
+  assert.ok(app.includes('onShow: () => navigationController.setDrawer(false)'), 'the auth panel releases the drawer');
+  assert.ok(app.includes('catch (error) { elements.sessionFeedback.textContent = `Could not sign out: '), 'a failed sign-out stays visible in the open drawer');
+  assert.ok(!app.split('Could not sign out')[1].split('});')[0].includes('setDrawer'), 'a failed sign-out does not close the drawer');
+});
+
+test('the Edit button itself is the dialog trigger, so focus returns to it even when the click did not focus it', async () => {
+  const source = await read('../ui/receiptUi.js');
+  assert.ok(source.includes("compact-edit').addEventListener('click', event => openEditModal(entry.index, event.currentTarget)"));
+  assert.ok(source.includes('modalFocus?.open(elements.editModal, { trigger,'));
+  const doc = { activeElement: { tagName: 'BODY', isConnected: true }, body: { children: [] }, addEventListener() {} };
+  const modalFocus = createModalFocus({ documentRef: doc, isVisible: () => true });
+  const dialog = Object.assign(control(), { tagName: 'SECTION', parentElement: doc.body, children: [], hasAttribute: () => false });
+  doc.body.children.push(dialog);
+  const editButton = Object.assign(control(), { isConnected: true });
+  const fallback = Object.assign(control(), { isConnected: true });
+  for (const close of ['escape', 'cancel', 'save']) {
+    editButton.focusCount = 0; fallback.focusCount = 0;
+    modalFocus.open(dialog, { trigger: editButton, fallback });
+    modalFocus.close(dialog, { fallback });
+    assert.equal(editButton.focusCount, 1, close + ': focus returns to the Edit button');
+    assert.equal(fallback.focusCount, 0);
+  }
+  editButton.isConnected = false;                                  // the card was rebuilt after a saved correction
+  modalFocus.open(dialog, { trigger: editButton, fallback });
+  modalFocus.close(dialog, { fallback });
+  assert.equal(fallback.focusCount, 1, 'a replaced Edit button falls back; restoreEditTriggerFocus then targets the new button');
+});

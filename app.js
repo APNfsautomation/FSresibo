@@ -67,6 +67,8 @@ const applicationWorkspaces = createApplicationWorkspaces({ receiptUi, monthlyFi
 const navigationController = createNavigationController({ elements: navigationElements, onRoute: applicationWorkspaces.renderRoute });
 const themeController = createThemeController({ selects: [elements.themePreference, elements.authThemePreference] });
 const authPanel = createAuthPanel(authElements, {
+  // Leaving the application (logout, expired session, recovery) must never leave the phone drawer's inert/scroll-lock state behind.
+  onShow: () => navigationController.setDrawer(false),
   onLogin: login,
   onRegister: (email, password) => register(email, password, authRedirectUrl('signup')),
   onPasswordReset: email => requestPasswordReset(email, authRedirectUrl('recovery')),

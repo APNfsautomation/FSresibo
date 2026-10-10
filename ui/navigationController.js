@@ -1,3 +1,4 @@
+import { tabbableWithin } from './modalFocus.js';
 import { installTablistKeyboard, syncRovingTabIndex } from './tablistKeyboard.js';
 
 export const receiptRoutes = Object.freeze({
@@ -51,6 +52,17 @@ export function createNavigationController({ window = globalThis.window, documen
     if (!open && restoreFocus && isMobile()) elements.menuButton.focus();
   };
 
+  // While the drawer overlays the page, Tab cycles through the menu button and the drawer's own controls only.
+  const containDrawerTab = event => {
+    if (event.key !== 'Tab' || event.defaultPrevented || event.ctrlKey || event.altKey || event.metaKey) return;
+    if (!isMobile() || elements.drawer.hidden) return;
+    const stops = [elements.menuButton, ...(elements.drawer.querySelectorAll ? tabbableWithin(elements.drawer) : [])];
+    const index = stops.indexOf(document.activeElement);
+    const next = event.shiftKey ? (index <= 0 ? stops.length - 1 : index - 1) : (index < 0 || index === stops.length - 1 ? 0 : index + 1);
+    event.preventDefault();
+    stops[next].focus?.();
+  };
+
   const renderRoute = route => {
     activeRoute = route;
     const metadata = routeRegistry[route];
@@ -93,6 +105,8 @@ export function createNavigationController({ window = globalThis.window, documen
         setDrawer(opening);
         if (opening && isMobile()) elements.receiptsNav.focus?.({ preventScroll: true });
       });
+      elements.menuButton.addEventListener('keydown', containDrawerTab);
+      elements.drawer.addEventListener('keydown', containDrawerTab);
       elements.drawerBackdrop.addEventListener('click', () => setDrawer(false, { restoreFocus: true }));
       Object.entries(moduleNavigation).forEach(([module, item]) => item.addEventListener('click', () => {
         navigate(moduleDefaultRoutes[module]);

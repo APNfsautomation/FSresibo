@@ -1,4 +1,4 @@
-export function createAuthPanel(elements, { onLogin, onRegister, onPasswordReset, onUpdatePassword }) {
+export function createAuthPanel(elements, { onLogin, onRegister, onPasswordReset, onUpdatePassword, onShow = () => {} }) {
   const forms = Object.freeze({ login: elements.loginForm, register: elements.registerForm, reset: elements.resetForm, recovery: elements.recoveryForm });
   const showMode = (mode, message = '') => {
     Object.entries(forms).forEach(([name, form]) => { if (form) form.hidden = name !== mode; });
@@ -42,9 +42,9 @@ export function createAuthPanel(elements, { onLogin, onRegister, onPasswordReset
   });
 
   return {
-    show(message = '') { elements.authView.hidden = false; elements.appView.hidden = true; showMode('login', message); },
-    showRecovery(message = '') { elements.authView.hidden = false; elements.appView.hidden = true; showMode('recovery', message); },
-    showRecoveryUnavailable(message = 'This password reset link is invalid or expired. Request a new reset link to continue.') { elements.authView.hidden = false; elements.appView.hidden = true; showMode('reset', message); },
+    show(message = '') { onShow(); elements.authView.hidden = false; elements.appView.hidden = true; showMode('login', message); },
+    showRecovery(message = '') { onShow(); elements.authView.hidden = false; elements.appView.hidden = true; showMode('recovery', message); },
+    showRecoveryUnavailable(message = 'This password reset link is invalid or expired. Request a new reset link to continue.') { onShow(); elements.authView.hidden = false; elements.appView.hidden = true; showMode('reset', message); },
     hide() { elements.authView.hidden = true; elements.appView.hidden = false; },
     setMessage(message) { elements.authMessage.textContent = message; }
   };

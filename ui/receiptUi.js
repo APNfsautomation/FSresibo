@@ -485,7 +485,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       card.querySelector('.compact-edit').hidden = consumed;
       card.querySelector('.compact-restore').hidden = !consumed;
       if (consumed) card.querySelector('.compact-restore').addEventListener('click', event => restoreReceipt(entry.index, event.currentTarget));
-      else card.querySelector('.compact-edit').addEventListener('click', () => openEditModal(entry.index));
+      else card.querySelector('.compact-edit').addEventListener('click', event => openEditModal(entry.index, event.currentTarget));
       fragment.append(card);
     });
     elements.optimizationList.replaceChildren(fragment);
@@ -524,7 +524,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     const edit = elements.optimizationList.querySelector?.(`[data-receipt-index="${index}"] .compact-edit`);
     (edit && !edit.hidden ? edit : elements.optimizationSearch)?.focus?.({ preventScroll: true });
   };
-  const openEditModal = index => {
+  // The originating Edit button is passed explicitly: browsers do not focus a clicked button everywhere, so document.activeElement is not a reliable trigger.
+  const openEditModal = (index, trigger = document.activeElement) => {
     const row = elements.list.children[index];
     if (!row || receiptStatus(row) === 'consumed') return;
     setFeedback(elements.editFeedback);
@@ -538,7 +539,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     elements.editAddress.value = receipt.address;
     elements.editTin.value = receipt.tin;
     elements.editModal.hidden = false;
-    modalFocus?.open(elements.editModal, { trigger: document.activeElement, fallback: elements.optimizationSearch, onEscape: closeEditModal });
+    modalFocus?.open(elements.editModal, { trigger, fallback: elements.optimizationSearch, onEscape: closeEditModal });
     elements.editStore.focus();
   };
   const installStoreAutocomplete = row => {
