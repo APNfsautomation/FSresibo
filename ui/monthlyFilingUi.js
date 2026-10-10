@@ -1,4 +1,5 @@
 import { installTablistKeyboard } from './tablistKeyboard.js';
+import { trackTextEntry } from './textEntryFocus.js';
 import { deduplicateDirectoryCandidates, persistedStoreFingerprint, postSaveDirectoryDecision, resolveSharedContributionCandidate } from '../domain/sharedStoreProfiles.js';
 
 export const monthlyFilingEditableFields = Object.freeze(['store', 'address', 'tin', 'vat', 'amount', 'receiptDate', 'invoice']);
@@ -68,6 +69,46 @@ export async function persistMonthlyFilingRows(rows, persistRow) {
   for (const row of rows) { try { saved.push(await persistRow(row)); } catch (error) { return { saved, error }; } }
   return { saved, error: undefined };
 }
+// Presentation-only record state. Receipts are identified by database id when they have one and by a client-side draft key while unsaved,
+// never by array position, so expansion, labels and unsaved markers follow the right receipt across re-renders, saves and deletions.
+export const monthlyFilingSignature = record => monthlyFilingEditableFields.map(key => String(record[key] ?? '')).join('\u0001');
+export function createMonthlyFilingViewState() {
+  const draftKeys = new WeakMap(); const expanded = new Set(); const labels = new Map(); const baselines = new Map();
+  let draftSequence = 0; let labelSequence = 0;
+  const keyOf = record => {
+    if (record.dbId) return `db:${record.dbId}`;
+    if (!draftKeys.has(record)) draftKeys.set(record, `draft:${++draftSequence}`);
+    return draftKeys.get(record);
+  };
+  const move = (from, to) => {
+    if (from === to) return;
+    if (expanded.delete(from)) expanded.add(to);
+    if (labels.has(from)) { labels.set(to, labels.get(from)); labels.delete(from); }
+  };
+  return {
+    keyOf,
+    // Stable per-receipt number for this session; never reused or renumbered when other receipts are deleted.
+    labelOf: record => { const key = keyOf(record); if (!labels.has(key)) labels.set(key, ++labelSequence); return labels.get(key); },
+    isExpanded: record => expanded.has(keyOf(record)),
+    setExpanded: (record, open) => { if (open) expanded.add(keyOf(record)); else expanded.delete(keyOf(record)); },
+    // A record object was replaced by an edited copy or by the saved version: the receipt keeps its identity and its state.
+    replace: (previous, next) => { const from = keyOf(previous); if (!next.dbId) draftKeys.set(next, from); move(from, keyOf(next)); },
+    markPersisted: record => { if (record.dbId && record.status === 'active') baselines.set(keyOf(record), monthlyFilingSignature(record)); },
+    markPersistedIfNew: record => { if (record.dbId && record.status === 'active' && !baselines.has(keyOf(record))) baselines.set(keyOf(record), monthlyFilingSignature(record)); },
+    // 'new' = a not-yet-saved receipt with content; 'edited' = a saved Active receipt that differs from what was last persisted; Archived is never dirty.
+    dirtyState: record => {
+      if (record.status !== 'active') return 'clean';
+      if (!record.dbId) return isBlankUnsavedMonthlyFilingRecord(record) ? 'clean' : 'new';
+      return baselines.get(keyOf(record)) === undefined || baselines.get(keyOf(record)) === monthlyFilingSignature(record) ? 'clean' : 'edited';
+    },
+    forget: record => { const key = keyOf(record); expanded.delete(key); labels.delete(key); baselines.delete(key); }
+  };
+}
+const pesoFormat = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' });
+export const monthlyFilingAmountText = value => { const amount = Number(String(value ?? '').replaceAll(',', '')); return String(value ?? '').trim() && Number.isFinite(amount) ? pesoFormat.format(amount) : '₱0.00'; };
+export const monthlyFilingDirtyLabel = state => state === 'new' ? 'New, unsaved' : state === 'edited' ? 'Unsaved changes' : '';
+export const monthlyFilingSummaryName = ({ number, store, amountText, date, archived, dirty }) =>
+  [`Monthly receipt ${number}`, store, amountText, date || 'no date', archived ? 'archived' : '', monthlyFilingDirtyLabel(dirty).toLowerCase()].filter(Boolean).join(', ');
 export const matchingDirectoryEntries = (entries, candidate) => {
   const key = persistedStoreFingerprint(candidate);
   return entries.filter(entry => entry.decision?.candidate && persistedStoreFingerprint(entry.decision.candidate) === key);
@@ -75,7 +116,7 @@ export const matchingDirectoryEntries = (entries, candidate) => {
 export const directoryOutcomeFeedback = outcomes => outcomes.map(outcome => outcome.message).filter(Boolean).join(' ');
 
 export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedStoreService, downloadExpenseDetailedReport, confirmAction = async () => false }) {
-  let currentUser; let records = []; let profiles = []; let loading = false; let lastDirectoryFeedback = ''; let activeTab = 'active';
+  let currentUser; let records = []; let profiles = []; let loading = false; let lastDirectoryFeedback = ''; let activeTab = 'active'; let view = createMonthlyFilingViewState(); let contentSequence = 0;
   const lifecycle = createMonthlyFilingLifecycleState();
   const mutations = createMonthlyFilingMutationState();
   const feedback = text => { elements.feedback.textContent = text || ''; };
@@ -84,7 +125,9 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
   const synchronizeActiveRow = row => {
     const index = Number(row.dataset.recordIndex);
     if (!Number.isInteger(index) || !records[index] || row.dataset.status !== 'active') return;
-    records[index] = { ...records[index], ...values(row), sharedStoreId: row.dataset.sharedStoreId || '', persistedStoreFingerprint: row.dataset.persistedStoreFingerprint || '' };
+    const previous = records[index];
+    records[index] = { ...previous, ...values(row), sharedStoreId: row.dataset.sharedStoreId || '', persistedStoreFingerprint: row.dataset.persistedStoreFingerprint || '' };
+    view.replace(previous, records[index]);
   };
   const synchronizeVisibleActiveDrafts = () => [...elements.list.children].filter(row => row.matches('.monthly-card') && row.dataset.status === 'active').forEach(synchronizeActiveRow);
   const updateTabControls = () => {
@@ -94,8 +137,50 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
     elements.activeTab.tabIndex = activeTab === 'active' ? 0 : -1; elements.archivedTab.tabIndex = activeTab === 'archived' ? 0 : -1;
     elements.activeActions.hidden = activeTab !== 'active'; elements.exportHelper.hidden = activeTab !== 'active'; elements.archivedActions.hidden = activeTab !== 'archived';
   };
-  const updateActions = () => { const counts = monthlyFilingTabCounts(records); const blocked = mutations.pending(); elements.save.disabled = blocked || counts.active === 0; elements.add.disabled = blocked; elements.exportActive.disabled = blocked || lifecycle.exportBlocked() || counts.active === 0; elements.clearArchived.disabled = blocked || lifecycle.clearBlocked() || counts.archived === 0; elements.clearAll.disabled = blocked || lifecycle.clearBlocked() || records.length === 0; updateTabControls(); };
-  const setRecord = (index, saved, fingerprint) => { records[index] = { ...saved, persistedStoreFingerprint: fingerprint ?? records[index]?.persistedStoreFingerprint ?? '' }; };
+  const monthlyCards = () => [...elements.list.children].filter(row => row.matches?.('.monthly-card'));
+  const refreshRowPresentation = row => {
+    const record = records[Number(row.dataset.recordIndex)];
+    if (!record) return;
+    const dirty = view.dirtyState(record); const archived = monthlyFilingIsReadOnly(record);
+    const store = String(record.store || '').trim() || 'Store not set'; const amountText = monthlyFilingAmountText(record.amount);
+    const open = view.isExpanded(record); const number = view.labelOf(record); const label = monthlyFilingDirtyLabel(dirty);
+    row.classList.toggle('is-unsaved', dirty !== 'clean'); row.classList.toggle('is-collapsed', !open);
+    row.querySelector('.monthly-receipt-id').textContent = `Receipt ${number}`;
+    const unsaved = row.querySelector('.monthly-unsaved'); unsaved.textContent = label; unsaved.hidden = !label;
+    const summary = row.querySelector('.monthly-summary');
+    summary.querySelector('.monthly-summary-id').textContent = `Receipt ${number}`;
+    summary.querySelector('.monthly-summary-store').textContent = store; summary.querySelector('.monthly-summary-store').title = store;
+    summary.querySelector('.monthly-summary-amount').textContent = amountText;
+    summary.querySelector('.monthly-summary-date').textContent = record.receiptDate || 'No date';
+    const flags = summary.querySelector('.monthly-summary-flags'); flags.replaceChildren(...[archived && 'Archived', label].filter(Boolean).map(text => { const flag = document.createElement('span'); flag.className = 'monthly-flag'; flag.textContent = text; return flag; }));
+    summary.setAttribute('aria-expanded', String(open));
+    summary.setAttribute('aria-label', monthlyFilingSummaryName({ number, store, amountText, date: record.receiptDate, archived, dirty }));
+  };
+  const refreshPresentation = () => {
+    monthlyCards().forEach(refreshRowPresentation);
+    if (elements.unsavedNote) {
+      const count = records.filter(record => view.dirtyState(record) !== 'clean').length;
+      elements.unsavedNote.hidden = count === 0; elements.unsavedNote.textContent = count ? `${count} unsaved ${count === 1 ? 'receipt' : 'receipts'}` : '';
+    }
+  };
+  const afterRender = callback => (globalThis.requestAnimationFrame ?? (task => setTimeout(task, 0)))(callback);
+  const prefersReducedMotion = () => globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+  const isShown = element => Boolean(element) && (typeof element.getClientRects !== 'function' || element.getClientRects().length > 0);
+  // Focus a field of a receipt after a re-render. The receipt is expanded first; if its field is still not shown (collapsed card), its summary takes focus instead.
+  const focusReceipt = (record, selector = '.monthly-store') => afterRender(() => {
+    const key = view.keyOf(record); const row = monthlyCards().find(card => card.dataset.recordKey === key);
+    if (!row) return;
+    row.scrollIntoView?.({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+    const field = row.querySelector(selector);
+    (isShown(field) ? field : row.querySelector('.monthly-summary'))?.focus({ preventScroll: true });
+  });
+  const updateActions = () => { const counts = monthlyFilingTabCounts(records); const blocked = mutations.pending(); elements.save.disabled = blocked || counts.active === 0; elements.add.disabled = blocked; elements.exportActive.disabled = blocked || lifecycle.exportBlocked() || counts.active === 0; elements.clearArchived.disabled = blocked || lifecycle.clearBlocked() || counts.archived === 0; elements.clearAll.disabled = blocked || lifecycle.clearBlocked() || records.length === 0; updateTabControls(); refreshPresentation(); };
+  const setRecord = (index, saved, fingerprint) => {
+    const previous = records[index];
+    records[index] = { ...saved, persistedStoreFingerprint: fingerprint ?? previous?.persistedStoreFingerprint ?? '' };
+    if (previous) view.replace(previous, records[index]);
+    view.markPersisted(records[index]);
+  };
   const reloadSharedStores = async () => { profiles = await sharedStoreService.listActiveSharedStores(); return profiles; };
   const candidateMessage = candidate => {
     const details = [candidate.address && `Address: ${candidate.address}`, candidate.tin && `TIN: ${candidate.tin}`].filter(Boolean);
@@ -105,9 +190,14 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
     elements.list.replaceChildren(); updateActions();
     const visibleRecords = monthlyFilingRecordsForTab(records, activeTab);
     if (!visibleRecords.length) { const empty = document.createElement('p'); empty.className = 'monthly-empty'; empty.textContent = activeTab === 'active' ? 'No Active Monthly Filing receipts yet. Add one to begin.' : 'No Archived Monthly Filing receipts.'; elements.list.append(empty); return; }
+    records.forEach(record => view.labelOf(record));
     visibleRecords.forEach(record => {
       const recordIndex = records.indexOf(record);
       const row = elements.template.content.firstElementChild.cloneNode(true);
+      row.dataset.recordKey = view.keyOf(record);
+      const content = row.querySelector('.receipt-content'); content.id = `monthly-card-content-${++contentSequence}`;
+      row.querySelector('.monthly-summary').setAttribute('aria-controls', content.id);
+      row.querySelector('.monthly-summary').addEventListener('click', () => { const current = records[Number(row.dataset.recordIndex)]; if (!current) return; view.setExpanded(current, !view.isExpanded(current)); refreshRowPresentation(row); });
       row.dataset.recordIndex = String(recordIndex); row.dataset.monthlyId = record.dbId || ''; row.dataset.sharedStoreId = record.sharedStoreId || ''; row.dataset.status = record.status; row.dataset.persistedStoreFingerprint = record.persistedStoreFingerprint || '';
       Object.entries(record).forEach(([key, value]) => { const field = row.querySelector(`.monthly-${key}`); if (field) field.value = value || ''; });
       const archived = monthlyFilingIsReadOnly(record);
@@ -120,7 +210,7 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
         updateActions();
         try {
           if (!await confirmAction({ title: 'Return receipt to Active?', message: 'This receipt will become editable again and will be included in the next Monthly Filing export.', confirmLabel: 'Return to Active', cancelLabel: 'Cancel', trigger: event.currentTarget })) return;
-          setRecord(recordIndex, await monthlyFilingService.returnMonthlyFilingReceiptToActive(record.dbId)); activeTab = 'active'; render(); requestAnimationFrame(() => elements.list.querySelector(`[data-record-index="${recordIndex}"] .monthly-store`)?.focus({ preventScroll: true })); feedback('Monthly Filing receipt returned to Active.');
+          setRecord(recordIndex, await monthlyFilingService.returnMonthlyFilingReceiptToActive(record.dbId)); view.setExpanded(records[recordIndex], true); activeTab = 'active'; render(); focusReceipt(records[recordIndex]); feedback('Monthly Filing receipt returned to Active.');
         } catch (error) { feedback(`Could not return receipt to Active: ${error.message}`); } finally { mutations.finish(); updateActions(); }
       });
       const store = row.querySelector('.monthly-store'); const suggestions = row.querySelector('.monthly-suggestions');
@@ -138,15 +228,22 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
         if (!mutations.begin('delete')) return;
         updateActions();
         try {
-          if (!record.dbId) { records.splice(recordIndex, 1); render(); feedback('Unsaved Monthly Filing receipt removed.'); return; }
+          const position = monthlyCards().indexOf(row);
+          if (!record.dbId) { view.forget(records[recordIndex]); records.splice(recordIndex, 1); render(); restoreListFocus(position); feedback('Unsaved Monthly Filing receipt removed.'); return; }
           if (!await confirmAction({ title: 'Delete Monthly Filing receipt?', message: 'This removes this receipt from Monthly Filing only.', confirmLabel: 'Delete Receipt', cancelLabel: 'Cancel', danger: true, trigger: event.currentTarget })) return;
-          await monthlyFilingService.deleteMonthlyFilingReceipt(record.dbId); records = records.filter(item => item.dbId !== record.dbId); render(); feedback('Monthly Filing receipt deleted.');
+          await monthlyFilingService.deleteMonthlyFilingReceipt(record.dbId); view.forget(record); records = records.filter(item => item.dbId !== record.dbId); render(); restoreListFocus(position); feedback('Monthly Filing receipt deleted.');
         } catch (error) { feedback(`Could not delete Monthly Filing receipt: ${error.message}`); } finally { mutations.finish(); updateActions(); }
       });
       elements.list.append(row);
     });
     updateActions();
   };
+  // After a delete the focused button is gone: focus the receipt now in that position (summary on phones, Store on wide screens), else the Add button.
+  const restoreListFocus = position => afterRender(() => {
+    const cards = monthlyCards(); const next = cards[Math.min(Math.max(position, 0), cards.length - 1)];
+    const target = next ? (isShown(next.querySelector('.monthly-store')) ? next.querySelector('.monthly-store') : next.querySelector('.monthly-summary')) : [elements.add, elements.activeTab].find(element => element && !element.disabled);
+    target?.focus({ preventScroll: true });
+  });
   const associateEntry = async (entry, profile) => {
     if (!profile?.id || entry.saved.sharedStoreId === profile.id) return undefined;
     try {
@@ -195,7 +292,13 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
     }
     return outcomes;
   };
-  const add = () => { records.push({ dbId: '', sharedStoreId: '', store: '', address: '', tin: '', vat: '', amount: '', receiptDate: '', invoice: '', status: 'active', persistedStoreFingerprint: '' }); render(); };
+  const add = () => {
+    synchronizeVisibleActiveDrafts();
+    let record = records.find(candidate => candidate.status === 'active' && isBlankUnsavedMonthlyFilingRecord(candidate));
+    if (!record) { record = { dbId: '', sharedStoreId: '', store: '', address: '', tin: '', vat: '', amount: '', receiptDate: '', invoice: '', status: 'active', persistedStoreFingerprint: '' }; records.push(record); }
+    view.setExpanded(record, true);
+    render(); focusReceipt(record);
+  };
   const save = async ({ successFeedback = true, fromExport = false } = {}) => {
     if (loading || !currentUser || (lifecycle.exportBlocked() && !fromExport) || (fromExport ? !mutations.permitsInternalExportSave() : !mutations.begin('save'))) return false;
     loading = true; elements.save.disabled = true;
@@ -230,8 +333,14 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
     if (result.state === 'generation-failed') return feedback(`Could not prepare the XLSX export: ${result.error.message}`);
     if (result.state === 'archive-failed') { lifecycle.markArchiveUncertain(); return feedback(`Workbook generated, but archive status could not be confirmed. Refresh Monthly Filing before exporting again. (${result.error.message})${lastDirectoryFeedback ? ` ${lastDirectoryFeedback}` : ''}`); }
     const archivedById = new Map(result.archived.map(record => [record.dbId, record])); records = records.map(record => archivedById.has(record.dbId) ? { ...archivedById.get(record.dbId), persistedStoreFingerprint: record.persistedStoreFingerprint } : record); render(); feedback(`Exported and archived ${result.records.length} Monthly Filing receipt${result.records.length === 1 ? '' : 's'}.${lastDirectoryFeedback ? ` ${lastDirectoryFeedback}` : ''}`);
-    } finally { lifecycle.finishExport(); mutations.finish(); updateActions(); }
+    } finally { lifecycle.finishExport(); mutations.finish(); updateActions(); keepFocusReachable(); }
   };
+  // A closing dialog returns focus to its trigger, which may have just become disabled: look again after the frame.
+  const keepFocusReachable = () => afterRender(() => {
+    const active = globalThis.document?.activeElement;
+    if (active && active !== globalThis.document.body && !active.disabled && isShown(active)) return;
+    [elements.exportActive, elements.add, elements.activeTab].find(element => element && !element.disabled)?.focus?.({ preventScroll: true });
+  });
   const clearArchived = async event => {
     const snapshotIds = records.filter(record => record.dbId && record.status === 'archived').map(record => record.dbId);
     if (!snapshotIds.length || !currentUser || lifecycle.clearBlocked() || !mutations.begin('clear-archived')) return;
@@ -242,7 +351,7 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
       records = reconcileArchivedMonthlyFilingDeletion(records, deletedIds);
       if (deletedIds.length === snapshotIds.length) feedback('Archived Monthly Filing receipts cleared. Active receipts were preserved.');
       else {
-        try { records = reconcileMonthlyFilingReload(records, await monthlyFilingService.loadMonthlyFilingReceipts()); feedback('Archived receipts changed in another session. Confirmed deletions were reconciled and local Active edits were preserved.'); }
+        try { records = reconcileMonthlyFilingReload(records, await monthlyFilingService.loadMonthlyFilingReceipts()); records.forEach(record => view.markPersistedIfNew(record)); feedback('Archived receipts changed in another session. Confirmed deletions were reconciled and local Active edits were preserved.'); }
         catch { feedback('Archived receipts changed in another session. Confirmed deletions were reconciled; refresh Monthly Filing before further cleanup.'); }
       }
       render();
@@ -254,7 +363,7 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
     const counts = monthlyFilingTabCounts(records);
     try {
       if (!await confirmAction({ title: 'Clear ALL Monthly Filing receipts?', message: `This permanently deletes ALL your Monthly Filing receipts, including ${counts.active} Active and ${counts.archived} Archived receipt${counts.active + counts.archived === 1 ? '' : 's'}. This cannot be undone. Long-term Receipts and the Company Directory are not affected.`, confirmLabel: 'Clear All Monthly Filing', cancelLabel: 'Cancel', danger: true, trigger: event.currentTarget })) return;
-      await monthlyFilingService.clearMonthlyFilingReceipts(currentUser.id); records = []; activeTab = 'active'; render(); feedback('All Monthly Filing receipts cleared.');
+      await monthlyFilingService.clearMonthlyFilingReceipts(currentUser.id); records = []; view = createMonthlyFilingViewState(); activeTab = 'active'; render(); feedback('All Monthly Filing receipts cleared.');
     } catch (error) { feedback(`Could not clear all Monthly Filing receipts: ${error.message}`); } finally { mutations.finish(); updateActions(); }
   };
   const switchTab = tab => {
@@ -263,8 +372,8 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
     (tab === 'active' ? elements.activeTab : elements.archivedTab).focus({ preventScroll: true });
   };
   return {
-    async loadForUser(user) { currentUser = user; activeTab = 'active'; feedback('Loading Monthly Filing…'); try { records = await monthlyFilingService.loadMonthlyFilingReceipts(); lifecycle.clearArchiveUncertain(); } catch (error) { records = []; feedback(`Could not load Monthly Filing receipts: ${error.message}`); } try { await reloadSharedStores(); if (!elements.feedback.textContent.startsWith('Could not')) feedback(''); } catch { profiles = []; feedback('Company Directory is temporarily unavailable. You can still enter store details manually.'); } render(); },
-    clearForLogout() { currentUser = undefined; records = []; profiles = []; activeTab = 'active'; feedback(''); render(); }, setVisible(visible) { elements.workspace.hidden = !visible; },
-    start() { elements.activeTab.addEventListener('click', () => switchTab('active')); elements.archivedTab.addEventListener('click', () => switchTab('archived')); installTablistKeyboard({ tabs: [elements.activeTab, elements.archivedTab], activate: index => { if (mutations.pending()) return false; switchTab(index === 0 ? 'active' : 'archived'); } }); elements.add.addEventListener('click', add); elements.save.addEventListener('click', () => { void save(); }); elements.exportActive.addEventListener('click', exportActive); elements.clearArchived.addEventListener('click', clearArchived); elements.clearAll.addEventListener('click', clearAll); render(); }
+    async loadForUser(user) { currentUser = user; activeTab = 'active'; feedback('Loading Monthly Filing…'); try { view = createMonthlyFilingViewState(); records = await monthlyFilingService.loadMonthlyFilingReceipts(); records.forEach(record => view.markPersisted(record)); lifecycle.clearArchiveUncertain(); } catch (error) { records = []; feedback(`Could not load Monthly Filing receipts: ${error.message}`); } try { await reloadSharedStores(); if (!elements.feedback.textContent.startsWith('Could not')) feedback(''); } catch { profiles = []; feedback('Company Directory is temporarily unavailable. You can still enter store details manually.'); } render(); },
+    clearForLogout() { currentUser = undefined; records = []; view = createMonthlyFilingViewState(); profiles = []; activeTab = 'active'; feedback(''); render(); }, setVisible(visible) { elements.workspace.hidden = !visible; },
+    start() { trackTextEntry(elements.workspace); elements.activeTab.addEventListener('click', () => switchTab('active')); elements.archivedTab.addEventListener('click', () => switchTab('archived')); installTablistKeyboard({ tabs: [elements.activeTab, elements.archivedTab], activate: index => { if (mutations.pending()) return false; switchTab(index === 0 ? 'active' : 'archived'); } }); elements.add.addEventListener('click', add); elements.save.addEventListener('click', () => { void save(); }); elements.exportActive.addEventListener('click', exportActive); elements.clearArchived.addEventListener('click', clearArchived); elements.clearAll.addEventListener('click', clearAll); render(); }
   };
 }

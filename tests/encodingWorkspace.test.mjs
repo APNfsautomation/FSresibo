@@ -88,8 +88,8 @@ test('the action bar is in-flow above the list on desktop and sticky (never fixe
   assert.ok(12 < drawerZ, 'the bar sits below the navigation drawer');
 });
 
-test('Monthly Filing keeps its own card layout: its rules are untouched and the compact editor rules are scoped to the Encoding list', () => {
-  for (const monthly of ['.monthly-card .receipt-content { display: block; }', '.monthly-card { padding: 0; }', '.monthly-filing-tabs .workspace-tab { flex: 0 1 auto; }', '.monthly-suggestions { position: static; margin-top: var(--space-1); }']) assert.ok(css.includes(monthly), `${monthly} is intact`);
+test('the compact editor rules are scoped to the Encoding list', () => {
+  // (Monthly Filing's own card rules were redesigned in CP9 and are covered by monthlyFilingWorkspace.test.mjs.)
   const compact = css.slice(css.indexOf('/* Compact editor'), css.indexOf('.store-name-field { position: relative; }'));
   for (const selector of compact.match(/^[^\n{]+(?= \{)/gm).filter(text => !text.startsWith('/*') && !text.startsWith('@'))) assert.match(selector, /\.encoding-list/, `${selector} is scoped to the Encoding list`);
 });
@@ -288,9 +288,9 @@ test('Save, Clear and lifecycle code paths are untouched by the layout work', as
 // ---- CSS isolation: Monthly Filing reuses class="encoding-actions" and must keep its pre-CP8 layout ------------------------
 const ruleSelectors = text => [...text.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}@]+)\{/g)].map(match => match[1].trim());
 
-test('Monthly Filing still uses the shared action class and gets its pre-CP8 layout', () => {
-  for (const id of ['monthlyFilingActiveActions', 'monthlyFilingArchivedActions']) assert.match(staticHtml, new RegExp(`class="encoding-actions"[^>]*id="${id}"|id="${id}"`), `#${id} exists`);
-  assert.ok(/class="encoding-actions" id="monthlyFilingActiveActions"/.test(staticHtml));
+test('the shared action-bar base rules stay as the CP7 baseline (Monthly Filing has its own .monthly-actions class since CP9)', () => {
+  for (const id of ['monthlyFilingActiveActions', 'monthlyFilingArchivedActions']) assert.match(staticHtml, new RegExp(`class="monthly-actions"[^>]*id="${id}"|id="${id}"`), `#${id} exists`);
+  assert.ok(/class="monthly-actions" id="monthlyFilingActiveActions"/.test(staticHtml) && !/class="encoding-actions" id="monthlyFiling/.test(staticHtml));
   assert.ok(css.includes('.encoding-actions { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 18px; }'), 'CP7 base layout restored');
   const narrow = css.slice(css.indexOf('@media (max-width: 780px) {'), css.indexOf('@media (max-width: 1100px)') > css.indexOf('@media (max-width: 780px) {') ? css.indexOf('@media (max-width: 1100px)') : undefined);
   assert.ok(narrow.includes('.encoding-actions { flex-direction: column; align-items: stretch; }') && narrow.includes('.action-save { width: 100%; }'), 'CP7 narrow-screen stacking restored');
@@ -301,7 +301,7 @@ test('every CP8 action-bar rule is scoped to #encodingActions, so Monthly Filing
   const selectors = ruleSelectors(css).flatMap(selector => selector.split(',').map(part => part.trim()));
   const touching = selectors.filter(selector => /encoding-actions|action-bar-spacer|action-save/.test(selector));
   const allowedShared = new Set(['.encoding-actions', '.action-save']);
-  for (const selector of touching) assert.ok(allowedShared.has(selector) || /^(#encodingActions|\.encoding-workspace(\.is-editing)? > #encodingActions)/.test(selector), `${selector} is scoped to the Encoding bar`);
+  for (const selector of touching) assert.ok(allowedShared.has(selector) || /^(#encodingActions|\.encoding-workspace(\.is-editing)? > #encodingActions|\.monthly-actions|\.monthly-filing-workspace)/.test(selector), `${selector} is scoped to the Encoding bar`);
   assert.equal(touching.filter(selector => selector === '.encoding-actions').length, 2, 'only the two CP7 shared rules remain unscoped (base + narrow)');
   assert.ok(!selectors.some(selector => /^\.encoding-actions\s+(button|\.workflow-feedback|\.action-bar-spacer)/.test(selector)), 'no descendant rule on the shared class');
 });
