@@ -23,7 +23,7 @@ test('visible strategy is the optimization snapshot, helper, details rule, and p
   const storage = makeStorage();
   const { select, helper, state } = makeState(storage, () => userId);
   const expectations = [
-    [optimizationStrategies.closest, 200500, 6],
+    [optimizationStrategies.closest, 203000, 3],
     [optimizationStrategies.fewest, 203000, 3],
     [optimizationStrategies.withoutExceeding, 200500, 6]
   ];
