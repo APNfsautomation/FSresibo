@@ -690,7 +690,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   };
   const candidateMessage = candidate => {
     const details = [candidate.address && `Address: ${candidate.address}`, candidate.tin && `TIN: ${candidate.tin}`].filter(Boolean);
-    return `“${candidate.storeName}” is not currently in the Company Directory. Adding it will make its store details available to other FSResibo users.${details.length ? ` ${details.join(' · ')}` : ''}`;
+    return `“${candidate.storeName}” is not currently in the Company Directory. Adding it will make its store details available to other users.${details.length ? ` ${details.join(' · ')}` : ''}`;
   };
   const contributeAfterReceiptSave = async candidate => {
     try {

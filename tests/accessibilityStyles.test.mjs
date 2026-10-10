@@ -78,8 +78,6 @@ test('accent, status and body text meet AA on the surfaces they are drawn on', (
     check(theme, '--danger', '--danger-soft', AA_TEXT, 'destructive button text');
     check(theme, '--danger', '--surface', AA_TEXT, 'danger text');
     check(theme, '--status-text', '--status-bg', AA_TEXT, 'status chip text');
-    check(theme, '--brand-mark-color', '--page', AA_TEXT, 'brand eyebrow on page');
-    check(theme, '--brand-mark-color', '--surface', AA_TEXT, 'brand eyebrow on card');
   }
 });
 
@@ -93,9 +91,14 @@ test('interactive boundaries and the keyboard focus colour stay distinguishable 
   assert.match(html, /<html lang="en">/, 'the focus rule keys on the html lang attribute');
 });
 
-test('the dark-theme brand eyebrow no longer uses the dark brand blue', () => {
-  assert.notEqual(themes.dark('--brand-mark-color').toLowerCase(), themes.light('--brand-blue').toLowerCase());
-  assert.equal(declared('.brand-mark', 'color'), 'var(--brand-mark-color)');
+test('the company signature slash is visible in both themes and is never used for controls', () => {
+  for (const theme of ['light', 'dark']) {
+    check(theme, '--sig-blue', '--surface', AA_UI, 'brand slash blue');
+    check(theme, '--sig-red', '--surface', AA_UI, 'brand slash red');
+  }
+  assert.match(declared('.brand-slash', 'background'), /var\(--sig-blue\).*var\(--sig-red\)/);
+  const users = rules.filter(rule => Object.values(rule.declarations).some(value => /--sig-(blue|red)/.test(value))).flatMap(rule => rule.selectors);
+  assert.deepEqual(users, ['.brand-slash'], 'only the slash uses the company colours');
 });
 
 test('compound controls show the focus ring on the wrapper (target amount and Optimization search)', () => {
@@ -181,7 +184,7 @@ test('form controls use at least 16px text, a shared border and the themed contr
 test('selectors that the JavaScript and the markup rely on are still styled', () => {
   const classes = ['receipt-card', 'receipt-summary', 'summary-id', 'summary-store', 'summary-amount', 'summary-toggle', 'toggle-icon', 'receipt-content', 'receipt-fields', 'receipt-form-group', 'receipt-form-footer',
     'delete-receipt', 'restore-receipt', 'scan-label', 'scan-button', 'store-suggestions', 'store-suggestion', 'optimization-receipt-card', 'compact-edit', 'compact-restore', 'selected-badge',
-    'quick-amount-row', 'quick-result', 'monthly-card', 'monthly-suggestions', 'workspace-tab', 'navigation-item', 'edit-modal', 'modal-card', 'receipt-status-badge', 'currency-input', 'optimization-search-wrap'];
+    'quick-amount-row', 'quick-result', 'monthly-card', 'navigation-brand', 'brand-slash', 'account', 'mobile-topbar', 'user-email', 'theme-control', 'application-navigation', 'monthly-suggestions', 'workspace-tab', 'navigation-item', 'edit-modal', 'modal-card', 'receipt-status-badge', 'currency-input', 'optimization-search-wrap'];
   for (const name of classes) assert.ok(clean.includes(`.${name}`), `.${name} remains styled`);
   assert.match(clean, /\.quick-amount-row\.is-selected/);
   assert.match(clean, /\.quick-result\[aria-pressed="true"\]/);

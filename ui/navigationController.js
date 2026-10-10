@@ -44,6 +44,10 @@ export function createNavigationController({ window = globalThis.window, documen
     elements.drawerBackdrop.hidden = !isMobile() || !open;
     elements.drawer.setAttribute('aria-hidden', String(!visible));
     elements.menuButton.setAttribute('aria-expanded', String(isMobile() && open));
+    // While the drawer overlays the page on phones, the page behind it is inert and does not scroll.
+    const overlay = isMobile() && open;
+    if (elements.content) { if (overlay) elements.content.setAttribute('inert', ''); else elements.content.removeAttribute('inert'); }
+    document.body?.classList?.toggle('drawer-open', overlay);
     if (!open && restoreFocus && isMobile()) elements.menuButton.focus();
   };
 
@@ -84,7 +88,11 @@ export function createNavigationController({ window = globalThis.window, documen
   const start = ({ fallbackRoute } = {}) => {
     if (!started) {
       started = true;
-      elements.menuButton.addEventListener('click', () => setDrawer(elements.drawer.hidden));
+      elements.menuButton.addEventListener('click', () => {
+        const opening = elements.drawer.hidden;
+        setDrawer(opening);
+        if (opening && isMobile()) elements.receiptsNav.focus?.({ preventScroll: true });
+      });
       elements.drawerBackdrop.addEventListener('click', () => setDrawer(false, { restoreFocus: true }));
       Object.entries(moduleNavigation).forEach(([module, item]) => item.addEventListener('click', () => {
         navigate(moduleDefaultRoutes[module]);

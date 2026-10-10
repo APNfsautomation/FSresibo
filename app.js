@@ -7,7 +7,7 @@ import { findBest, optimizationStrategies, toCents } from './services/optimizati
 import * as receiptService from './services/receiptService.js';
 import * as monthlyFilingService from './services/monthlyFilingService.js';
 import * as sharedStoreService from './services/sharedStoreService.js';
-import { renderApplicationIdentity } from './ui/appIdentity.js';
+import { renderApplicationIdentity, renderApplicationName } from './ui/appIdentity.js';
 import { createAuthPanel } from './ui/authPanel.js';
 import { createConfirmationDialog } from './ui/confirmationDialog.js';
 import { createModalFocus } from './ui/modalFocus.js';
@@ -39,12 +39,12 @@ const elements = {
   exportConfirmModal: document.querySelector('#exportConfirmModal'), exportConfirmBackdrop: document.querySelector('#exportConfirmBackdrop'), exportConfirmMessage: document.querySelector('#exportConfirmMessage'), confirmExport: document.querySelector('#confirmExport'), cancelExport: document.querySelector('#cancelExport'),
   confirmationModal: document.querySelector('#confirmationModal'), confirmationBackdrop: document.querySelector('#confirmationBackdrop'), confirmationTitle: document.querySelector('#confirmationTitle'), confirmationMessage: document.querySelector('#confirmationMessage'), confirmationConfirm: document.querySelector('#confirmationConfirm'), confirmationCancel: document.querySelector('#confirmationCancel'),
   encodingFeedback: document.querySelector('#encodingFeedback'), editFeedback: document.querySelector('#editFeedback'), sessionFeedback: document.querySelector('#sessionFeedback'),
-  themePreference: document.querySelector('#themePreference'), authVersion: document.querySelector('#authVersion'), appVersion: document.querySelector('#appVersion'), receiptWorkspaceSwitcher: document.querySelector('#receiptWorkspaceSwitcher'), receiptStatusControl: document.querySelector('#receiptStatusControl')
+  themePreference: document.querySelector('#themePreference'), authThemePreference: document.querySelector('#authThemePreference'), authVersion: document.querySelector('#authVersion'), appVersion: document.querySelector('#appVersion'), receiptWorkspaceSwitcher: document.querySelector('#receiptWorkspaceSwitcher'), receiptStatusControl: document.querySelector('#receiptStatusControl')
   , monthlyFilingWorkspace: document.querySelector('#monthlyFilingWorkspace'), monthlyFilingList: document.querySelector('#monthlyFilingList'), monthlyFilingTemplate: document.querySelector('#monthlyFilingReceiptTemplate'), monthlyFilingAdd: document.querySelector('#monthlyFilingAdd'), monthlyFilingSave: document.querySelector('#monthlyFilingSave'), monthlyFilingExportActive: document.querySelector('#monthlyFilingExportActive'), monthlyFilingClear: document.querySelector('#monthlyFilingClear'), monthlyFilingFeedback: document.querySelector('#monthlyFilingFeedback')
 };
 
 const navigationElements = {
-  menuButton: document.querySelector('#navigationMenuButton'), drawer: document.querySelector('#navigationDrawer'), drawerBackdrop: document.querySelector('#navigationDrawerBackdrop'),
+  content: document.querySelector('.application-content'), menuButton: document.querySelector('#navigationMenuButton'), drawer: document.querySelector('#navigationDrawer'), drawerBackdrop: document.querySelector('#navigationDrawerBackdrop'),
   receiptsNav: document.querySelector('#receiptsNavigationItem'), monthlyNav: document.querySelector('#monthlyFilingNavigationItem'), quickNav: document.querySelector('#quickOptimizerNavigationItem'), encodingTab: elements.encodingTab, optimizationTab: elements.optimizationTab
 };
 
@@ -65,7 +65,7 @@ const monthlyFilingUi = createMonthlyFilingUi({ elements: { workspace: elements.
 const quickOptimizerUi = createQuickOptimizerUi({ root: document.querySelector('#quickOptimizerWorkspace') });
 const applicationWorkspaces = createApplicationWorkspaces({ receiptUi, monthlyFilingUi, quickOptimizerUi });
 const navigationController = createNavigationController({ elements: navigationElements, onRoute: applicationWorkspaces.renderRoute });
-const themeController = createThemeController({ select: elements.themePreference });
+const themeController = createThemeController({ selects: [elements.themePreference, elements.authThemePreference] });
 const authPanel = createAuthPanel(authElements, {
   onLogin: login,
   onRegister: (email, password) => register(email, password, authRedirectUrl('signup')),
@@ -139,6 +139,7 @@ authElements.logout.addEventListener('click', async () => {
 });
 
 async function start() {
+  renderApplicationName(document, appMetadata);
   renderApplicationIdentity([elements.authVersion, elements.appVersion], appMetadata);
   themeController.restore();
   receiptUi.start();
