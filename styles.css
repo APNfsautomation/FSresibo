@@ -198,8 +198,7 @@ button { min-height: var(--control-height); padding: 0 var(--space-4); border: v
 button:disabled { cursor: not-allowed; opacity: .55; }
 button[aria-busy="true"] { cursor: progress; opacity: .8; }
 .icon-button { min-width: 44px; padding: 0 10px; font-size: 1.5rem; line-height: 1; }
-.floating-add { position: fixed; right: max(24px, env(safe-area-inset-right)); bottom: max(24px, env(safe-area-inset-bottom)); z-index: 10; padding: 0 var(--space-5); min-height: 48px; border-radius: var(--radius-pill); background: var(--primary); color: var(--on-primary); font-weight: var(--weight-heavy); box-shadow: var(--shadow-md); }
-.floating-add:hover { background: var(--primary-hover); }
+.floating-add { padding: 0 var(--space-4); font-weight: var(--weight-heavy); }
 .export-selected { width: 100%; }
 .restore-receipt, .compact-restore { color: var(--success); font-weight: var(--weight-bold); }
 .compact-edit, .compact-restore { padding: 0 var(--space-3); font-size: var(--text-sm); }
@@ -270,35 +269,57 @@ button[aria-busy="true"] { cursor: progress; opacity: .8; }
 .confirmation-modal.is-danger #confirmationConfirm:hover { filter: brightness(.92); }
 .confirmation-modal #confirmationConfirm:disabled { cursor: wait; opacity: .72; }
 
-/* ---- 8a. Receipt Encoding ------------------------------------------------------------ */
-.workspace-switcher { display: flex; width: max-content; gap: 5px; margin-bottom: 26px; padding: 5px; border: var(--border-width) solid var(--border); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow-sm); }
+/* ---- 8a. Receipt Encoding: page bar, compact rows, compact editor, action bar ------------------------- */
+/* Shared page bar for the Receipt workspaces: tabs on the left, the shared status filter on the right. */
+.receipts-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); }
+.receipts-bar:has(> :not([hidden])) { margin-bottom: var(--space-3); }
+.receipts-bar:not(:has(> :not([hidden]))) { display: none; }
+.workspace-switcher { display: flex; width: max-content; gap: 4px; margin: 0; padding: 4px; border: var(--border-width) solid var(--border); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow-sm); }
 .workspace-tab { min-height: 44px; padding: 0 14px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); font-weight: var(--weight-bold); }
 .workspace-tab:hover { background: var(--surface-2); color: var(--text); }
 .workspace-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; margin-bottom: 18px; }
 .workspace-heading p { margin-top: 6px; font-size: .93rem; }
-.receipt-status-filter { display: flex; align-items: center; gap: var(--space-2); width: max-content; margin: -12px 0 20px; color: var(--muted); font-size: var(--text-sm); font-weight: var(--weight-bold); }
-.encoding-workspace-tools { display: grid; justify-items: end; gap: var(--space-2); }
-.available-total { margin: 0; color: var(--success); font-size: .88rem; font-weight: var(--weight-heavy); }
-.encoding-compartment-filter { display: grid; grid-template-columns: auto minmax(150px, 190px); align-items: center; gap: var(--space-2); color: var(--muted); font-size: var(--text-sm); font-weight: var(--weight-bold); }
-.encoding-compartment-filter select { min-width: 0; }
-.encoding-list { display: grid; gap: 10px; }
-.encoding-actions { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 18px; }
-.photo-note { display: flex; gap: 10px; margin-top: var(--space-4); padding-top: 14px; border-top: var(--border-width) solid var(--border); color: var(--muted); font-size: .82rem; line-height: 1.45; }
+.receipt-status-filter { display: flex; align-items: center; gap: var(--space-2); width: max-content; margin: 0; color: var(--muted); font-size: var(--text-sm); font-weight: var(--weight-bold); }
+@media (min-width: 781px) { .encoding-workspace .workspace-heading { align-items: center; margin-bottom: var(--space-3); } }
+.encoding-workspace-tools { display: flex; align-items: center; gap: var(--space-3); }
+.available-total { margin: 0; padding: 4px 14px; border: var(--border-width) solid var(--success-border); border-radius: var(--radius-pill); background: var(--success-soft); color: var(--success); font-size: var(--text-sm); font-weight: var(--weight-heavy); white-space: nowrap; }
+.encoding-compartment-filter { display: flex; align-items: center; gap: var(--space-2); color: var(--muted); font-size: var(--text-sm); font-weight: var(--weight-bold); }
+.encoding-compartment-filter select { min-width: 150px; }
+
+/* Action bar: above the receipt list on desktop (in flow, so it never covers a row); its status line lives with the buttons. */
+.encoding-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-3); }
+.action-bar-spacer { flex: 1 1 0; }
+.encoding-actions .workflow-feedback { order: 9; flex: 1 1 100%; min-height: 0; margin: 0; }
+.encoding-actions .workflow-feedback:not(:empty) { margin-top: var(--space-1); padding: var(--space-2) var(--space-3); border-left: 3px solid var(--primary); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); }
+.action-save { min-width: 160px; }
+.photo-note { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-4); border-top: var(--border-width) solid var(--border); border-radius: 0 0 var(--radius-lg) var(--radius-lg); background: var(--surface-2); color: var(--muted); font-size: var(--text-sm); line-height: 1.45; }
 .photo-note p { margin: 0; }
-.photo-note span { color: var(--primary); font-size: 1.5rem; }
+.photo-note span { color: var(--primary); font-size: 1.25rem; }
 .photo-note strong { color: var(--text); }
 
-.receipt-summary { display: grid; grid-template-columns: 82px minmax(0, 1fr) auto auto auto; align-items: center; gap: var(--space-3); padding: 13px 15px; cursor: pointer; list-style: none; }
+/* Receipt list: one panel, one compact row per receipt. Rows never move: hidden rows keep their identity and number. */
+.encoding-panel { padding: 0; }
+.encoding-panel .panel-heading { margin: 0; padding: var(--space-2) var(--space-4); border-bottom: var(--border-width) solid var(--border); border-radius: var(--radius-lg) var(--radius-lg) 0 0; background: var(--surface-2); }
+.encoding-panel .panel-heading > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-3); }
+.encoding-panel .panel-heading h2 { font-size: var(--text-base); }
+.encoding-panel .panel-heading p { margin: 0; }
+.encoding-list { display: block; }
+.encoding-list:empty::before { content: "No receipts yet. Choose Add receipt to start."; display: block; padding: var(--space-5); color: var(--muted); text-align: center; }
+.encoding-list:not(:empty):not(:has(> :not([hidden])))::before { content: "No receipts match the current view or amount range."; display: block; padding: var(--space-5); color: var(--muted); text-align: center; }
+.encoding-list .receipt-card { overflow: visible; border: 0; border-bottom: var(--border-width) solid var(--border); border-radius: 0; background: var(--surface); scroll-margin-bottom: 96px; }
+.encoding-list .receipt-card[open] { box-shadow: inset 4px 0 0 var(--primary); }
+.receipt-summary { display: grid; grid-template-columns: 88px minmax(0, 1fr) 130px auto 32px; grid-template-areas: "id store amount badge toggle"; align-items: center; gap: var(--space-3); min-height: 48px; padding: 0 var(--space-3) 0 var(--space-4); list-style: none; cursor: pointer; }
 .receipt-summary::-webkit-details-marker { display: none; }
 .receipt-summary:hover { background: var(--surface-2); }
-.receipt-card[open] .receipt-summary { border-bottom: var(--border-width) solid var(--border); background: var(--primary-soft); }
-.summary-id { color: var(--primary); font-size: var(--text-sm); font-weight: var(--weight-heavy); }
-.summary-store { min-width: 0; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
-.summary-amount { color: var(--text); }
-.summary-toggle { display: flex; align-items: center; justify-content: center; gap: 7px; min-width: 82px; padding: 7px 8px; border: var(--border-width) solid var(--border); border-radius: var(--radius-sm); background: var(--surface-muted); color: var(--muted); font-size: .74rem; font-weight: var(--weight-heavy); }
-.receipt-card[open] .summary-toggle { border-color: var(--primary); background: var(--surface); color: var(--primary); }
-.toggle-icon { font-size: var(--text-md); line-height: .8; transition: transform .2s; }
-.receipt-card[open] .toggle-icon { transform: rotate(180deg); }
+.encoding-list .receipt-card[open] > .receipt-summary { border-bottom: 0; background: var(--primary-soft); }
+.summary-id { grid-area: id; color: var(--primary); font-size: var(--text-sm); font-weight: var(--weight-heavy); }
+.summary-store { grid-area: store; min-width: 0; overflow: hidden; color: var(--text); font-weight: var(--weight-medium); text-overflow: ellipsis; white-space: nowrap; }
+.summary-amount { grid-area: amount; color: var(--text); font-size: var(--text-md); font-variant-numeric: tabular-nums; text-align: right; }
+.receipt-status-badge { grid-area: badge; }
+.summary-toggle { grid-area: toggle; display: grid; place-items: center; width: 32px; height: 32px; color: var(--muted); }
+.summary-toggle .toggle-label { display: none; }
+.toggle-icon { display: block; font-size: var(--text-md); line-height: 1; transform: translateY(-4px); transition: transform .2s; }
+.receipt-card[open] .toggle-icon { transform: rotate(180deg) translateY(-4px); }
 .receipt-content { padding: 15px; background: var(--surface); }
 .receipt-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
 .receipt-form-group + .receipt-form-group { margin-top: 22px; padding-top: 20px; border-top: var(--border-width) solid var(--border); }
@@ -306,11 +327,26 @@ button[aria-busy="true"] { cursor: progress; opacity: .8; }
 .receipt-form-footer { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-5); padding-top: var(--space-4); border-top: var(--border-width) solid var(--border); }
 .receipt-store-fields .scan-label { align-self: end; }
 .scan-label { cursor: pointer; }
-.scan-button { display: flex; align-items: center; min-height: 42px; padding: 9px; border: var(--border-width) dashed var(--primary); border-radius: var(--radius-sm); background: var(--primary-soft); color: var(--primary); font-size: var(--text-sm); font-weight: var(--weight-medium); }
+.scan-button { display: flex; align-items: center; min-height: var(--control-height); padding: 9px; border: var(--border-width) dashed var(--primary); border-radius: var(--radius-sm); background: var(--primary-soft); color: var(--primary); font-size: var(--text-sm); font-weight: var(--weight-medium); }
 .receipt-card.is-consumed { background: var(--surface-muted); }
 .receipt-card.is-consumed .receipt-content { background: var(--surface-muted); }
-.receipt-card.is-consumed[open] .receipt-summary { background: var(--surface-2); }
+.receipt-card.is-consumed .summary-store, .receipt-card.is-consumed .summary-amount { color: var(--muted); }
+.encoding-list .receipt-card.is-consumed[open] > .receipt-summary { background: var(--surface-2); }
 .receipt-card.is-consumed input:disabled, .receipt-card.is-consumed select:disabled { cursor: not-allowed; opacity: .75; }
+
+/* Compact editor (Receipt Encoding only; Monthly Filing keeps its own card layout): receipt details left, store details right. */
+.encoding-list .receipt-content { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 0 var(--space-5); padding: var(--space-3) var(--space-4); border-top: var(--border-width) solid var(--border); }
+.encoding-list .receipt-form-group + .receipt-form-group { margin: 0; padding: 0; border: 0; }
+.encoding-list .form-group-title { margin-bottom: var(--space-2); color: var(--muted); font-size: var(--text-xs); letter-spacing: .06em; text-transform: uppercase; }
+.encoding-list .receipt-fields { gap: var(--space-2) var(--space-3); }
+.encoding-list .receipt-fields input, .encoding-list .receipt-fields select { height: var(--control-height); min-height: var(--control-height); }
+.encoding-list .receipt-form-footer button { width: auto; }
+.encoding-list .receipt-fields label { display: grid; gap: 3px; align-content: start; }
+.encoding-list .receipt-amount { font-size: 1.125rem; font-weight: var(--weight-bold); }
+.encoding-list .receipt-store-fields .wide { grid-column: auto; }
+.encoding-list .receipt-form-footer { grid-column: 1 / -1; flex-wrap: wrap; margin-top: var(--space-3); padding-top: var(--space-3); border-top: var(--border-width) dashed var(--border); }
+.encoding-list .ocr-status { grid-column: 1 / -1; min-height: 0; margin: var(--space-2) 0 0; }
+.encoding-list .ocr-status:empty { display: none; }
 
 .store-name-field { position: relative; }
 .store-suggestions { position: absolute; z-index: 15; top: calc(100% - 1px); right: 0; left: 0; max-height: 250px; margin: 0; padding: 5px; overflow-y: auto; border: var(--border-width) solid var(--border-strong); border-radius: 0 0 var(--radius-sm) var(--radius-sm); background: var(--surface); box-shadow: var(--shadow-lg); list-style: none; }
@@ -482,20 +518,8 @@ html[lang] body .receipt-summary:focus-visible { outline-offset: -3px; }
 }
 @media (max-width: 780px) {
   .app-shell { padding: calc(var(--topbar-height) + var(--space-3)) var(--space-4) 102px; }
-  .workspace-switcher { width: 100%; }
   .workspace-tab { flex: 1; }
   .workspace-heading { flex-direction: column; }
-  .receipt-status-filter { margin-top: -8px; }
-  .encoding-workspace-tools { width: 100%; justify-items: start; margin-top: var(--space-1); }
-  .encoding-compartment-filter { width: 100%; grid-template-columns: 1fr; }
-  .encoding-compartment-filter select { width: 100%; }
-  .encoding-actions { flex-direction: column; align-items: stretch; }
-  .action-save { width: 100%; }
-  .floating-add { right: max(16px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom)); }
-  .receipt-summary { grid-template-columns: 68px minmax(0, 1fr) auto auto; gap: var(--space-2); }
-  .receipt-status-badge { grid-column: 3; }
-  .summary-id { font-size: .73rem; }
-  .summary-toggle { grid-column: 1 / -1; justify-self: stretch; min-width: 0; }
   .receipt-fields { grid-template-columns: 1fr; }
   .wide { grid-column: auto; }
   .receipt-form-footer { justify-content: stretch; }
@@ -512,6 +536,9 @@ html[lang] body .receipt-summary:focus-visible { outline-offset: -3px; }
   .confirmation-card { max-width: 100%; }
 }
 @media (max-width: 1100px) {
+  .encoding-list .receipt-content { grid-template-columns: minmax(0, 1fr); gap: var(--space-3) 0; }
+  .encoding-list .receipt-core-fields, .encoding-list .receipt-store-fields { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .encoding-list .receipt-store-fields .wide, .encoding-list .receipt-store-fields label:not(.wide) { grid-column: span 2; }
   .target-card { grid-template-columns: minmax(150px, 1fr) minmax(170px, 1fr) auto auto; }
   .optimization-result-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .filter-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -523,6 +550,35 @@ html[lang] body .receipt-summary:focus-visible { outline-offset: -3px; }
   .quick-edit-amounts:not([hidden]) { display: inline-flex; align-items: center; }
 }
 @media (max-width: 640px) {
+  .receipts-bar { flex-wrap: nowrap; }
+  .workspace-switcher { flex: 1 1 0; width: auto; min-width: 0; }
+  .workspace-tab { padding: 0 var(--space-2); }
+  .receipt-status-filter { flex: 0 0 auto; font-size: 0; }
+  .receipt-status-filter select, .encoding-compartment-filter select { font-size: var(--text-md); }
+  .encoding-workspace .workspace-heading { flex-direction: column; align-items: stretch; gap: var(--space-2); margin-bottom: var(--space-2); }
+  .encoding-workspace-tools { flex-wrap: nowrap; gap: var(--space-2); }
+  .available-total { flex: 1 1 auto; min-width: 0; padding: 4px var(--space-2); font-size: var(--text-xs); line-height: 1.2; text-align: center; white-space: normal; }
+  .encoding-compartment-filter { flex: 0 0 auto; font-size: 0; }
+  .encoding-compartment-filter select { width: 140px; min-width: 0; }
+  /* Phone action bar: one sticky bar after the list (in flow, never fixed over rows, safe-area aware). While a text field is being edited it slides away;
+     keyboard focus inside it brings it back. It is the same element as the desktop bar, not a copy. */
+  .encoding-workspace { display: flex; flex-direction: column; }
+  .encoding-workspace > .encoding-panel { order: 2; }
+  .encoding-workspace > .encoding-actions { order: 6; position: sticky; bottom: 0; z-index: 12; margin: var(--space-3) calc(var(--space-4) * -1) 0; padding: var(--space-2) var(--space-3) calc(var(--space-2) + env(safe-area-inset-bottom)); border-top: var(--border-width) solid var(--border-strong); background: var(--surface); box-shadow: 0 -6px 14px rgba(19, 35, 61, .08); transition: transform .15s ease, opacity .15s ease; }
+  .encoding-workspace.is-editing > .encoding-actions:not(:focus-within) { opacity: 0; pointer-events: none; transform: translateY(100%); }
+  .encoding-actions .action-bar-spacer { display: none; }
+  .encoding-actions button { flex: 1 1 0; min-width: 0; min-height: 44px; padding: 0 var(--space-2); font-size: var(--text-sm); white-space: nowrap; }
+  .encoding-actions .action-save { min-width: 0; }
+  .encoding-panel .panel-heading { padding: var(--space-2) var(--space-3); }
+  .receipt-summary { grid-template-columns: minmax(0, 1fr) auto 32px; grid-template-areas: "store amount toggle" "id badge toggle"; gap: 0 var(--space-2); min-height: 52px; padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3); }
+  .summary-id { font-size: var(--text-xs); }
+  .encoding-list .receipt-content { padding: var(--space-3); }
+  .encoding-list .receipt-core-fields, .encoding-list .receipt-store-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .encoding-list .receipt-store-fields .wide { grid-column: 1 / -1; }
+  .encoding-list .receipt-store-fields label:not(.wide) { grid-column: auto; }
+  .encoding-list .receipt-fields input, .encoding-list .receipt-fields select { height: 44px; min-height: 44px; }
+  .encoding-list .scan-button { min-height: 44px; }
+  .encoding-list .receipt-form-footer button { flex: 1 1 0; width: auto; min-height: 44px; }
   .panel, .result-panel { padding: var(--space-3); }
   .target-card { grid-template-columns: 1fr 1fr; padding: var(--space-3); }
   .target-card #target-label, .target-card .currency-input, .target-card .strategy-label, .target-card .optimization-strategy, .target-card .strategy-helper { grid-column: 1 / -1; }
@@ -533,7 +589,7 @@ html[lang] body .receipt-summary:focus-visible { outline-offset: -3px; }
   .target-card .strategy-helper { grid-row: 6; }
   .result-panel { grid-template-columns: 1fr; }
   .optimization-result-summary { grid-column: 1; grid-row: auto; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: var(--space-2); }
-  .optimization-receipts-panel { padding: 0; }
+  .optimization-receipts-panel, .encoding-panel { padding: 0; }
   .optimization-toolbar { grid-template-columns: 1fr; }
   .toolbar-sort { display: grid; gap: 3px; }
   .optimization-toolbar-status { white-space: normal; }

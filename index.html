@@ -70,28 +70,31 @@
       </aside>
       <div class="application-content">
 
-      <nav class="workspace-switcher" id="receiptWorkspaceSwitcher" aria-label="Receipt workspaces" role="tablist">
-        <button class="workspace-tab" id="encodingTab" type="button" role="tab" aria-controls="encodingWorkspace" aria-selected="true">Receipt Encoding</button>
-        <button class="workspace-tab" id="optimizationTab" type="button" role="tab" aria-controls="optimizationWorkspace" aria-selected="false">Receipt Optimization</button>
-      </nav>
-      <label class="receipt-status-filter" id="receiptStatusControl">View receipts<select id="receiptStatusFilter"><option value="available">Available</option><option value="consumed">Consumed</option><option value="all">All</option></select></label>
+      <div class="receipts-bar" id="receiptsBar">
+        <nav class="workspace-switcher" id="receiptWorkspaceSwitcher" aria-label="Receipt workspaces" role="tablist">
+          <button class="workspace-tab" id="encodingTab" type="button" role="tab" aria-controls="encodingWorkspace" aria-selected="true">Encoding</button>
+          <button class="workspace-tab" id="optimizationTab" type="button" role="tab" aria-controls="optimizationWorkspace" aria-selected="false">Optimization</button>
+        </nav>
+        <label class="receipt-status-filter" id="receiptStatusControl">View receipts<select id="receiptStatusFilter"><option value="available">Available</option><option value="consumed">Consumed</option><option value="all">All</option></select></label>
+      </div>
 
       <section class="workspace-view encoding-workspace" id="encodingWorkspace" role="tabpanel" aria-labelledby="encodingTab">
         <div class="workspace-heading">
           <h1>Receipt Encoding</h1>
           <div class="encoding-workspace-tools"><p id="availableTotal" class="available-total">Available Total — ₱0.00</p><label class="encoding-compartment-filter" for="encodingAmountCompartment">Amount compartment<select id="encodingAmountCompartment"></select></label></div>
         </div>
+        <div class="encoding-actions action-bar" id="encodingActions">
+          <button class="ghost danger" id="clearAll" type="button">Clear form</button>
+          <span class="action-bar-spacer" aria-hidden="true"></span>
+          <button class="secondary floating-add" id="floatingAddReceipt" type="button"><span aria-hidden="true">+</span> Add receipt</button>
+          <button class="primary action-save" id="saveDraft" type="button">Save changes</button>
+          <p class="workflow-feedback" id="encodingFeedback" role="status" aria-live="polite"></p>
+        </div>
         <div class="panel encoding-panel">
           <div class="panel-heading"><div><h2>Your receipts</h2><p id="receiptCount">No receipts added</p></div></div>
           <div id="receiptList" class="encoding-list" aria-live="polite"></div>
-          <div class="photo-note"><span>⌁</span><p><strong>Free printed-text OCR.</strong> Scan a receipt to fill printed store details. Handwritten amounts should be entered and checked manually.</p></div>
+          <div class="photo-note"><span aria-hidden="true">⌁</span><p><strong>Free printed-text OCR.</strong> Open a receipt and choose Scan printed details to fill printed store details. Check handwritten amounts manually.</p></div>
         </div>
-        <div class="encoding-actions">
-          <button class="primary action-save" id="saveDraft" type="button">Save changes</button>
-          <button class="ghost danger" id="clearAll" type="button">Clear form</button>
-        </div>
-        <p class="workflow-feedback" id="encodingFeedback" role="status" aria-live="polite"></p>
-        <button class="floating-add" id="floatingAddReceipt" type="button" aria-label="Add a receipt">+ <span>Add Receipt</span></button>
       </section>
 
       <section class="workspace-view optimization-workspace" id="optimizationWorkspace" role="tabpanel" aria-labelledby="optimizationTab" hidden>

@@ -4,6 +4,7 @@ export { deduplicateDirectoryCandidates, finalizeDirectoryPromptFingerprints, fi
 
 import { makeTemplateIdsUnique, receiptSummaryAccessibleName } from './receiptAccessibility.js';
 import { collapseKeptReceiptsOnShortWindows } from './optimizationPresentation.js';
+import { trackTextEntry } from './textEntryFocus.js';
 
 const draftKey = 'receipt-match-draft-v2';
 const money = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' });
@@ -391,7 +392,9 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     const store = row.querySelector('.receipt-store').value.trim() || 'Store not set';
     const amount = toCents(row.querySelector('.receipt-amount').value);
     row.querySelector('.summary-id').textContent = `Receipt ${id}`;
-    row.querySelector('.summary-store').textContent = store;
+    const summaryStore = row.querySelector('.summary-store');
+    summaryStore.textContent = store;
+    summaryStore.title = store;
     row.querySelector('.summary-amount').textContent = format(amount);
     refreshSummaryAccessibleName(row);
   };
@@ -679,16 +682,23 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     return row;
   };
   const isBlankUnsavedReceipt = row => !row.dataset.receiptDbId && Object.values(rowValues(row)).every(value => !String(value || '').trim());
+  const prefersReducedMotion = () => globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+  // Amount is the first field of a new receipt: expand it, bring it into view, then focus Amount (focus never scrolls on its own).
   const focusReceiptForEncoding = row => {
     row.open = true;
     requestAnimationFrame(() => {
-      row.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      row.querySelector('.receipt-store').focus({ preventScroll: true });
+      row.scrollIntoView({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+      row.querySelector('.receipt-amount').focus({ preventScroll: true });
     });
   };
+  // Reuse a blank unsaved receipt (visible ones first) instead of stacking up blanks. A receipt hidden by the current filters is never
+  // focused: the user is told why instead, so no keyboard opens for something they cannot see.
   const addReceiptForEncoding = () => {
-    const pendingReceipt = [...elements.list.children].find(isBlankUnsavedReceipt);
-    focusReceiptForEncoding(pendingReceipt || addReceipt());
+    const rows = [...elements.list.children];
+    const row = rows.find(candidate => isBlankUnsavedReceipt(candidate) && !candidate.hidden) || rows.find(isBlankUnsavedReceipt) || addReceipt();
+    if (row.hidden) return setFeedback(elements.encodingFeedback, 'The new receipt is hidden by the current amount range or view. Choose All amounts and Available to see it.');
+    setFeedback(elements.encodingFeedback);
+    focusReceiptForEncoding(row);
   };
   const candidateMessage = candidate => {
     const details = [candidate.address && `Address: ${candidate.address}`, candidate.tin && `TIN: ${candidate.tin}`].filter(Boolean);
@@ -1018,6 +1028,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       });
       document.addEventListener('keydown', event => { if (modalFocus) return; if (event.key === 'Escape' && !elements.editModal.hidden) closeEditModal(); else if (event.key === 'Escape' && !elements.exportConfirmModal.hidden) closeExportConfirmation(); });
       collapseKeptReceiptsOnShortWindows(elements.keptReceipts);
+      trackTextEntry(elements.encodingWorkspace);
       refreshReceiptIds();
       setActiveStrategy(getActiveStrategy(), { persist: false });
       refreshOptimizationCards();

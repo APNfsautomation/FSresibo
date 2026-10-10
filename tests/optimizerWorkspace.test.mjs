@@ -140,7 +140,7 @@ test('Edit amounts exists once, starts hidden and targets a focusable heading of
 // ---- Quick Optimizer: phone Calculate rules -----------------------------------------------------------------------------------
 test('the Calculate button floats only on phones, respects safe areas and yields to text entry without leaving the Tab order', () => {
   assert.equal(count(css, /\.quick-calculate \{[^}]*position: fixed/g), 1);
-  const phoneBlock = css.slice(css.indexOf('@media (max-width: 640px) {\n  .panel, .result-panel'), css.indexOf('@media (prefers-reduced-motion'));
+  const phoneBlock = css.slice(css.indexOf('@media (max-width: 640px) {\n  .receipts-bar'), css.indexOf('@media (prefers-reduced-motion'));
   assert.match(phoneBlock, /\.quick-calculate \{[^}]*position: fixed[^}]*env\(safe-area-inset-bottom\)/, 'fixed positioning lives inside the phone breakpoint and uses the safe-area inset');
   assert.match(phoneBlock, /\.quick-optimizer-workspace \{ padding-bottom: calc\(84px \+ env\(safe-area-inset-bottom\)\)/, 'page padding keeps the last content reachable above the button');
   assert.match(phoneBlock, /\.quick-optimizer-workspace\.is-editing \.quick-calculate:not\(:focus\) \{[^}]*opacity: 0[^}]*pointer-events: none[^}]*transform/, 'it steps aside while editing but returns when focused by keyboard');

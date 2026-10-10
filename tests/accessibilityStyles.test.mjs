@@ -142,7 +142,9 @@ test('the scan control stays keyboard focusable and shows a focus ring on its vi
 test('filled controls take their text colour from the per-theme tokens', () => {
   assert.equal(declared('.primary', 'background'), 'var(--primary)');
   assert.equal(declared('.primary', 'color'), 'var(--on-primary)');
-  assert.equal(declared('.floating-add', 'color'), 'var(--on-primary)');
+  // Add receipt is a secondary action-bar button (CP8): it takes the secondary text colour and is no longer a fixed filled pill.
+  assert.equal(declared('.secondary', 'color'), 'var(--text)');
+  assert.equal(declared('.floating-add', 'position'), undefined);
   assert.equal(declared('.selected-badge', 'color'), 'var(--on-success)');
   assert.equal(declared('.selected-badge', 'background'), 'var(--success)');
   assert.equal(declared('.confirmation-modal.is-danger #confirmationConfirm', 'color'), 'var(--on-danger)');
