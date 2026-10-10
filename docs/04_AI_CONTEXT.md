@@ -216,13 +216,13 @@ Authentication callback fragments take precedence over normal routing.
 
 ## Transaction Domains
 
-The existing `public.receipts` table remains the long-term receipt domain with its Available/Consumed lifecycle. Monthly Filing will use a separate `public.monthly_filing_receipts` table, service, lifecycle, queries, exports, and clear/delete operations. The two domains must never mix transaction records.
+The existing `public.receipts` table remains the long-term receipt domain with its Available/Consumed lifecycle. Monthly Filing uses a separate `public.monthly_filing_receipts` table, service, lifecycle, queries, exports, and clear/delete operations. The two domains must never mix transaction records.
 
-Monthly Filing will use Active and Archived statuses. Archived records may be Returned to Active for correction and re-export before final approval. Deliberate Clear Monthly Filing will hard-delete only the current user's Monthly Filing records; it will not affect long-term receipts or shared stores. Monthly history/batches are out of scope.
+Monthly Filing uses Active and Archived status views. Active records can be saved and exported; Archived records are read-only until returned to Active for correction and re-export. Export automatically saves nonblank Active changes, processes explicit directory decisions, generates the shared workbook, then archives the exact snapshot. Clear Archived preserves Active receipts; Clear All Monthly Filing is a deliberate secondary reset. Mutations are serialized, and reconciliation preserves local Active edits only when the matching record remains Active on the server. Neither cleanup operation affects long-term receipts or shared stores. Monthly history/batches are out of scope.
 
 ## Shared Store Directory
 
-Epic 3 will introduce one canonical company-wide Shared Store Directory for Receipt Encoding and Monthly Filing. Transaction records retain their own Store/Address/TIN/VAT snapshots. Selecting a profile fills receipt fields but does not allow silent canonical-profile updates.
+Epic 3 provides one canonical company-wide Shared Store Directory for Receipt Encoding and Monthly Filing. Transaction records retain their own Store/Address/TIN/VAT snapshots. Selecting a profile fills receipt fields but does not allow silent canonical-profile updates.
 
 Contribution is explicit. A new shared profile normally requires a store name plus an address or TIN. Exact duplicates reuse the existing profile; similar or conflicting data must not overwrite it. Initial correction/deactivation may occur through Supabase administration, not through an assumed immediate admin UI.
 
