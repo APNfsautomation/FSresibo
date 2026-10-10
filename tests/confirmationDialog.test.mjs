@@ -98,8 +98,9 @@ test('non-destructive confirmations start on the confirm action, destructive one
 
 test('a shared modal focus manager contains focus while open and receives the opener when the dialog closes', async () => {
   const calls = [];
-  const modalFocus = { open: (modal, options) => calls.push(['open', modal, options.trigger]), close: modal => calls.push(['close', modal]) };
-  for (const finish of [fixture => fixture.confirmButton.emit('click'), fixture => fixture.cancelButton.emit('click'), fixture => fixture.backdrop.emit('click'), fixture => fixture.documentRef.emit('keydown', { key: 'Escape' })]) {
+  let escape;
+  const modalFocus = { open: (modal, options) => { escape = options.onEscape; calls.push(['open', modal, options.trigger]); }, close: modal => calls.push(['close', modal]) };
+  for (const finish of [fixture => fixture.confirmButton.emit('click'), fixture => fixture.cancelButton.emit('click'), fixture => fixture.backdrop.emit('click'), () => escape()]) {
     calls.length = 0;
     const fixture = createFixture();
     const dialog = createConfirmationDialog({ ...fixture, modalFocus });

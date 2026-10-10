@@ -23,7 +23,7 @@ export function createConfirmationDialog({ modal, backdrop, title, message, conf
     modal.classList.toggle('is-danger', Boolean(danger));
     returnFocus = trigger;
     modal.hidden = false;
-    modalFocus?.open(modal, { trigger });
+    modalFocus?.open(modal, { trigger, onEscape: () => close(false) });
     return new Promise(resolve => {
       resolvePending = resolve;
       // Destructive confirmations start on the safe action so Enter or Space cannot confirm by accident.
@@ -34,7 +34,8 @@ export function createConfirmationDialog({ modal, backdrop, title, message, conf
   confirmButton.addEventListener('click', () => close(true));
   cancelButton.addEventListener('click', () => close(false));
   backdrop.addEventListener('click', () => close(false));
-  documentRef.addEventListener('keydown', event => {
+  // With a shared focus manager Escape is routed to the topmost dialog by the manager; this listener serves standalone use.
+  if (!modalFocus) documentRef.addEventListener('keydown', event => {
     if (event.key === 'Escape' && !modal.hidden) {
       event.preventDefault();
       close(false);

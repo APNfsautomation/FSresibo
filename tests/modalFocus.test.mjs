@@ -4,12 +4,12 @@ import { createModalFocus, isTabbable, tabbableWithin } from '../ui/modalFocus.j
 
 // Minimal DOM stand-ins: enough tree structure for focus order, containment and inert bookkeeping.
 const makeDocument = () => {
-  const listeners = new Map();
+  const listeners = [];
   const doc = {
     activeElement: null,
     body: { children: [] },
-    addEventListener: (name, listener) => listeners.set(name, listener),
-    emitKeydown(event) { const defaultPrevented = { value: false }; listeners.get('keydown')({ preventDefault() { defaultPrevented.value = true; }, ...event }); return defaultPrevented.value; }
+    addEventListener: (name, listener) => listeners.push({ name, listener }),
+    emitKeydown(event) { const defaultPrevented = { value: false }; listeners.filter(item => item.name === 'keydown').forEach(({ listener }) => listener({ preventDefault() { defaultPrevented.value = true; }, ...event })); return defaultPrevented.value; }
   };
   return doc;
 };

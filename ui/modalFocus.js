@@ -43,13 +43,23 @@ export function createModalFocus({ documentRef = document, isVisible = defaultIs
     else if (event.shiftKey && active === first) { event.preventDefault(); last.focus(); }
     else if (!event.shiftKey && active === last) { event.preventDefault(); first.focus(); }
   };
+  // Escape belongs to the topmost dialog only: it is handled here once, and the event is stopped so no other listener can also close a lower dialog.
+  const handleEscape = event => {
+    if (event.key !== 'Escape' || !stack.length) return;
+    const { onEscape } = stack[stack.length - 1];
+    if (!onEscape) return;
+    event.preventDefault?.();
+    event.stopImmediatePropagation?.();
+    onEscape();
+  };
   documentRef.addEventListener('keydown', handleKeydown, true);
+  documentRef.addEventListener('keydown', handleEscape, true);
 
   return {
     // Call after the dialog is visible. `trigger` receives focus when the dialog closes; `fallback` is used if it is gone or disabled.
-    open(modal, { trigger = documentRef.activeElement, fallback = null, initialFocus = null } = {}) {
+    open(modal, { trigger = documentRef.activeElement, fallback = null, initialFocus = null, onEscape = null } = {}) {
       if (stack.some(entry => entry.modal === modal)) return;
-      const entry = { modal, trigger, fallback, inerted: [], reinert: null };
+      const entry = { modal, trigger, fallback, inerted: [], reinert: null, onEscape };
       const covered = topLevelAncestor(modal);
       // A dialog opened over another one may have been made inert by that dialog; it must be usable while it is the top dialog.
       if (covered.hasAttribute('inert')) { covered.removeAttribute('inert'); entry.reinert = covered; }
@@ -69,6 +79,7 @@ export function createModalFocus({ documentRef = document, isVisible = defaultIs
       target?.focus({ preventScroll: true });
     },
     isOpen: () => stack.length > 0,
-    handleKeydown
+    handleKeydown,
+    handleEscape
   };
 }

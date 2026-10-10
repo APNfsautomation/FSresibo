@@ -538,7 +538,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     elements.editAddress.value = receipt.address;
     elements.editTin.value = receipt.tin;
     elements.editModal.hidden = false;
-    modalFocus?.open(elements.editModal, { trigger: document.activeElement, fallback: elements.optimizationSearch });
+    modalFocus?.open(elements.editModal, { trigger: document.activeElement, fallback: elements.optimizationSearch, onEscape: closeEditModal });
     elements.editStore.focus();
   };
   const installStoreAutocomplete = row => {
@@ -859,7 +859,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     if (!receipts.length || receipts.length !== selectedReceiptIndexes.size) return setFeedback(elements.difference, 'Run Find Best Match with saved Available receipts before exporting.');
     elements.exportConfirmMessage.textContent = `Export ${receipts.length} selected receipt${receipts.length === 1 ? '' : 's'}? After the export is prepared, these receipts will be marked as Consumed and excluded from future optimization.`;
     elements.exportConfirmModal.hidden = false;
-    modalFocus?.open(elements.exportConfirmModal, { trigger: elements.exportSelected, fallback: elements.calculate });
+    modalFocus?.open(elements.exportConfirmModal, { trigger: elements.exportSelected, fallback: elements.calculate, onEscape: closeExportConfirmation });
     elements.confirmExport.focus();
   };
   const exportAndConsume = async () => {
@@ -1014,7 +1014,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
         persistEncodingDisplayState();
         refreshEncodingCards();
       });
-      document.addEventListener('keydown', event => { if (event.key === 'Escape' && !elements.editModal.hidden) closeEditModal(); else if (event.key === 'Escape' && !elements.exportConfirmModal.hidden) closeExportConfirmation(); });
+      document.addEventListener('keydown', event => { if (modalFocus) return; if (event.key === 'Escape' && !elements.editModal.hidden) closeEditModal(); else if (event.key === 'Escape' && !elements.exportConfirmModal.hidden) closeExportConfirmation(); });
       refreshReceiptIds();
       setActiveStrategy(getActiveStrategy(), { persist: false });
       refreshOptimizationCards();
