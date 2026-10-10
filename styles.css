@@ -287,11 +287,14 @@ button[aria-busy="true"] { cursor: progress; opacity: .8; }
 .encoding-compartment-filter select { min-width: 150px; }
 
 /* Action bar: above the receipt list on desktop (in flow, so it never covers a row); its status line lives with the buttons. */
-.encoding-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-3); }
-.action-bar-spacer { flex: 1 1 0; }
-.encoding-actions .workflow-feedback { order: 9; flex: 1 1 100%; min-height: 0; margin: 0; }
-.encoding-actions .workflow-feedback:not(:empty) { margin-top: var(--space-1); padding: var(--space-2) var(--space-3); border-left: 3px solid var(--primary); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); }
-.action-save { min-width: 160px; }
+/* Shared base (Monthly Filing still uses this class; its layout is the pre-CP8 one). */
+.encoding-actions { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 18px; }
+/* Receipt Encoding's own action bar (CP8). Everything below is scoped to #encodingActions so Monthly Filing is unaffected. */
+#encodingActions { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: var(--space-2); margin: 0 0 var(--space-3); }
+#encodingActions .action-bar-spacer { flex: 1 1 0; }
+#encodingActions .workflow-feedback { order: 9; flex: 1 1 100%; min-height: 0; margin: 0; }
+#encodingActions .workflow-feedback:not(:empty) { margin-top: var(--space-1); padding: var(--space-2) var(--space-3); border-left: 3px solid var(--primary); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); }
+#encodingActions .action-save { min-width: 160px; width: auto; }
 .photo-note { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-4); border-top: var(--border-width) solid var(--border); border-radius: 0 0 var(--radius-lg) var(--radius-lg); background: var(--surface-2); color: var(--muted); font-size: var(--text-sm); line-height: 1.45; }
 .photo-note p { margin: 0; }
 .photo-note span { color: var(--primary); font-size: 1.25rem; }
@@ -517,6 +520,8 @@ html[lang] body .receipt-summary:focus-visible { outline-offset: -3px; }
   body.drawer-open { overflow: hidden; }
 }
 @media (max-width: 780px) {
+  .encoding-actions { flex-direction: column; align-items: stretch; }
+  .action-save { width: 100%; }
   .app-shell { padding: calc(var(--topbar-height) + var(--space-3)) var(--space-4) 102px; }
   .workspace-tab { flex: 1; }
   .workspace-heading { flex-direction: column; }
@@ -564,11 +569,11 @@ html[lang] body .receipt-summary:focus-visible { outline-offset: -3px; }
      keyboard focus inside it brings it back. It is the same element as the desktop bar, not a copy. */
   .encoding-workspace { display: flex; flex-direction: column; }
   .encoding-workspace > .encoding-panel { order: 2; }
-  .encoding-workspace > .encoding-actions { order: 6; position: sticky; bottom: 0; z-index: 12; margin: var(--space-3) calc(var(--space-4) * -1) 0; padding: var(--space-2) var(--space-3) calc(var(--space-2) + env(safe-area-inset-bottom)); border-top: var(--border-width) solid var(--border-strong); background: var(--surface); box-shadow: 0 -6px 14px rgba(19, 35, 61, .08); transition: transform .15s ease, opacity .15s ease; }
-  .encoding-workspace.is-editing > .encoding-actions:not(:focus-within) { opacity: 0; pointer-events: none; transform: translateY(100%); }
-  .encoding-actions .action-bar-spacer { display: none; }
-  .encoding-actions button { flex: 1 1 0; min-width: 0; min-height: 44px; padding: 0 var(--space-2); font-size: var(--text-sm); white-space: nowrap; }
-  .encoding-actions .action-save { min-width: 0; }
+  .encoding-workspace > #encodingActions { order: 6; position: sticky; bottom: 0; z-index: 12; margin: var(--space-3) calc(var(--space-4) * -1) 0; padding: var(--space-2) var(--space-3) calc(var(--space-2) + env(safe-area-inset-bottom)); border-top: var(--border-width) solid var(--border-strong); background: var(--surface); box-shadow: 0 -6px 14px rgba(19, 35, 61, .08); transition: transform .15s ease, opacity .15s ease; }
+  .encoding-workspace.is-editing > #encodingActions:not(:focus-within) { opacity: 0; pointer-events: none; transform: translateY(100%); }
+  #encodingActions .action-bar-spacer { display: none; }
+  #encodingActions button { flex: 1 1 0; min-width: 0; min-height: 44px; padding: 0 var(--space-2); font-size: var(--text-sm); white-space: nowrap; }
+  #encodingActions .action-save { min-width: 0; }
   .encoding-panel .panel-heading { padding: var(--space-2) var(--space-3); }
   .receipt-summary { grid-template-columns: minmax(0, 1fr) auto 32px; grid-template-areas: "store amount toggle" "id badge toggle"; gap: 0 var(--space-2); min-height: 52px; padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3); }
   .summary-id { font-size: var(--text-xs); }

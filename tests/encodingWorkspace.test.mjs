@@ -76,14 +76,14 @@ test('the store suggestion list is not clipped by the compact receipt card and s
 });
 
 test('the action bar is in-flow above the list on desktop and sticky (never fixed) only on phones, with safe-area padding and a keyboard-safe step-aside', () => {
-  assert.doesNotMatch(css.slice(0, css.indexOf('@media (max-width: 640px) {\n  .receipts-bar')), /\.encoding-actions \{[^}]*position: (fixed|sticky)/, 'desktop bar is in normal flow');
+  assert.doesNotMatch(css.slice(0, css.indexOf('@media (max-width: 640px) {\n  .receipts-bar')), /#encodingActions \{[^}]*position: (fixed|sticky)/, 'desktop bar is in normal flow');
   assert.equal(count(css, /\.floating-add \{[^}]*position: fixed/g), 0, 'Add receipt is no longer a fixed pill');
   const phone = css.slice(css.indexOf('@media (max-width: 640px) {\n  .receipts-bar'), css.indexOf('@media (prefers-reduced-motion'));
-  assert.match(phone, /\.encoding-workspace > \.encoding-actions \{ order: 6; position: sticky; bottom: 0;[^}]*env\(safe-area-inset-bottom\)/);
-  assert.doesNotMatch(phone, /\.encoding-actions[^{]*\{[^}]*position: fixed/);
-  assert.match(phone, /\.encoding-workspace\.is-editing > \.encoding-actions:not\(:focus-within\) \{ opacity: 0; pointer-events: none; transform: translateY\(100%\); \}/);
+  assert.match(phone, /\.encoding-workspace > #encodingActions \{ order: 6; position: sticky; bottom: 0;[^}]*env\(safe-area-inset-bottom\)/);
+  assert.doesNotMatch(phone, /#encodingActions[^{]*\{[^}]*position: fixed/);
+  assert.match(phone, /\.encoding-workspace\.is-editing > #encodingActions:not\(:focus-within\) \{ opacity: 0; pointer-events: none; transform: translateY\(100%\); \}/);
   assert.doesNotMatch(phone, /is-editing[^{]*\{[^}]*(display: none|visibility: hidden)/, 'stepping aside never removes it from the Tab order');
-  assert.match(phone, /\.encoding-actions button \{[^}]*min-height: 44px/);
+  assert.match(phone, /#encodingActions button \{[^}]*min-height: 44px/);
   const drawerZ = Number(css.match(/\.application-navigation \{ position: fixed; z-index: (\d+)/)[1]);
   assert.ok(12 < drawerZ, 'the bar sits below the navigation drawer');
 });
@@ -283,4 +283,31 @@ test('Save, Clear and lifecycle code paths are untouched by the layout work', as
   assert.ok(ui.includes("title: 'Mark receipt Available?'") && ui.includes("title: 'Delete saved receipt?'"), 'destructive and restore confirmations unchanged');
   const service = await read('../services/receiptService.js');
   assert.ok(service.includes(".update({ status: 'consumed' }).in('id', uniqueIds).eq('status', 'available')"));
+});
+
+// ---- CSS isolation: Monthly Filing reuses class="encoding-actions" and must keep its pre-CP8 layout ------------------------
+const ruleSelectors = text => [...text.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}@]+)\{/g)].map(match => match[1].trim());
+
+test('Monthly Filing still uses the shared action class and gets its pre-CP8 layout', () => {
+  for (const id of ['monthlyFilingActiveActions', 'monthlyFilingArchivedActions']) assert.match(staticHtml, new RegExp(`class="encoding-actions"[^>]*id="${id}"|id="${id}"`), `#${id} exists`);
+  assert.ok(/class="encoding-actions" id="monthlyFilingActiveActions"/.test(staticHtml));
+  assert.ok(css.includes('.encoding-actions { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 18px; }'), 'CP7 base layout restored');
+  const narrow = css.slice(css.indexOf('@media (max-width: 780px) {'), css.indexOf('@media (max-width: 1100px)') > css.indexOf('@media (max-width: 780px) {') ? css.indexOf('@media (max-width: 1100px)') : undefined);
+  assert.ok(narrow.includes('.encoding-actions { flex-direction: column; align-items: stretch; }') && narrow.includes('.action-save { width: 100%; }'), 'CP7 narrow-screen stacking restored');
+  assert.ok(css.includes('.action-save { min-width: 180px; }'), 'CP7 shared minimum width restored');
+});
+
+test('every CP8 action-bar rule is scoped to #encodingActions, so Monthly Filing buttons inherit nothing from it', () => {
+  const selectors = ruleSelectors(css).flatMap(selector => selector.split(',').map(part => part.trim()));
+  const touching = selectors.filter(selector => /encoding-actions|action-bar-spacer|action-save/.test(selector));
+  const allowedShared = new Set(['.encoding-actions', '.action-save']);
+  for (const selector of touching) assert.ok(allowedShared.has(selector) || /^(#encodingActions|\.encoding-workspace(\.is-editing)? > #encodingActions)/.test(selector), `${selector} is scoped to the Encoding bar`);
+  assert.equal(touching.filter(selector => selector === '.encoding-actions').length, 2, 'only the two CP7 shared rules remain unscoped (base + narrow)');
+  assert.ok(!selectors.some(selector => /^\.encoding-actions\s+(button|\.workflow-feedback|\.action-bar-spacer)/.test(selector)), 'no descendant rule on the shared class');
+});
+
+test('the Encoding bar keeps its approved desktop row and phone sticky bar despite the restored shared rules', () => {
+  const bar = css.match(/#encodingActions \{([^}]*)\}/)[1];
+  for (const declaration of ['flex-direction: row', 'flex-wrap: wrap', 'align-items: center', 'justify-content: flex-start']) assert.ok(bar.includes(declaration), `${declaration} overrides the shared column/space-between rules`);
+  assert.ok(css.includes('#encodingActions .action-save { min-width: 160px; width: auto; }'), 'Save is not stretched by the shared narrow rule');
 });
