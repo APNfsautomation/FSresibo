@@ -1,6 +1,6 @@
 # FSResibo Architecture
 
-Version: 1.4
+Version: 1.5
 
 ## Core Principle
 
@@ -27,11 +27,11 @@ The current application implements one long-term receipt domain in `public.recei
 - XLSX staging export preserves the official Expense Detailed Report A:O mapping, including a grouped Supplier Details / Name / Address header
 - Selected optimizer recommendations are grouped by the same display-only physical amount compartments used in Encoding; this never alters optimizer or export order.
 
-## Approved Epic 3 Architecture — Not Yet Implemented
+## Implemented Epic 3 Architecture
 
 ### Application Modules
 
-Top-level application navigation will represent workflows:
+Top-level application navigation represents workflows:
 
 ```text
 WORKFLOWS
@@ -40,9 +40,9 @@ WORKFLOWS
   Quick Optimizer
 ```
 
-Receipts will retain Encoding and Optimization as related subviews/tabs because they use the same long-term receipt pool. A Store Directory screen is a possible future authorized admin/reference screen; it is not an approved immediate UI screen.
+Receipts retains Encoding and Optimization as related subviews/tabs because they use the same long-term receipt pool. The Store Directory route remains reserved and unavailable.
 
-Desktop navigation will use a left-side panel. Mobile navigation will use an accessible drawer. Lightweight hash routes are preferred for GitHub Pages, Synology static hosting, and vanilla JavaScript:
+Desktop navigation uses a left-side panel. Mobile navigation uses an accessible drawer. Lightweight hash routes support GitHub Pages, Synology static hosting, and vanilla JavaScript:
 
 ```text
 #receipts/encoding
@@ -65,7 +65,7 @@ They must not query, optimize, export, update lifecycle state, or clear/delete e
 
 Milestone 3.4 provides the Monthly Filing foundation through `public.monthly_filing_receipts`, `monthlyFilingService.js`, and a dedicated `#monthly-filing` workspace. Migration 003 is deployed to hosted Supabase; live schema/RLS validation, including two-user ownership isolation, browser acceptance, and mobile smoke testing passed. PR #13 is merged. Monthly Filing transaction snapshots retain Store/Address/TIN/VAT values; selecting a Shared Store Directory profile records its current snapshot and optional `shared_store_id`, while later canonical corrections never rewrite the transaction snapshot.
 
-Milestone 3.5 implements the accepted lifecycle/export workflow. Active and Archived are separate Monthly Filing views of the same transaction table: Active records are editable and exportable, while Archived records are read-only until returned to Active for correction. Export automatically saves current nonblank Active changes, resolves any explicit Company Directory decision, then builds the authoritative Expense Detailed Report from one explicit persisted Active snapshot and atomically archives exactly that snapshot through `archive_monthly_filing_receipts`. Completely blank local placeholders are neither persisted nor exported. Workbook-generation failure archives nothing; archive failure after workbook generation is a warning requiring refresh before retry. Clear Archived is the ordinary cleanup action and preserves Active records; the secondary Clear All Monthly Filing action remains a deliberate full reset. Mutation coordination prevents overlapping save, export, clear, return, and delete operations; cross-session Archived deletion reconciliation preserves local Active drafts and edits when the matching server record remains Active. Archived is an export lifecycle state, not accounting approval or permanent storage. Migration 004 is deployed; hosted RPC, security, two-user, and concurrency validation passed; original lifecycle, Company Directory, final Active/Archived cleanup, and mobile browser acceptance passed. PR #14 remains unmerged.
+Milestone 3.5 implements the accepted lifecycle/export workflow. Active and Archived are separate Monthly Filing views of the same transaction table: Active records are editable and exportable, while Archived records are read-only until returned to Active for correction. Export automatically saves current nonblank Active changes, resolves any explicit Company Directory decision, then builds the authoritative Expense Detailed Report from one explicit persisted Active snapshot and atomically archives exactly that snapshot through `archive_monthly_filing_receipts`. Completely blank local placeholders are neither persisted nor exported. Workbook-generation failure archives nothing; archive failure after workbook generation is a warning requiring refresh before retry. Clear Archived is the ordinary cleanup action and preserves Active records; the secondary Clear All Monthly Filing action remains a deliberate full reset. Mutation coordination prevents overlapping save, export, clear, return, and delete operations; cross-session Archived deletion reconciliation preserves local Active drafts and edits when the matching server record remains Active. Archived is an export lifecycle state, not accounting approval or permanent storage. Migration 004 is deployed; hosted RPC, security, two-user, and concurrency validation passed; original lifecycle, Company Directory, final Active/Archived cleanup, and mobile browser acceptance passed. PR #14 is merged; Milestone 3.5 is complete.
 
 ### Shared Store Reference Data
 
@@ -77,15 +77,21 @@ Company-wide directory access is restricted to company-controlled accounts. Publ
 
 ### Stateless Quick Optimizer
 
-Quick Optimizer will use the existing optimization engine and its three strategies with temporary R1/R2/R3 amount rows. It will not use Supabase, receipt services, store data, lifecycle state, exports, localStorage, or sessionStorage. The existing 32-input optimization limit remains accepted for Epic 3.
+Quick Optimizer is an authenticated top-level `#quick-optimizer` workspace. `quickOptimizerUi.js` owns one closure-held model per loaded application, starting with blank R1/R2/R3 rows. Stable monotonic labels survive row removal; Clear Calculator resets labels and values. Newline bulk paste validates atomically, fills blank rows before appending, preserves duplicates, and never overwrites populated rows. Strict decimal parsing produces integer centavos; amount totals must stay within safe integers. Exact money display preserves centavos at the safe-integer boundary.
 
-### Planned Module Boundaries
+`findBestMatches(..., 3)` returns up to three exact ranked combinations; selection updates row highlights and the receipt breakdown. Input changes invalidate results, and calculation is explicit after a visible busy-state yield. Receipt Optimization continues using the compatible `findBest()` one-result API. The shared engine uses compact meet-in-the-middle masks and bounded merges, rather than enumerating all full combinations for 32 inputs.
 
-Epic 3 should keep `app.js` as application composition/bootstrap rather than a growing visibility controller. Likely future boundaries include navigation, reusable store-autocomplete logic, Monthly Filing UI/service, and Quick Optimizer UI. Exact filenames remain implementation decisions; persistence domains and source collections must remain explicit.
+Closest Match and Fewest Receipts prioritize target-reaching totals from T through T+5000 centavos, inclusive. Closest ranks lowest excess, then fewer receipts. Fewest ranks fewer receipts, then lowest excess. Under-target Closest ranks highest total; under-target Fewest derives the closest-under total M independently and ranks only max(1,M−5000) through M by fewer receipts, then highest total. Preferred results precede fallback results, including alternatives. Do Not Exceed permits only positive totals at or below T. Equal totals/counts use ascending original-input identity vectors; duplicate amounts remain distinct receipts. Decision 018 records this accounting revision.
+
+Quick Optimizer has no Supabase, receipt-service, Monthly Filing-service, Company Directory, storage, lifecycle, or export dependency. Workspace switching preserves its model; refresh creates defaults. Logout, recovery/unauthenticated cleanup, and user-account changes explicitly clear it. Its amounts never enter Available Total, long-term optimization pools, or either transaction export. Milestone 3.6 implementation is complete; technical review and Product Owner browser acceptance are pending. It is not accepted, merged, or declared rolled out.
+
+### Module Boundaries
+
+`app.js` composes and bootstraps modules. `navigationController.js` resolves route-registry module/workspace metadata and navigation ARIA state. `applicationWorkspaces.js` adapts module visibility and Quick account cleanup; it does not calculate or persist data. Each workflow owns its UI and explicit source collection.
 
 ### Export Boundary
 
-One reusable Expense Detailed Report workbook builder will preserve the official A:O mapping and grouped Supplier Details header. Each workflow passes its own explicit transaction snapshot array. The exporter never queries Supabase.
+One reusable Expense Detailed Report workbook builder preserves the official A:O mapping and grouped Supplier Details header. Each transaction workflow passes its own explicit snapshot array. The exporter never queries Supabase, and Quick Optimizer has no export.
 
 ## Current UI Direction
 Only the receipt list scrolls.
@@ -101,7 +107,7 @@ Selected receipts should always be visually highlighted.
 - Theme preference is browser-local (System, Light, Dark); it is not persisted in Supabase.
 - A single source-code application version is rendered before and after authentication for beta deployment verification.
 - FS Automation blue/red are restrained shell accents. Encoding remains green and Optimization remains purple.
-- The application shell provides a desktop Receipts sidebar and an accessible mobile drawer. `#receipts/encoding` and `#receipts/optimization` are the active hash routes; Supabase callback fragments retain precedence and are never normalized as application routes.
+- The application shell provides Receipts, Monthly Filing, and Quick Optimizer in the desktop sidebar and mobile drawer. All four documented hash routes are active; only the current top-level module has `aria-current="page"`. Supabase callback fragments retain precedence and are never normalized as application routes.
 
 ## Database and Deployment Principle
 

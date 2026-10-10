@@ -6,7 +6,7 @@
 | Document | AI Context |
 | Version | 1.0 |
 | Status | Living Document |
-| Last Updated | 2026-09-13 |
+| Last Updated | 2026-10-10 |
 
 ---
 
@@ -144,7 +144,7 @@ Authentication is separated from business logic.
 
 Epic 3 — Additional Receipt Workflows & Shared Store Data
 
-Epic 2 is complete through Milestone 2.6 and the beta.5 receipt-delete hotfix. Epic 3 Milestones 3.1–3.3 are implemented. The live company Shared Store Directory is adopted by Receipt Encoding with current-user history retained as a transitional fallback; company-controlled signup is in effect. The current visible application version is maintained in `config/appMetadata.js` and is `3.3.0-beta.1`.
+Epic 2 is complete through Milestone 2.6 and the beta.5 receipt-delete hotfix. Epic 3 Milestones 3.1–3.5 are merged and complete, including PR #14. Migration 004 is deployed and Monthly Filing lifecycle/export acceptance passed. The live Shared Store Directory serves both transaction workflows; company-controlled signup is in effect. Milestone 3.6 implementation is complete; technical review and Product Owner browser acceptance are pending. It is not accepted or merged. The development version in `config/appMetadata.js` is `3.6.0-beta.1`; this is not a production rollout claim.
 
 ---
 
@@ -197,13 +197,13 @@ Maximum visibility.
 
 ---
 
-# Approved Epic 3 Direction — Not Yet Implemented
+# Implemented Epic 3 Direction
 
 ## Multi-Module Navigation
 
-Top-level modules will be Receipts, Monthly Filing, and Quick Optimizer. A future Store Directory screen may exist only when an authorized UI is deliberately implemented.
+Top-level modules are Receipts, Monthly Filing, and Quick Optimizer. Store Directory remains a reserved, unavailable route.
 
-Desktop navigation will use a sidebar and mobile navigation an accessible drawer. Receipts retains Receipt Encoding and Receipt Optimization as related subviews/tabs. Lightweight hash routing is preferred for GitHub Pages, Synology static hosting, and vanilla JavaScript:
+Desktop navigation uses a sidebar and mobile navigation an accessible drawer. Receipts retains Receipt Encoding and Receipt Optimization as related subviews/tabs. Lightweight hash routing supports GitHub Pages, Synology static hosting, and vanilla JavaScript:
 
 ```text
 #receipts/encoding
@@ -226,11 +226,13 @@ Epic 3 provides one canonical company-wide Shared Store Directory for Receipt En
 
 Contribution is explicit. A new shared profile normally requires a store name plus an address or TIN. Exact duplicates reuse the existing profile; similar or conflicting data must not overwrite it. Initial correction/deactivation may occur through Supabase administration, not through an assumed immediate admin UI.
 
-Before the directory is deployed, account membership/signup behavior must be reviewed so unapproved accounts cannot gain company-wide reference-data access. FSResibo is currently treated as a single-company deployment; multi-company architecture is not part of Epic 3.
+The directory is deployed and hosted RLS validation passed. Public self-registration is disabled; accounts are provisioned administratively. FSResibo remains a single-company deployment; multi-company architecture is out of scope.
 
 ## Quick Optimizer
 
-Quick Optimizer is an in-memory R1/R2/R3 amount calculator. It reuses the existing optimization engine and all three strategies, but it does not use Supabase, receipt services, Monthly Filing services, store data, lifecycle state, exports, localStorage, or sessionStorage. Refreshing/leaving may discard its state. The current 32-input optimization maximum remains accepted for Epic 3.
+Quick Optimizer is a separate authenticated in-memory amount workspace with blank R1/R2/R3 defaults and a 32-input maximum. Labels are stable and monotonic; bulk paste fills blanks then appends atomically. `quickOptimizerUi.js` uses the shared pure `findBestMatches(..., 3)` API; Receipt Optimization retains `findBest()` and one result. Temporary amounts never enter transaction pools, Available Total, or exports. Navigation preserves one calculator instance. Refresh resets it; logout, recovery/unauthenticated cleanup, and account changes explicitly clear it. No Supabase, receipt/Monthly Filing service, Company Directory, local/session storage, lifecycle, or export dependency is permitted.
+
+Decision 018 adds the fixed 5000-centavo allowance. Closest and Fewest prioritize T…T+5000 before under-target candidates. Closest ranks excess then count; Fewest ranks count then excess. Fewest fallback uses closest-under M and the independent max(1,M−5000)…M window, even when filling alternatives. Do Not Exceed is strict. Equal totals/counts use lexicographic original input identities; duplicates remain distinct. Exact money formatting preserves integer centavos through the safe-integer boundary. Technical review and Product Owner acceptance remain pending; use `06_M3.6_Browser_Acceptance.md`.
 
 ## Epic 3 Milestones
 
@@ -250,13 +252,13 @@ Epic 4 is OCR Improvements.
 Highest Priority
 
 - Safe Epic 3 navigation and transaction-domain isolation
-- Shared Store Directory security/membership gate before deployment
-- Monthly Filing lifecycle and export safety
+- Milestone 3.6 technical review and Product Owner browser acceptance
+- Preserve accepted Monthly Filing lifecycle/export and shared-directory behavior
 
 Medium Priority
 
 - Shared autocomplete adoption
-- Stateless Quick Optimizer
+- Final Quick Optimizer browser validation
 
 Future Priority
 
@@ -398,7 +400,7 @@ Always preserve the project's philosophy:
 
 - Theme preference is browser-local: System, Light, or Dark.
 - Corporate blue/red are shell accents; Encoding remains green and Optimization remains purple.
-- `config/appMetadata.js` is the single source of the manually maintained tester-facing version. The current merged version is `2.6.0-beta.5`; advance only for manually tested deployable iterations.
+- `config/appMetadata.js` is the single source of the tester-facing version. Merged Milestone 3.5 is `3.5.0-beta.1`; the Milestone 3.6 review branch is `3.6.0-beta.1`, with Product Owner acceptance pending.
 - Core receipt actions use the shared in-app confirmation dialog instead of browser-native prompts, which can be suppressed by browser anti-abuse controls. Informational workflow feedback remains inline and non-blocking.
 
 ## Database and Manual Supabase Principle

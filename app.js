@@ -13,6 +13,8 @@ import { createConfirmationDialog } from './ui/confirmationDialog.js';
 import { createNavigationController, receiptRoutes } from './ui/navigationController.js';
 import { createReceiptUi } from './ui/receiptUi.js';
 import { createMonthlyFilingUi } from './ui/monthlyFilingUi.js';
+import { createQuickOptimizerUi } from './ui/quickOptimizerUi.js';
+import { createApplicationWorkspaces } from './ui/applicationWorkspaces.js';
 import { createThemeController } from './ui/themeController.js';
 
 const elements = {
@@ -42,7 +44,7 @@ const elements = {
 
 const navigationElements = {
   menuButton: document.querySelector('#navigationMenuButton'), drawer: document.querySelector('#navigationDrawer'), drawerBackdrop: document.querySelector('#navigationDrawerBackdrop'),
-  receiptsNav: document.querySelector('#receiptsNavigationItem'), monthlyNav: document.querySelector('#monthlyFilingNavigationItem'), encodingTab: elements.encodingTab, optimizationTab: elements.optimizationTab
+  receiptsNav: document.querySelector('#receiptsNavigationItem'), monthlyNav: document.querySelector('#monthlyFilingNavigationItem'), quickNav: document.querySelector('#quickOptimizerNavigationItem'), encodingTab: elements.encodingTab, optimizationTab: elements.optimizationTab
 };
 
 const authElements = {
@@ -58,7 +60,9 @@ void supabaseConfig;
 const confirmationDialog = createConfirmationDialog({ modal: elements.confirmationModal, backdrop: elements.confirmationBackdrop, title: elements.confirmationTitle, message: elements.confirmationMessage, confirmButton: elements.confirmationConfirm, cancelButton: elements.confirmationCancel });
 const receiptUi = createReceiptUi({ elements, findBest, optimizationStrategies, toCents, scanPrintedDetails, downloadSelectedReceipts, receiptService, sharedStoreService, confirmAction: confirmationDialog.confirm });
 const monthlyFilingUi = createMonthlyFilingUi({ elements: { workspace: elements.monthlyFilingWorkspace, list: elements.monthlyFilingList, template: elements.monthlyFilingTemplate, activeTab: document.querySelector('#monthlyFilingActiveTab'), archivedTab: document.querySelector('#monthlyFilingArchivedTab'), activeActions: document.querySelector('#monthlyFilingActiveActions'), archivedActions: document.querySelector('#monthlyFilingArchivedActions'), exportHelper: document.querySelector('#monthlyFilingExportHelper'), add: elements.monthlyFilingAdd, save: elements.monthlyFilingSave, exportActive: elements.monthlyFilingExportActive, clearArchived: document.querySelector('#monthlyFilingClearArchived'), clearAll: elements.monthlyFilingClear, feedback: elements.monthlyFilingFeedback }, monthlyFilingService, sharedStoreService, downloadExpenseDetailedReport, confirmAction: confirmationDialog.confirm });
-const navigationController = createNavigationController({ elements: navigationElements, onRoute: workspace => { const monthly = workspace === 'monthly-filing'; monthlyFilingUi.setVisible(monthly); receiptUi.setModuleVisible(!monthly); if (!monthly) receiptUi.setWorkspace(workspace); } });
+const quickOptimizerUi = createQuickOptimizerUi({ root: document.querySelector('#quickOptimizerWorkspace') });
+const applicationWorkspaces = createApplicationWorkspaces({ receiptUi, monthlyFilingUi, quickOptimizerUi });
+const navigationController = createNavigationController({ elements: navigationElements, onRoute: applicationWorkspaces.renderRoute });
 const themeController = createThemeController({ select: elements.themePreference });
 const authPanel = createAuthPanel(authElements, {
   onLogin: login,
@@ -80,6 +84,7 @@ const clearRecoveryUrl = () => {
 
 async function showAuthenticatedUser(user) {
   if (activeUserId === user.id || activatingUserId === user.id) return;
+  applicationWorkspaces.setUser(user.id);
   activatingUserId = user.id;
   try {
     authPanel.hide();
@@ -94,6 +99,7 @@ async function showAuthenticatedUser(user) {
 
 async function handleAuthState(event, nextSession) {
   if (event === 'PASSWORD_RECOVERY') {
+    applicationWorkspaces.clearForLogout();
     recoveryMode = true;
     recoverySessionEstablished = Boolean(nextSession?.user);
     if (recoverySessionEstablished) authPanel.showRecovery();
@@ -107,6 +113,7 @@ async function handleAuthState(event, nextSession) {
     activatingUserId = undefined;
     receiptUi.clearForLogout();
     monthlyFilingUi.clearForLogout();
+    applicationWorkspaces.clearForLogout();
     const message = recoveryCompleted ? 'Password updated. Sign in with your new password.' : '';
     recoveryCompleted = false;
     recoveryMode = false;
@@ -120,12 +127,13 @@ async function handleAuthState(event, nextSession) {
     activatingUserId = undefined;
     receiptUi.clearForLogout();
     monthlyFilingUi.clearForLogout();
+    applicationWorkspaces.clearForLogout();
     authPanel.show();
   }
 }
 
 authElements.logout.addEventListener('click', async () => {
-  try { await logout(); } catch (error) { elements.sessionFeedback.textContent = `Could not sign out: ${error.message}`; }
+  try { await logout(); applicationWorkspaces.clearForLogout(); } catch (error) { elements.sessionFeedback.textContent = `Could not sign out: ${error.message}`; }
 });
 
 async function start() {
@@ -134,6 +142,7 @@ async function start() {
   receiptUi.start();
   monthlyFilingUi.start();
   if (!isSupabaseConfigured()) {
+    applicationWorkspaces.clearForLogout();
     authPanel.show();
     authPanel.setMessage('Supabase configuration is required before sign-in can be used.');
     return;
@@ -146,7 +155,7 @@ async function start() {
     if (recoverySessionEstablished) authPanel.showRecovery();
     else { authPanel.showRecoveryUnavailable(error || undefined); clearRecoveryUrl(); }
   } else if (session?.user) await showAuthenticatedUser(session.user);
-  else authPanel.show();
+  else { applicationWorkspaces.clearForLogout(); authPanel.show(); }
 }
 
-start().catch(error => { authPanel.show(); authPanel.setMessage(error.message || 'Could not start the application.'); });
+start().catch(error => { applicationWorkspaces.clearForLogout(); authPanel.show(); authPanel.setMessage(error.message || 'Could not start the application.'); });

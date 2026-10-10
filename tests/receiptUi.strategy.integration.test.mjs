@@ -23,7 +23,7 @@ test('visible strategy is the optimization snapshot, helper, details rule, and p
   const storage = makeStorage();
   const { select, helper, state } = makeState(storage, () => userId);
   const expectations = [
-    [optimizationStrategies.closest, 200500, 6],
+    [optimizationStrategies.closest, 203000, 3],
     [optimizationStrategies.fewest, 203000, 3],
     [optimizationStrategies.withoutExceeding, 200500, 6]
   ];
@@ -36,7 +36,8 @@ test('visible strategy is the optimization snapshot, helper, details rule, and p
     assert.equal(result.total, total);
     assert.equal(result.items.length, receiptCount);
     assert.equal(helper.textContent, optimizationStrategyDetails[strategy].helper);
-    assert.match(optimizationStrategyRules[strategy], strategy === optimizationStrategies.fewest ? /fewest receipts within 2%/ : strategy === optimizationStrategies.withoutExceeding ? /at or below/ : /closest total/);
+    assert.match(optimizationStrategyRules[strategy], strategy === optimizationStrategies.fewest ? /fewest receipts from target to ₱50 above/ : strategy === optimizationStrategies.withoutExceeding ? /at or below/ : /target-reaching totals up to ₱50 above first/);
+    assert.doesNotMatch(optimizationStrategyRules[strategy] + helper.textContent, /2%/);
     assert.equal(storage.getItem(`fsresibo-optimization-strategy-${userId}`), strategy);
   }
 });

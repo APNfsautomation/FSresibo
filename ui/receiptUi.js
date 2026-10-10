@@ -6,13 +6,13 @@ const draftKey = 'receipt-match-draft-v2';
 const money = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' });
 const dateFormatter = new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium' });
 export const optimizationStrategyDetails = Object.freeze({
-  closest: { label: 'Closest Match', helper: 'Finds the combination nearest to your target.' },
-  fewest: { label: 'Fewest Receipts', helper: 'Prioritizes using fewer physical receipts.' },
+  closest: { label: 'Closest Match', helper: 'Meets the target with at most ₱50 extra; otherwise finds the closest total below target.' },
+  fewest: { label: 'Fewest Receipts', helper: 'Uses fewer receipts from target to ₱50 above; otherwise uses a fixed ₱50 window below the closest under-target total.' },
   'without-exceeding': { label: 'Do Not Exceed Target', helper: 'Finds the closest total without going over your target.' }
 });
 export const optimizationStrategyRules = Object.freeze({
-  closest: 'Rule: closest total, then larger total, then fewer receipts.',
-  fewest: 'Rule: fewest receipts within 2% of the globally closest result, then closest total, then larger total.',
+  closest: 'Rule: target-reaching totals up to ₱50 above first; lowest excess, then fewer receipts. Otherwise highest total below target.',
+  fewest: 'Rule: fewest receipts from target to ₱50 above, then lowest excess. Otherwise fewest receipts within ₱50 below the closest under-target total, then highest total.',
   'without-exceeding': 'Rule: closest total at or below the target, then fewer receipts.'
 });
 export function createOptimizationStrategyState({ select, helper, optimizationStrategies, storage, storageKey }) {
