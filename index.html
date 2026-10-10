@@ -167,6 +167,23 @@
         <p class="workflow-feedback" id="monthlyFilingFeedback" role="status" aria-live="polite"></p>
       </section>
 
+      <section class="workspace-view quick-optimizer-workspace" id="quickOptimizerWorkspace" hidden aria-labelledby="quickOptimizerTitle">
+        <div class="workspace-heading"><div><p class="eyebrow">AMOUNT CALCULATOR</p><h2 id="quickOptimizerTitle">Quick Optimizer</h2><p>Temporary amounts only. Up to 32 receipts; nothing is saved.</p></div></div>
+        <div class="quick-optimizer-grid">
+          <div class="panel quick-controls">
+            <label for="quickTarget">Target Amount</label><input id="quickTarget" data-quick="target" type="text" inputmode="decimal" autocomplete="off">
+            <label for="quickStrategy">Optimization Strategy</label><select id="quickStrategy" data-quick="strategy" aria-describedby="quickStrategyHelper"><option value="closest">Closest Match</option><option value="fewest">Fewest Receipts</option><option value="without-exceeding">Do Not Exceed Target</option></select>
+            <p class="form-helper" id="quickStrategyHelper" data-quick="helper">Maximum ₱50.00 above target.</p>
+            <h3>Receipt Amount List</h3><p class="form-helper">Maximum 32 receipt amounts. Blank rows are ignored.</p><div data-quick="rows" class="quick-amount-list"></div>
+            <button type="button" class="ghost" data-quick="add">Add Amount</button>
+            <label for="quickBulk">Bulk Paste — one amount per line</label><textarea id="quickBulk" data-quick="bulk" rows="5" placeholder="500&#10;1,500.00&#10;500"></textarea>
+            <button type="button" class="secondary" data-quick="append">Append Amounts</button>
+            <div class="quick-actions"><button type="button" class="ghost" data-quick="clear">Clear Calculator</button><button type="button" class="primary" data-quick="calculate">Find Best Match</button></div>
+            <p class="workflow-feedback" data-quick="feedback" role="status" aria-live="polite"></p>
+          </div>
+          <div class="panel quick-results-panel"><h3>Recommended combinations</h3><div data-quick="results" class="quick-results" aria-busy="false"></div><h3>Selected receipt breakdown</h3><ul data-quick="breakdown"><li>No match selected.</li></ul></div>
+        </div>
+      </section>
       </div>
     </main>
 
