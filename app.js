@@ -10,6 +10,7 @@ import * as sharedStoreService from './services/sharedStoreService.js';
 import { renderApplicationIdentity } from './ui/appIdentity.js';
 import { createAuthPanel } from './ui/authPanel.js';
 import { createConfirmationDialog } from './ui/confirmationDialog.js';
+import { createModalFocus } from './ui/modalFocus.js';
 import { createNavigationController, receiptRoutes } from './ui/navigationController.js';
 import { createReceiptUi } from './ui/receiptUi.js';
 import { createMonthlyFilingUi } from './ui/monthlyFilingUi.js';
@@ -57,8 +58,9 @@ const authElements = {
 };
 
 void supabaseConfig;
-const confirmationDialog = createConfirmationDialog({ modal: elements.confirmationModal, backdrop: elements.confirmationBackdrop, title: elements.confirmationTitle, message: elements.confirmationMessage, confirmButton: elements.confirmationConfirm, cancelButton: elements.confirmationCancel });
-const receiptUi = createReceiptUi({ elements, findBest, optimizationStrategies, toCents, scanPrintedDetails, downloadSelectedReceipts, receiptService, sharedStoreService, confirmAction: confirmationDialog.confirm });
+const modalFocus = createModalFocus();
+const confirmationDialog = createConfirmationDialog({ modal: elements.confirmationModal, backdrop: elements.confirmationBackdrop, title: elements.confirmationTitle, message: elements.confirmationMessage, confirmButton: elements.confirmationConfirm, cancelButton: elements.confirmationCancel, modalFocus });
+const receiptUi = createReceiptUi({ elements, findBest, optimizationStrategies, toCents, scanPrintedDetails, downloadSelectedReceipts, receiptService, sharedStoreService, confirmAction: confirmationDialog.confirm, modalFocus });
 const monthlyFilingUi = createMonthlyFilingUi({ elements: { workspace: elements.monthlyFilingWorkspace, list: elements.monthlyFilingList, template: elements.monthlyFilingTemplate, activeTab: document.querySelector('#monthlyFilingActiveTab'), archivedTab: document.querySelector('#monthlyFilingArchivedTab'), activeActions: document.querySelector('#monthlyFilingActiveActions'), archivedActions: document.querySelector('#monthlyFilingArchivedActions'), exportHelper: document.querySelector('#monthlyFilingExportHelper'), add: elements.monthlyFilingAdd, save: elements.monthlyFilingSave, exportActive: elements.monthlyFilingExportActive, clearArchived: document.querySelector('#monthlyFilingClearArchived'), clearAll: elements.monthlyFilingClear, feedback: elements.monthlyFilingFeedback }, monthlyFilingService, sharedStoreService, downloadExpenseDetailedReport, confirmAction: confirmationDialog.confirm });
 const quickOptimizerUi = createQuickOptimizerUi({ root: document.querySelector('#quickOptimizerWorkspace') });
 const applicationWorkspaces = createApplicationWorkspaces({ receiptUi, monthlyFilingUi, quickOptimizerUi });

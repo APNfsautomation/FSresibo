@@ -32,7 +32,8 @@ test('in-app confirmation resolves a confirmed action only once and restores foc
   assert.equal(fixture.title.textContent, 'Delete saved receipt?');
   assert.equal(fixture.confirmButton.textContent, 'Delete receipt');
   assert.equal(fixture.modal.danger, true);
-  assert.equal(fixture.confirmButton.focusCount, 1);
+  assert.equal(fixture.cancelButton.focusCount, 1, 'destructive confirmations start on the safe action');
+  assert.equal(fixture.confirmButton.focusCount, 0);
   fixture.confirmButton.emit('click');
   fixture.confirmButton.emit('click');
   assert.equal(await pending, true);
@@ -73,4 +74,55 @@ test('core receipt actions use guarded in-app confirmation or non-blocking feedb
   assert.match(source, /confirmAction\(\{ title: 'Mark receipt Available\?'/);
   assert.match(source, /savePending = true[\s\S]+Receipt changes saved\./);
   assert.match(source, /if \(exportPending\) return;[\s\S]+confirmExport\.disabled = true/);
+});
+
+test('non-destructive confirmations start on the confirm action, destructive ones on the safe action', async () => {
+  const neutral = createFixture();
+  const neutralDialog = createConfirmationDialog({ ...neutral });
+  const first = neutralDialog.confirm({ title: 'Mark Available?', danger: false });
+  await new Promise(resolve => queueMicrotask(resolve));
+  assert.equal(neutral.confirmButton.focusCount, 1);
+  assert.equal(neutral.cancelButton.focusCount, 0);
+  neutral.cancelButton.emit('click');
+  assert.equal(await first, false);
+
+  const destructive = createFixture();
+  const destructiveDialog = createConfirmationDialog({ ...destructive });
+  const second = destructiveDialog.confirm({ title: 'Delete saved receipt?', danger: true, confirmLabel: 'Delete receipt', cancelLabel: 'Keep receipt' });
+  await new Promise(resolve => queueMicrotask(resolve));
+  assert.equal(destructive.cancelButton.focusCount, 1, 'Enter or Space on the initial focus cancels');
+  assert.equal(destructive.confirmButton.focusCount, 0);
+  destructive.cancelButton.emit('click');
+  assert.equal(await second, false);
+});
+
+test('a shared modal focus manager contains focus while open and receives the opener when the dialog closes', async () => {
+  const calls = [];
+  const modalFocus = { open: (modal, options) => calls.push(['open', modal, options.trigger]), close: modal => calls.push(['close', modal]) };
+  for (const finish of [fixture => fixture.confirmButton.emit('click'), fixture => fixture.cancelButton.emit('click'), fixture => fixture.backdrop.emit('click'), fixture => fixture.documentRef.emit('keydown', { key: 'Escape' })]) {
+    calls.length = 0;
+    const fixture = createFixture();
+    const dialog = createConfirmationDialog({ ...fixture, modalFocus });
+    const pending = dialog.confirm({ title: 'Confirm?', trigger: fixture.trigger });
+    assert.deepEqual(calls, [['open', fixture.modal, fixture.trigger]], 'the manager is told which control opened the dialog');
+    assert.equal(fixture.modal.hidden, false);
+    finish(fixture);
+    await pending;
+    assert.deepEqual(calls.map(call => call[0]), ['open', 'close'], 'every way of closing releases the manager exactly once');
+    assert.equal(fixture.modal.hidden, true);
+    assert.equal(fixture.trigger.focusCount, 0, 'focus restoration is delegated to the manager, so the opener is not focused twice');
+  }
+});
+
+test('a second request while a confirmation is open is refused without disturbing the open dialog', async () => {
+  const fixture = createFixture();
+  const calls = [];
+  const dialog = createConfirmationDialog({ ...fixture, modalFocus: { open: () => calls.push('open'), close: () => calls.push('close') } });
+  const first = dialog.confirm({ title: 'First?' });
+  assert.equal(await dialog.confirm({ title: 'Second?' }), false);
+  assert.equal(fixture.title.textContent, 'First?');
+  assert.deepEqual(calls, ['open']);
+  fixture.confirmButton.emit('click');
+  assert.equal(await first, true);
+  assert.deepEqual(calls, ['open', 'close']);
 });

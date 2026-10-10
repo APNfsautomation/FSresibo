@@ -2,6 +2,8 @@ import { deduplicateDirectoryCandidates, finalizeDirectoryPromptFingerprints, fi
 
 export { deduplicateDirectoryCandidates, finalizeDirectoryPromptFingerprints, findCompatibleSharedProfiles, hasContributableStoreDetails, normalizeStoreTin, persistedStoreFingerprint, postSaveDirectoryDecision, resolveSharedContributionCandidate, sharedProfileIdentity } from '../domain/sharedStoreProfiles.js';
 
+import { makeTemplateIdsUnique, receiptSummaryAccessibleName } from './receiptAccessibility.js';
+
 const draftKey = 'receipt-match-draft-v2';
 const money = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' });
 const dateFormatter = new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium' });
@@ -246,7 +248,7 @@ export function combineStoreProfiles(sharedProfiles, historyProfiles) {
   return [...shared, ...historyProfiles.filter(profile => !sharedIds.has(identity(profile))).map(profile => ({ ...profile, source: 'history', normalizedStore: profile.normalizedStore || normalizeStoreText(profile.store) }))];
 }
 
-export function createReceiptUi({ elements, findBest, optimizationStrategies, toCents, scanPrintedDetails, downloadSelectedReceipts, receiptService, sharedStoreService = {}, confirmAction = async () => false }) {
+export function createReceiptUi({ elements, findBest, optimizationStrategies, toCents, scanPrintedDetails, downloadSelectedReceipts, receiptService, sharedStoreService = {}, confirmAction = async () => false, modalFocus = null }) {
   let currentUser;
   let selectedReceiptIndexes = new Set();
   let selectedReceiptIds = [];
@@ -257,6 +259,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   let storeProfiles = [];
   let sharedStoreProfiles = [];
   let storeSuggestionSequence = 0;
+  let receiptDomSequence = 0;
   let savePending = false;
   let importPending = false;
   let editSavePending = false;
@@ -367,8 +370,19 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   const refreshToggle = row => {
     const summary = row.querySelector('summary');
     row.querySelector('.toggle-label').textContent = row.open ? 'Collapse' : 'Details';
-    summary.setAttribute('aria-label', `${row.open ? 'Collapse' : 'Show'} receipt details`);
     summary.title = `${row.open ? 'Collapse' : 'Show'} receipt details`;
+    refreshSummaryAccessibleName(row);
+  };
+  // Each summary is named by its stable receipt identity, store, amount and state; kept in sync with edits, status and expansion.
+  const refreshSummaryAccessibleName = row => {
+    const amountValue = String(row.querySelector('.receipt-amount').value ?? '').trim();
+    row.querySelector('summary').setAttribute('aria-label', receiptSummaryAccessibleName({
+      id: row.dataset.receiptId || '1',
+      store: row.querySelector('.receipt-store').value,
+      amountCents: amountValue ? toCents(amountValue) : null,
+      status: normalizeReceiptStatus(row.dataset.receiptStatus),
+      open: row.open
+    }));
   };
   const receiptStatus = row => normalizeReceiptStatus(row.dataset.receiptStatus);
   const refreshSummary = row => {
@@ -378,6 +392,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     row.querySelector('.summary-id').textContent = `Receipt ${id}`;
     row.querySelector('.summary-store').textContent = store;
     row.querySelector('.summary-amount').textContent = format(amount);
+    refreshSummaryAccessibleName(row);
   };
   const updateExportAction = () => {
     const count = selectedReceiptIds.length === selectedReceiptIndexes.size ? selectedReceiptIds.length : 0;
@@ -402,6 +417,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     row.querySelector('.restore-receipt').hidden = !consumed;
     row.querySelector('.contribute-store').hidden = consumed;
     row.querySelectorAll('input, select').forEach(field => { field.disabled = consumed; });
+    refreshSummaryAccessibleName(row);
   };
   const refreshReceiptIds = () => {
     const rows = [...elements.list.children];
@@ -465,6 +481,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       card.querySelector('.selected-badge').hidden = !selected;
       card.classList.toggle('is-selected', selected);
       card.classList.toggle('is-consumed', consumed);
+      card.dataset.receiptIndex = String(entry.index);
       card.querySelector('.compact-edit').hidden = consumed;
       card.querySelector('.compact-restore').hidden = !consumed;
       if (consumed) card.querySelector('.compact-restore').addEventListener('click', event => restoreReceipt(entry.index, event.currentTarget));
@@ -497,7 +514,16 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     elements.receiptStatusControl.hidden = !visible;
     if (!visible) { elements.encodingWorkspace.hidden = true; elements.optimizationWorkspace.hidden = true; }
   };
-  const closeEditModal = () => { elements.editModal.hidden = true; delete elements.editModal.dataset.receiptIndex; };
+  const closeEditModal = () => {
+    elements.editModal.hidden = true;
+    delete elements.editModal.dataset.receiptIndex;
+    modalFocus?.close(elements.editModal, { fallback: elements.optimizationSearch });
+  };
+  // Optimization cards are rebuilt after a correction, so the original Edit button is replaced; focus returns to the same receipt's new Edit button.
+  const restoreEditTriggerFocus = index => {
+    const edit = elements.optimizationList.querySelector?.(`[data-receipt-index="${index}"] .compact-edit`);
+    (edit && !edit.hidden ? edit : elements.optimizationSearch)?.focus?.({ preventScroll: true });
+  };
   const openEditModal = index => {
     const row = elements.list.children[index];
     if (!row || receiptStatus(row) === 'consumed') return;
@@ -512,6 +538,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     elements.editAddress.value = receipt.address;
     elements.editTin.value = receipt.tin;
     elements.editModal.hidden = false;
+    modalFocus?.open(elements.editModal, { trigger: document.activeElement, fallback: elements.optimizationSearch });
     elements.editStore.focus();
   };
   const installStoreAutocomplete = row => {
@@ -594,6 +621,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   };
   const addReceipt = (values = {}, { refresh = true } = {}) => {
     const row = elements.template.content.firstElementChild.cloneNode(true);
+    makeTemplateIdsUnique(row, `receipt-${++receiptDomSequence}`);
     if (values.dbId) row.dataset.receiptDbId = values.dbId;
     if (values.updatedAt) row.dataset.receiptUpdatedAt = values.updatedAt;
     row.dataset.receiptStatus = normalizeReceiptStatus(values.status);
@@ -817,6 +845,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   const closeExportConfirmation = ({ force = false } = {}) => {
     if (exportPending && !force) return;
     elements.exportConfirmModal.hidden = true;
+    modalFocus?.close(elements.exportConfirmModal, { fallback: elements.calculate });
     elements.confirmExport.disabled = false;
     elements.confirmExport.removeAttribute('aria-busy');
     elements.confirmExport.textContent = 'Export & Mark Consumed';
@@ -830,6 +859,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     if (!receipts.length || receipts.length !== selectedReceiptIndexes.size) return setFeedback(elements.difference, 'Run Find Best Match with saved Available receipts before exporting.');
     elements.exportConfirmMessage.textContent = `Export ${receipts.length} selected receipt${receipts.length === 1 ? '' : 's'}? After the export is prepared, these receipts will be marked as Consumed and excluded from future optimization.`;
     elements.exportConfirmModal.hidden = false;
+    modalFocus?.open(elements.exportConfirmModal, { trigger: elements.exportSelected, fallback: elements.calculate });
     elements.confirmExport.focus();
   };
   const exportAndConsume = async () => {
@@ -857,6 +887,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       showEmpty();
       elements.resultTitle.textContent = 'Export complete';
       elements.difference.textContent = `${consumed.length} receipt${consumed.length === 1 ? '' : 's'} exported and marked as Consumed.`;
+      // The Export button is disabled once the selection is cleared, so keep keyboard focus on a control that still works.
+      (elements.exportSelected.disabled ? elements.calculate : elements.exportSelected).focus?.({ preventScroll: true });
     } catch (error) {
       exportPending = false;
       closeExportConfirmation();
@@ -902,6 +934,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     closeEditModal();
     refreshEncodingCards();
     refreshOptimizationCards();
+    restoreEditTriggerFocus(index);
     editSavePending = false;
   };
   const applyToolbarChange = () => {

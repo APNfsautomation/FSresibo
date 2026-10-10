@@ -1,3 +1,5 @@
+import { installTablistKeyboard, syncRovingTabIndex } from './tablistKeyboard.js';
+
 export const receiptRoutes = Object.freeze({
   encoding: 'receipts/encoding',
   optimization: 'receipts/optimization'
@@ -53,6 +55,7 @@ export function createNavigationController({ window = globalThis.window, documen
     Object.entries(moduleNavigation).forEach(([module, item]) => item.setAttribute('aria-current', module === metadata.module ? 'page' : 'false'));
     elements.encodingTab.setAttribute('aria-selected', String(!optimization));
     elements.optimizationTab.setAttribute('aria-selected', String(optimization));
+    syncRovingTabIndex([elements.encodingTab, elements.optimizationTab], optimization ? 1 : 0);
     onRoute(metadata.workspace ?? metadata.module, metadata);
   };
 
@@ -89,6 +92,7 @@ export function createNavigationController({ window = globalThis.window, documen
       }));
       elements.encodingTab.addEventListener('click', () => navigate(receiptRoutes.encoding));
       elements.optimizationTab.addEventListener('click', () => navigate(receiptRoutes.optimization));
+      installTablistKeyboard({ tabs: [elements.encodingTab, elements.optimizationTab], activate: index => navigate(index === 0 ? receiptRoutes.encoding : receiptRoutes.optimization) });
       window.addEventListener('hashchange', () => applyLocation());
       document.addEventListener('keydown', event => { if (event.key === 'Escape' && !elements.drawer.hidden) setDrawer(false, { restoreFocus: true }); });
       window.addEventListener('resize', () => setDrawer(false));

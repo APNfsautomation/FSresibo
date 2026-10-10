@@ -136,7 +136,7 @@ test('actual app bootstrap uses one calculator and clears it on auth events and 
     register: noop, requestPasswordReset: noop, updatePassword: noop, scanPrintedDetails: noop,
     downloadExpenseDetailedReport: noop, downloadSelectedReceipts: noop, findBest: noop, optimizationStrategies: {}, toCents: noop,
     receiptService: {}, monthlyFilingService: {}, sharedStoreService: {}, renderApplicationIdentity: noop,
-    createAuthPanel: () => auth, createConfirmationDialog: () => ({ confirm: noop }),
+    createAuthPanel: () => auth, createConfirmationDialog: () => ({ confirm: noop }), createModalFocus: () => ({ open: noop, close: noop }),
     createNavigationController: ({ onRoute }) => ({ start() { routeCallbacks.push(onRoute); onRoute('quick-optimizer', { module: 'quick-optimizer' }); } }),
     receiptRoutes, createReceiptUi: () => receipt, createMonthlyFilingUi: () => monthly,
     createQuickOptimizerUi: () => { instances++; return createQuickOptimizerUi({ nextFrame: async () => {} }); },
