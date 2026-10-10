@@ -192,10 +192,10 @@ function fixture({ records = [], confirm = async () => true, reduced = false } =
   };
   const elements = { workspace: node(), list, template: { content: { firstElementChild: { cloneNode: () => makeRow() } } }, activeTab: node(), archivedTab: node(), activeActions: node(), archivedActions: node(), exportHelper: node(), add: node(), save: node(), exportActive: node(), clearArchived: node(), clearAll: node(), feedback: node(), unsavedNote: node() };
   const calls = { create: [], update: [], remove: [], archive: [], ret: [], workbook: [], confirms: [], order: [] };
-  let sequence = 0; const failures = { update: new Set(), create: false, workbook: false, archive: false };
+  let sequence = 0; const failures = { update: new Set(), createAt: new Set(), create: false, workbook: false, archive: false }; let createAttempts = 0;
   const service = {
     loadMonthlyFilingReceipts: async () => records.map(record => ({ ...record })),
-    createMonthlyFilingReceipt: async receipt => { calls.order.push('create'); if (failures.create) throw new Error('create failed'); calls.create.push(receipt); return { ...receipt, dbId: `new-${++sequence}`, status: 'active' }; },
+    createMonthlyFilingReceipt: async receipt => { calls.order.push('create'); createAttempts += 1; if (failures.create || failures.createAt.has(createAttempts)) throw new Error('create failed'); calls.create.push(receipt); return { ...receipt, dbId: `new-${++sequence}`, status: 'active' }; },
     updateMonthlyFilingReceipt: async (id, receipt) => { calls.order.push('update'); if (failures.update.has(id)) throw new Error(`update ${id} failed`); calls.update.push([id, receipt]); return { ...receipt, dbId: id, status: 'active' }; },
     deleteMonthlyFilingReceipt: async id => { calls.remove.push(id); },
     archiveMonthlyFilingReceipts: async ids => { calls.order.push('archive'); if (failures.archive) throw new Error('archive failed'); calls.archive.push(ids); return ids.map(id => ({ ...records.find(record => record.dbId === id), dbId: id, status: 'archived' })); },
@@ -435,4 +435,71 @@ test('Monthly services, export builder, migrations and the engine are untouched 
   assert.doesNotMatch(ui, /localStorage|sessionStorage|indexedDB|supabase|\.rpc\(/i, 'no second persistence');
   const service = await read('../services/monthlyFilingService.js');
   assert.ok(service.includes("client.rpc('archive_monthly_filing_receipts', { p_ids: exactIds })"));
+});
+
+// ---- partial Save of two new receipts: actions must use the current record, not a render-time snapshot ----------------------------
+async function partialSaveFixture(extra = {}) {
+  const f = fixture({ records: [], ...extra }); await f.ui.loadForUser(user);
+  await f.click(f.elements.add); await f.edit(f.cards()[0], 'store', 'First cafe'); await f.edit(f.cards()[0], 'amount', '10');
+  await f.click(f.elements.add); await f.edit(f.cards()[1], 'store', 'Second cafe'); await f.edit(f.cards()[1], 'amount', '20');
+  f.failures.createAt.add(2);
+  await f.click(f.elements.save);
+  return f;
+}
+
+test('after a partial Save of two new receipts the first is persisted, the second stays unsaved with its values, and no card was rebuilt', async () => {
+  const f = await partialSaveFixture();
+  assert.equal(f.calls.create.length, 1); assert.match(f.elements.feedback.textContent, /Could not save Monthly Filing changes: create failed/);
+  assert.equal(f.cards().length, 2);
+  assert.equal(f.cards()[0].dataset.monthlyId, 'new-1', 'the first card carries its new database ID');
+  assert.equal(f.cards()[0].dataset.recordKey, 'db:new-1', 'its record key matches its database identity (no stale draft key)');
+  assert.equal(f.flag(f.cards()[0]).hidden, true);
+  assert.equal(f.cards()[1].dataset.monthlyId, '');
+  assert.match(f.cards()[1].dataset.recordKey, /^draft:/);
+  assert.equal(f.flag(f.cards()[1]).textContent, 'New, unsaved');
+  assert.deepEqual(['store', 'amount'].map(key => f.field(f.cards()[1], key).value), ['Second cafe', '20']);
+  assert.deepEqual(f.cards().map(f.label), ['Receipt 1', 'Receipt 2']);
+  assert.deepEqual(f.cards().map(card => card.classList.contains('is-collapsed')), [false, false], 'both stay expanded');
+});
+
+test('Delete on the receipt that was just persisted asks for confirmation and calls the database delete with its ID', async () => {
+  const f = await partialSaveFixture();
+  await f.click(f.cards()[0].querySelector('.monthly-delete'));
+  assert.ok(f.calls.confirms.includes('Delete Monthly Filing receipt?'), 'the destructive confirmation is still required');
+  assert.deepEqual(f.calls.remove, ['new-1'], 'the persisted receipt is deleted in the database, not only locally');
+  assert.equal(f.cards().length, 1); assert.equal(f.label(f.cards()[0]), 'Receipt 2', 'the other receipt keeps its number');
+  assert.deepEqual(['store', 'amount'].map(key => f.field(f.cards()[0], key).value), ['Second cafe', '20']);
+  assert.equal(f.flag(f.cards()[0]).textContent, 'New, unsaved');
+  assert.ok([f.field(f.cards()[0], 'store'), f.summary(f.cards()[0])].includes(f.focusLog.at(-1).node), 'focus lands on the receipt that took its place');
+});
+
+test('cancelling that Delete changes nothing', async () => {
+  const f = await partialSaveFixture({ confirm: async () => false });
+  await f.click(f.cards()[0].querySelector('.monthly-delete'));
+  assert.deepEqual(f.calls.remove, []); assert.equal(f.cards().length, 2);
+  assert.equal(f.cards()[0].dataset.monthlyId, 'new-1'); assert.equal(f.flag(f.cards()[1]).textContent, 'New, unsaved');
+});
+
+test('retrying Save updates the persisted receipt and creates only the one that failed (no duplicates)', async () => {
+  const f = await partialSaveFixture();
+  f.failures.createAt.clear();
+  await f.click(f.elements.save);
+  assert.deepEqual(f.calls.update.map(([id]) => id), ['new-1'], 'the first receipt is updated, not created again');
+  assert.equal(f.calls.create.length, 2, 'exactly one more create, for the receipt that failed');
+  assert.ok(f.cards().every(card => f.flag(card).hidden)); assert.equal(f.elements.unsavedNote.hidden, true);
+  assert.deepEqual(f.cards().map(card => card.dataset.monthlyId), ['new-1', 'new-2']);
+  assert.deepEqual(f.cards().map(f.label), ['Receipt 1', 'Receipt 2']);
+  assert.equal(f.elements.feedback.textContent, 'Monthly Filing changes saved.');
+});
+
+test('Return to Active uses the current record too: a receipt returned from Archived still acts on its database ID after a later partial save', async () => {
+  const f = fixture({ records: activeRecords() }); await f.ui.loadForUser(user);
+  await f.click(f.elements.archivedTab); await f.click(f.cards()[0].querySelector('.monthly-return-active'));
+  await f.click(f.elements.add); await f.edit(f.cards().at(-1), 'store', 'Fresh'); await f.edit(f.cards().at(-1), 'amount', '5');
+  await f.edit(f.cards()[0], 'invoice', 'EDIT');
+  f.failures.update.add('a2');
+  await f.click(f.elements.save);
+  const returned = f.cards().find(card => card.dataset.monthlyId === 'z1');
+  await f.click(returned.querySelector('.monthly-delete'));
+  assert.deepEqual(f.calls.remove, ['z1']);
 });

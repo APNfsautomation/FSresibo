@@ -198,7 +198,8 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
       const content = row.querySelector('.receipt-content'); content.id = `monthly-card-content-${++contentSequence}`;
       row.querySelector('.monthly-summary').setAttribute('aria-controls', content.id);
       row.querySelector('.monthly-summary').addEventListener('click', () => { const current = records[Number(row.dataset.recordIndex)]; if (!current) return; view.setExpanded(current, !view.isExpanded(current)); refreshRowPresentation(row); });
-      row.dataset.recordIndex = String(recordIndex); row.dataset.monthlyId = record.dbId || ''; row.dataset.sharedStoreId = record.sharedStoreId || ''; row.dataset.status = record.status; row.dataset.persistedStoreFingerprint = record.persistedStoreFingerprint || '';
+      row.dataset.recordIndex = String(recordIndex);
+      const currentRecord = () => records[Number(row.dataset.recordIndex)] ?? record; row.dataset.monthlyId = record.dbId || ''; row.dataset.sharedStoreId = record.sharedStoreId || ''; row.dataset.status = record.status; row.dataset.persistedStoreFingerprint = record.persistedStoreFingerprint || '';
       Object.entries(record).forEach(([key, value]) => { const field = row.querySelector(`.monthly-${key}`); if (field) field.value = value || ''; });
       const archived = monthlyFilingIsReadOnly(record);
       row.querySelector('.monthly-status').textContent = archived ? 'Archived' : 'Active'; row.querySelector('.monthly-status').hidden = !archived;
@@ -206,6 +207,7 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
       row.querySelector('.monthly-delete').hidden = archived;
       const returnButton = row.querySelector('.monthly-return-active'); returnButton.hidden = !archived;
       returnButton.addEventListener('click', async event => {
+        const record = currentRecord(); const recordIndex = Number(row.dataset.recordIndex);
         if (!archived || lifecycle.clearBlocked() || !mutations.begin('return-to-active')) return;
         updateActions();
         try {
@@ -224,6 +226,7 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
       ['store', 'address', 'tin'].forEach(key => row.querySelector(`.monthly-${key}`).addEventListener('input', () => { if (row.dataset.sharedStoreId) row.dataset.sharedStoreId = ''; }));
       row.querySelectorAll('input, select').forEach(field => { const sync = () => { synchronizeActiveRow(row); updateActions(); }; field.addEventListener('input', sync); field.addEventListener('change', sync); });
       row.querySelector('.monthly-delete').addEventListener('click', async event => {
+        const record = currentRecord(); const recordIndex = Number(row.dataset.recordIndex);
         if (archived) return;
         if (!mutations.begin('delete')) return;
         updateActions();
@@ -310,7 +313,7 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
         const { record, recordIndex, row } = entry; const receipt = { ...record }; const previousFingerprint = record.persistedStoreFingerprint || '';
         const stored = record.dbId ? await monthlyFilingService.updateMonthlyFilingReceipt(record.dbId, receipt, currentUser.id) : await monthlyFilingService.createMonthlyFilingReceipt(receipt, currentUser.id);
         setRecord(recordIndex, stored, previousFingerprint);
-        if (row) synchronizeMonthlyFilingRow(row, stored);
+        if (row) { synchronizeMonthlyFilingRow(row, stored); row.dataset.recordKey = view.keyOf(records[recordIndex]); }
         return { row, recordIndex, receipt, previousFingerprint, saved: stored };
       });
       if (error) throw error;
