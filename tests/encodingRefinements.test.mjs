@@ -133,7 +133,7 @@ globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} }
 globalThis.Option = class { constructor(label, value) { this.label = label; this.value = value; } };
 const settle = () => new Promise(resolve => setTimeout(resolve, 5));
 
-async function fixture({ loaded = [], confirm = async () => true, deleteConsumed } = {}) {
+async function fixture({ loaded = [], confirm = async () => true, deleteConsumed, failUpdate = () => false } = {}) {
   globalThis.window = { addEventListener() {}, removeEventListener() {}, setTimeout, clearTimeout };
   globalThis.matchMedia = () => ({ matches: false });
   globalThis.requestAnimationFrame = callback => { callback(); return 0; };
@@ -170,7 +170,7 @@ async function fixture({ loaded = [], confirm = async () => true, deleteConsumed
   const receiptService = {
     loadReceipts: async () => loaded.map(item => ({ status: 'available', ...item })),
     createReceipt: async values => { calls.create.push({ ...values }); return { ...values, dbId: `new-${++sequence}`, status: 'available', updatedAt: '' }; },
-    updateReceipt: async (id, values) => { calls.update.push([id, { ...values }]); return { ...values, dbId: id, status: 'available', updatedAt: '' }; },
+    updateReceipt: async (id, values) => { if (failUpdate(id)) throw new Error('network unavailable'); calls.update.push([id, { ...values }]); return { ...values, dbId: id, status: 'available', updatedAt: '' }; },
     deleteReceipt: async id => { calls.delete.push(id); },
     deleteConsumedReceipt: async id => { calls.deleteConsumed.push(id); if (deleteConsumed) return deleteConsumed(id); }
   };
@@ -519,4 +519,34 @@ test('the scrollable suggestion list is not a Tab stop, so Tab goes Store to Add
   const phone = css.slice(css.indexOf('@media (max-width: 640px) {\n  .receipts-bar'));
   assert.match(phone, /#encodingActions \.unsaved-status \{ display: block; flex: 1 1 100%; order: -1; \}/);
   assert.match(phone, /#encodingActions \.unsaved-status:has\(> \.unsaved-indicator\[hidden\]\) \{ margin-bottom: calc\(var\(--space-2\) \* -1\); \}/, 'no empty gap while nothing is unsaved');
+});
+
+test('REVIEW-05: a partial save keeps the successful write, refreshes the saved total, count and unsaved indicator, and a later Save finishes the rest', async () => {
+  let failB = true;
+  const f = await fixture({ loaded, failUpdate: id => id === 'b' && failB });
+  await f.type(f.rows()[0], 'amount', '150'); await f.type(f.rows()[1], 'amount', '400');
+  assert.equal(f.elements.encodingUnsavedText.textContent, '2 unsaved receipts'); assert.equal(f.money(f.elements.availableTotal), '₱950.00');
+  await f.click(f.elements.saveDraft);
+  assert.deepEqual(f.calls.update.map(([id]) => id), ['a'], 'receipt 1 was written once; receipt 2 failed');
+  assert.equal(f.calls.create.length, 0, 'no duplicates');
+  assert.equal(f.money(f.elements.availableTotal), '₱1,000.00', '150 + 300 + 550: only confirmed saved values');
+  assert.equal(f.elements.availableCount.textContent, '3');
+  assert.equal(f.elements.encodingUnsavedText.textContent, '1 unsaved receipt');
+  assert.equal(f.field(f.rows()[1], 'amount').value, '400', 'the failed receipt keeps its entered value');
+  assert.equal(f.elements.encodingFeedback.dataset.severity, 'error'); assert.match(f.elements.encodingFeedback.textContent, /^Could not save receipt changes: network unavailable$/);
+  failB = false;
+  await f.click(f.elements.saveDraft);
+  assert.equal(f.calls.update.filter(([id]) => id === 'a').length, 2, 'no automatic retry earlier; the manual Save re-sends unchanged rows as before (idempotent update)');
+  assert.equal(f.calls.update.filter(([id]) => id === 'b').length, 1); assert.equal(f.calls.create.length, 0);
+  assert.equal(f.money(f.elements.availableTotal), '₱1,100.00'); assert.equal(f.elements.encodingUnsavedIndicator.hidden, true);
+  assert.equal(f.elements.encodingFeedback.dataset.severity, 'success');
+});
+
+test('REVIEW-05: when the first write fails nothing is reported as saved and the total and indicator are unchanged', async () => {
+  const f = await fixture({ loaded, failUpdate: () => true });
+  await f.type(f.rows()[0], 'amount', '150');
+  await f.click(f.elements.saveDraft);
+  assert.equal(f.calls.update.length, 0);
+  assert.equal(f.money(f.elements.availableTotal), '₱950.00'); assert.equal(f.elements.encodingUnsavedText.textContent, '1 unsaved receipt');
+  assert.equal(f.elements.encodingFeedback.dataset.severity, 'error'); assert.doesNotMatch(f.elements.encodingFeedback.textContent, /saved./);
 });

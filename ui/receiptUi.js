@@ -909,6 +909,9 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
         return { row, fingerprint, decision: postSaveDirectoryDecision({ values: receipt, previousFingerprint, profiles: sharedStoreProfiles }) };
       });
       if (error) {
+        // Earlier rows may already be saved: refresh the saved total, count and unsaved indicator (edit pins and drafts stay as they are).
+        refreshEncodingCards();
+        refreshOptimizationCards();
         setFeedback(elements.encodingFeedback, `Could not save receipt changes: ${error.message}`, 'error');
         return;
       }
@@ -919,7 +922,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       const nowHidden = releasedHiddenNotice(released.filter(row => row.hidden).map(row => row.dataset.receiptId || ''));
       setFeedback(elements.encodingFeedback, `Receipt changes saved.${nowHidden ? ` ${nowHidden}` : ''}`, 'success');
       await processPostSaveDirectoryCandidates(candidates);
-    } catch (error) { setFeedback(elements.encodingFeedback, `Could not save receipt changes: ${error.message}`, 'error'); }
+    } catch (error) { refreshEncodingCards(); refreshOptimizationCards(); setFeedback(elements.encodingFeedback, `Could not save receipt changes: ${error.message}`, 'error'); }
     finally { savePending = false; elements.saveDraft.disabled = false; }
   };
   const calculate = () => {
