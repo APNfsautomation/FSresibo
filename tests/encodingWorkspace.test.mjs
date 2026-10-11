@@ -46,14 +46,16 @@ test('the receipt template keeps every field, action and the keyboard-reachable 
   assert.match(template, /<input class="receipt-photo" type="file" accept="image\/\*" capture="environment" \/>/);
   assert.doesNotMatch(template, /receipt-photo[^>]*(tabindex="-1"|hidden)/, 'the file input stays focusable');
   assert.match(template, /role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false"/, 'store autocomplete roles unchanged');
-  assert.ok(template.indexOf('receipt-amount') < template.indexOf('receipt-store'), 'Amount comes first in the DOM (and in Tab order)');
+  const order = ['receipt-store', 'receipt-address', 'receipt-tin', 'receipt-vat', 'receipt-amount', 'receipt-receiptDate', 'receipt-invoice', 'receipt-photo'].map(cls => template.indexOf(`class="${cls}"`));
+  assert.ok(order.every(position => position > 0));
+  assert.deepEqual([...order].sort((a, b) => a - b), order, 'DOM (Tab) order is Store, Address, TIN, VAT, Amount, Date, Invoice, then the scan control (same as Monthly Filing)');
 });
 
 // ---- CSS: layout rules ------------------------------------------------------------------------------------------------------
 test('rows are one compact line and the editor is two columns on wide windows, stacked below 1100px', () => {
   assert.match(css, /\.receipt-summary \{[^}]*min-height: 48px/);
   assert.match(css, /\.receipt-summary \{[^}]*grid-template-areas: "id store amount badge toggle"/);
-  assert.match(css, /\.encoding-list \.receipt-content \{[^}]*grid-template-columns: minmax\(0, 5fr\) minmax\(0, 7fr\)/);
+  assert.match(css, /\.encoding-list \.receipt-content \{[^}]*grid-template-columns: minmax\(0, 7fr\) minmax\(0, 5fr\)/);
   assert.match(css, /@media \(max-width: 1100px\) \{\n  \.encoding-list \.receipt-content \{ grid-template-columns: minmax\(0, 1fr\)/);
   assert.match(css, /\.encoding-list \.receipt-amount \{[^}]*font-size: 1\.125rem[^}]*font-weight: var\(--weight-bold\)/, 'Amount is prominent and at least 16px');
   assert.match(css, /\.summary-store \{[^}]*text-overflow: ellipsis/, 'long names truncate in the row (the full name is the title and the editor value)');
@@ -76,7 +78,9 @@ test('the store suggestion list is not clipped by the compact receipt card and s
 });
 
 test('the action bar is in-flow above the list on desktop and sticky (never fixed) only on phones, with safe-area padding and a keyboard-safe step-aside', () => {
-  assert.doesNotMatch(css.slice(0, css.indexOf('@media (max-width: 640px) {\n  .receipts-bar')), /#encodingActions \{[^}]*position: (fixed|sticky)/, 'desktop bar is in normal flow');
+  const beforePhone = css.slice(0, css.indexOf('@media (max-width: 640px) {\n  .receipts-bar'));
+  assert.doesNotMatch(beforePhone, /(^|\n)#encodingActions \{[^}]*position: (fixed|sticky)/, 'the base bar is in normal flow; sticky applies only inside the tall-viewport media query');
+  assert.ok(beforePhone.includes('@media (min-width: 641px) and (min-height: 480px) {\n  #encodingActions { position: sticky; top: var(--space-2);'), 'sticky-top on desktop and tablet only when the viewport is at least 480px tall');
   assert.equal(count(css, /\.floating-add \{[^}]*position: fixed/g), 0, 'Add receipt is no longer a fixed pill');
   const phone = css.slice(css.indexOf('@media (max-width: 640px) {\n  .receipts-bar'), css.indexOf('@media (prefers-reduced-motion'));
   assert.match(phone, /\.encoding-workspace > #encodingActions \{ order: 6; position: sticky; bottom: 0;[^}]*env\(safe-area-inset-bottom\)/);
@@ -97,7 +101,8 @@ test('the compact editor rules are scoped to the Encoding list', () => {
 test('the status filter keeps its filtering semantics: only presentation changed', async () => {
   const ui = await read('../ui/receiptUi.js');
   assert.match(ui, /const matchesStatus = toolbarState\.status === 'all' \|\| receiptStatus\(row\) === toolbarState\.status;/);
-  assert.match(ui, /row\.hidden = !matchesStatus \|\| !matchesCompartment;/, 'rows are hidden, never removed or renumbered');
+  assert.match(ui, /row\.hidden = !matchesStatus \|\| \(!matchesCompartment && !keepVisible\);/, 'rows are hidden, never removed or renumbered; a pin overrides only the amount range');
+  assert.match(ui, /const keepVisible = Boolean\(row\.dataset\.filterPinned\) && matchesStatus;/, 'a pin never overrides the Available/Consumed view');
   assert.match(ui, /export const floatingAddVisibleForStatus = status => status !== 'consumed';/);
 });
 
@@ -169,7 +174,7 @@ function fixture({ reducedMotion = false } = {}) {
   return { elements, ui, add, rows, label, fill, focusLog, scrollLog, state };
 }
 
-test('Add Receipt creates a receipt, expands it, scrolls it into view and focuses Amount first (not Store)', () => {
+test('Add Receipt creates a receipt, expands it, scrolls it into view and focuses Store name first (not Amount)', () => {
   const { add, rows, label, focusLog, scrollLog } = fixture();
   assert.equal(rows().length, 0);
   add();
@@ -178,9 +183,9 @@ test('Add Receipt creates a receipt, expands it, scrolls it into view and focuse
   assert.equal(label(row), 'Receipt 1');
   assert.equal(row.open, true, 'the intended receipt is expanded');
   assert.deepEqual(scrollLog.map(entry => [entry.node, entry.options]), [[row, { block: 'center', behavior: 'smooth' }]]);
-  assert.deepEqual(focusLog.map(entry => entry.node), [row.part('.receipt-amount')], 'only Amount is focused');
+  assert.deepEqual(focusLog.map(entry => entry.node), [row.part('.receipt-store')], 'only Store name is focused');
   assert.deepEqual(focusLog[0].options, { preventScroll: true }, 'focus does not fight the scroll');
-  assert.equal(focusLog.some(entry => entry.node === row.part('.receipt-store')), false);
+  assert.equal(focusLog.some(entry => entry.node === row.part('.receipt-amount')), false);
 });
 
 test('Add Receipt respects reduced motion', () => {
@@ -194,12 +199,12 @@ test('Add Receipt reuses a blank unsaved receipt instead of stacking blanks, and
   add(); add(); add();
   assert.equal(rows().length, 1, 'repeated Add reuses the blank receipt');
   assert.equal(focusLog.length, 3);
-  assert.ok(focusLog.every(entry => entry.node === rows()[0].part('.receipt-amount')));
+  assert.ok(focusLog.every(entry => entry.node === rows()[0].part('.receipt-store')));
   fill(rows()[0], 'amount', '120');
   add();
   assert.equal(rows().length, 2);
   assert.equal(label(rows()[1]), 'Receipt 2', 'identifiers keep counting up');
-  assert.equal(focusLog.at(-1).node, rows()[1].part('.receipt-amount'));
+  assert.equal(focusLog.at(-1).node, rows()[1].part('.receipt-store'));
 });
 
 test('a blank receipt that is visible is preferred over a blank one that is hidden', () => {
@@ -210,24 +215,23 @@ test('a blank receipt that is visible is preferred over a blank one that is hidd
   const before = focusLog.length;
   add();
   assert.equal(rows().length, 2, 'no extra blank receipt');
-  assert.equal(focusLog[before].node, rows()[1].part('.receipt-amount'), 'the visible blank receipt is used');
+  assert.equal(focusLog[before].node, rows()[1].part('.receipt-store'), 'the visible blank receipt is used');
 });
 
-test('when the amount range hides the new receipt, nothing is focused, nothing is duplicated and the user is told why', () => {
+test('under an amount range that excludes it, Add receipt keeps the new receipt visible, focuses Store, and shows the out-of-range notice', () => {
   const { elements, add, rows, focusLog, scrollLog } = fixture();
   elements.encodingAmountCompartment.value = '500-599'; elements.encodingAmountCompartment.emit('change');
   add();
   assert.equal(rows().length, 1);
-  assert.equal(rows()[0].hidden, true, 'a blank receipt (₱0) is outside the 500–599 range');
-  assert.equal(focusLog.length, 0, 'no focus, so no keyboard opens for something the user cannot see');
-  assert.equal(scrollLog.length, 0);
-  assert.match(elements.encodingFeedback.textContent, /hidden by the current amount range or view/);
+  assert.equal(rows()[0].hidden, false, 'a pinned receipt stays visible although ₱0 is outside 500–599');
+  assert.equal(rows()[0].classList.contains('is-outside-range'), true);
+  assert.equal(rows()[0].part('.receipt-range-flag').hidden, false, 'the row itself says "Outside range"');
+  assert.equal(focusLog.at(-1).node, rows()[0].part('.receipt-store')); assert.equal(scrollLog.length, 1);
+  assert.equal(elements.encodingFilterNotice.hidden, false);
+  assert.match(elements.encodingFilterNoticeText.textContent, /^Receipt 1 is outside the selected amount range \(₱500–599\) and stays visible only while you edit it\.$/);
+  assert.match(rows()[0].part('summary').getAttribute('aria-label'), /outside the selected amount range/);
   add();
-  assert.equal(rows().length, 1, 'the hidden blank receipt is reused, not duplicated');
-  elements.encodingAmountCompartment.value = 'all'; elements.encodingAmountCompartment.emit('change');
-  add();
-  assert.equal(focusLog.length, 1, 'once visible, Add focuses Amount');
-  assert.equal(elements.encodingFeedback.textContent, '', 'the warning is cleared');
+  assert.equal(rows().length, 1, 'repeated Add reuses the blank receipt');
 });
 
 test('receipt identifiers never change when other receipts are hidden by filters', () => {

@@ -84,7 +84,7 @@ test('static ids are unique and the sidebar owns navigation and every account co
 test('page chrome is reduced: no application header, numbering, eyebrows or repeated descriptions', () => {
   assert.doesNotMatch(staticHtml, /app-header|Receipt workflows|WORKSPACE \d|WORKFLOW \d|AMOUNT CALCULATOR|header-actions/);
   assert.doesNotMatch(staticHtml, /Encode, file, or calculate/);
-  const workspaces = { encodingWorkspace: 'Receipt Encoding', optimizationWorkspace: 'Receipt Optimization', monthlyFilingWorkspace: 'Monthly Filing', quickOptimizerWorkspace: 'Quick Optimizer' };
+  const workspaces = { encodingWorkspace: 'My Receipt Encoding', optimizationWorkspace: 'My Receipt Optimization', monthlyFilingWorkspace: 'Monthly Filing', quickOptimizerWorkspace: 'Quick Optimizer' };
   for (const [id, heading] of Object.entries(workspaces)) {
     const section = staticHtml.match(new RegExp(`<section[^>]*id="${id}"[\\s\\S]*?(?=<section class="workspace-view|<div class="edit-modal|</div>\\s*</main>)`))?.[0] ?? '';
     const headings = [...section.matchAll(/<h1[^>]*>([^<]*)<\/h1>/g)].map(match => match[1]);

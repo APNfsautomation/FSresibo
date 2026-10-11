@@ -6,6 +6,7 @@ import { makeTemplateIdsUnique, receiptSummaryAccessibleName } from './receiptAc
 import { collapseKeptReceiptsOnShortWindows } from './optimizationPresentation.js';
 import { trackTextEntry } from './textEntryFocus.js';
 import { parseMoneyAmount } from '../domain/moneyAmount.js';
+import { outsideRangeNotice, receiptHasUnsavedChanges, releasedHiddenNotice } from './encodingPresentation.js';
 
 const draftKey = 'receipt-match-draft-v2';
 const money = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' });
@@ -388,7 +389,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       store: row.querySelector('.receipt-store').value,
       amountCents: amountValue ? toCents(amountValue) : null,
       status: normalizeReceiptStatus(row.dataset.receiptStatus),
-      open: row.open
+      open: row.open,
+      outsideRange: row.classList.contains('is-outside-range')
     }));
   };
   const receiptStatus = row => normalizeReceiptStatus(row.dataset.receiptStatus);
@@ -408,15 +410,90 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     elements.exportSelected.disabled = count === 0;
     elements.exportSelected.textContent = `Export Selected (${count})`;
   };
+  // Edit pins (presentation only, never stored): a receipt being added or edited stays visible even when its amount is outside the selected
+  // amount range. A pin overrides the amount range only, never the Available/Consumed view. Pins are released by collapsing the receipt, a successful
+  // Save, changing the amount range or the view, Collapse all, and deleting the receipt.
+  const pinReceipt = row => { row.dataset.filterPinned = '1'; };
+  const releaseEditPins = (rows = [...elements.list.children]) => {
+    const pinned = rows.filter(row => row.dataset.filterPinned);
+    const outside = pinned.filter(row => row.classList.contains('is-outside-range'));
+    pinned.forEach(row => { delete row.dataset.filterPinned; });
+    return outside;
+  };
+  const rangeLabel = () => encodingAmountCompartments.find(compartment => compartment.value === encodingDisplayState.compartment)?.label ?? '';
+  const renderFilterNotice = outsideRows => {
+    if (!elements.encodingFilterNotice) return;
+    elements.encodingFilterNotice.hidden = outsideRows.length === 0;
+    if (outsideRows.length) elements.encodingFilterNoticeText.textContent = outsideRangeNotice(outsideRows.map(row => row.dataset.receiptId || ''), rangeLabel());
+  };
+  const savedReceiptFor = row => row.dataset.receiptDbId ? storeSourceReceipts.find(receipt => receipt.dbId === row.dataset.receiptDbId) : undefined;
+  // The summary card shows persisted Available receipts only (all amount ranges); pending edits are announced, never added in.
+  const refreshAvailableSummary = () => {
+    const availableSaved = storeSourceReceipts.filter(receipt => normalizeReceiptStatus(receipt.status) === 'available');
+    const total = availableReceiptTotalCents(storeSourceReceipts.map(receipt => ({ status: receipt.status, cents: toCents(receipt.amount) })));
+    elements.availableTotal.textContent = format(total);
+    if (elements.availableCount) elements.availableCount.textContent = String(availableSaved.length);
+    if (elements.availableSummaryNote) {
+      elements.availableSummaryNote.hidden = ![...elements.list.children].some(row => {
+        if (receiptStatus(row) === 'consumed') return false;
+        if (row.dataset.receiptDbId && !savedReceiptFor(row)) return false;
+        return receiptHasUnsavedChanges(rowValues(row), savedReceiptFor(row));
+      });
+    }
+  };
   const refreshEncodingCards = () => {
+    const outsideRows = [];
     [...elements.list.children].forEach(row => {
       const matchesStatus = toolbarState.status === 'all' || receiptStatus(row) === toolbarState.status;
       const matchesCompartment = receiptMatchesEncodingAmountCompartment(toCents(row.querySelector('.receipt-amount').value), encodingDisplayState.compartment);
-      row.hidden = !matchesStatus || !matchesCompartment;
+      const keepVisible = Boolean(row.dataset.filterPinned) && matchesStatus;
+      const outsideRange = !matchesCompartment && keepVisible;
+      row.hidden = !matchesStatus || (!matchesCompartment && !keepVisible);
+      if (row.classList.contains('is-outside-range') !== outsideRange) {
+        row.classList.toggle('is-outside-range', outsideRange);
+        row.querySelector('.receipt-range-flag').hidden = !outsideRange;
+        refreshSummaryAccessibleName(row);
+      }
+      if (outsideRange) outsideRows.push(row);
     });
-    const total = availableReceiptTotalCents(storeSourceReceipts.map(receipt => ({ status: receipt.status, cents: toCents(receipt.amount) })));
-    elements.availableTotal.textContent = `Available Total — ${format(total)}`;
+    renderFilterNotice(outsideRows);
+    refreshAvailableSummary();
     elements.floatingAdd.hidden = !floatingAddVisibleForStatus(toolbarState.status);
+  };
+  const applyAmountRangeChange = () => {
+    encodingDisplayState.compartment = normalizeEncodingAmountCompartment(elements.encodingAmountCompartment.value);
+    persistEncodingDisplayState();
+    releaseEditPins();
+    refreshEncodingCards();
+  };
+  const showAllAmounts = () => {
+    const target = [...elements.list.children].find(row => row.classList.contains('is-outside-range'));
+    elements.encodingAmountCompartment.value = 'all';
+    applyAmountRangeChange();
+    (target && !target.hidden ? (target.open ? target.querySelector('.receipt-store') : target.querySelector('summary')) : elements.encodingAmountCompartment)?.focus?.({ preventScroll: false });
+  };
+  const visibleReceiptRows = () => [...elements.list.children].filter(row => !row.hidden);
+  const expandAllReceipts = () => { visibleReceiptRows().forEach(row => { row.open = true; }); };
+  const collapseAllReceipts = () => {
+    const rows = visibleReceiptRows();
+    const nowHidden = releaseEditPins(rows);
+    rows.forEach(row => { row.open = false; });
+    refreshEncodingCards();
+    const hidden = nowHidden.filter(row => row.hidden).map(row => row.dataset.receiptId || '');
+    if (hidden.length) setFeedback(elements.encodingFeedback, releasedHiddenNotice(hidden));
+  };
+  // Collapsing a pinned receipt that is outside the range hides it again; keep keyboard focus on a receipt that is still visible.
+  const releasePinAfterCollapse = row => {
+    const wasOutside = row.classList.contains('is-outside-range');
+    const focusedInside = Boolean(globalThis.document?.activeElement && row.contains?.(globalThis.document.activeElement));
+    const visibleRows = visibleReceiptRows(); const position = visibleRows.indexOf(row);
+    delete row.dataset.filterPinned;
+    refreshEncodingCards();
+    if (!wasOutside || !row.hidden) return;
+    setFeedback(elements.encodingFeedback, releasedHiddenNotice([row.dataset.receiptId || '']));
+    if (!focusedInside) return;
+    const next = visibleReceiptRows().find(candidate => visibleRows.indexOf(candidate) > position) || visibleReceiptRows().at(-1);
+    (next ? next.querySelector('summary') : elements.encodingAmountCompartment)?.focus?.({ preventScroll: true });
   };
   const applyReceiptStatusState = row => {
     const consumed = receiptStatus(row) === 'consumed';
@@ -676,11 +753,11 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     installStoreAutocomplete(row);
     const storeInput = row.querySelector('.receipt-store');
     row.querySelectorAll('input, select').forEach(field => {
-      const refreshView = () => { refreshSummary(row); clearSelection(); refreshEncodingCards(); refreshOptimizationCards(); };
-      field.addEventListener('input', field === storeInput ? () => refreshSummary(row) : refreshView);
+      const refreshView = () => { if (!row.hidden) pinReceipt(row); refreshSummary(row); clearSelection(); refreshEncodingCards(); refreshOptimizationCards(); };
+      field.addEventListener('input', field === storeInput ? () => { if (!row.hidden) pinReceipt(row); refreshSummary(row); refreshAvailableSummary(); } : refreshView);
       field.addEventListener('change', refreshView);
     });
-    row.addEventListener('toggle', () => refreshToggle(row));
+    row.addEventListener('toggle', () => { refreshToggle(row); if (!row.open && row.dataset.filterPinned) releasePinAfterCollapse(row); });
     elements.list.append(row);
     applyReceiptStatusState(row);
     if (refresh) { refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); }
@@ -688,20 +765,21 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   };
   const isBlankUnsavedReceipt = row => !row.dataset.receiptDbId && Object.values(rowValues(row)).every(value => !String(value || '').trim());
   const prefersReducedMotion = () => globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
-  // Amount is the first field of a new receipt: expand it, bring it into view, then focus Amount (focus never scrolls on its own).
+  // Store name is the first field of a new receipt (same order as Monthly Filing): expand it, bring it into view, then focus Store (focus never scrolls on its own).
   const focusReceiptForEncoding = row => {
     row.open = true;
     requestAnimationFrame(() => {
       row.scrollIntoView({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
-      row.querySelector('.receipt-amount').focus({ preventScroll: true });
+      row.querySelector('.receipt-store').focus({ preventScroll: true });
     });
   };
-  // Reuse a blank unsaved receipt (visible ones first) instead of stacking up blanks. A receipt hidden by the current filters is never
-  // focused: the user is told why instead, so no keyboard opens for something they cannot see.
+  // Reuse a blank unsaved receipt (visible ones first) instead of stacking up blanks. The receipt is pinned so it stays visible while it is edited,
+  // even outside the selected amount range (a notice explains this). Only the Available/Consumed view can still hide it, and then it is not focused.
   const addReceiptForEncoding = () => {
     const rows = [...elements.list.children];
     const row = rows.find(candidate => isBlankUnsavedReceipt(candidate) && !candidate.hidden) || rows.find(isBlankUnsavedReceipt) || addReceipt();
-    if (row.hidden) return setFeedback(elements.encodingFeedback, 'The new receipt is hidden by the current amount range or view. Choose All amounts and Available to see it.');
+    pinReceipt(row); refreshEncodingCards();
+    if (row.hidden) return setFeedback(elements.encodingFeedback, 'The new receipt is hidden by the current view. Choose Available or All in View receipts to see it.');
     setFeedback(elements.encodingFeedback);
     focusReceiptForEncoding(row);
   };
@@ -752,8 +830,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     try {
       const invalidRow = [...elements.list.children].find(row => receiptStatus(row) !== 'consumed' && !isBlankUnsavedReceipt(row) && amountProblem(row));
       if (invalidRow) {
-        invalidRow.open = true;
-        setFeedback(elements.encodingFeedback, `Could not save receipt changes. ${rowAmountMessage(invalidRow, amountProblem(invalidRow))} Nothing was saved; correct the amount and save again.`);
+        invalidRow.open = true; pinReceipt(invalidRow); refreshEncodingCards();
+        setFeedback(elements.encodingFeedback, `Could not save receipt changes. ${rowAmountMessage(invalidRow, amountProblem(invalidRow))} Nothing was saved; correct the amount and save again.${invalidRow.hidden ? ' This receipt is hidden by the View receipts filter; choose Available or All to see it.' : ''}`);
         invalidRow.querySelector('.receipt-amount').focus?.({ preventScroll: false });
         return;
       }
@@ -774,9 +852,11 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
         return;
       }
       finalizeDirectoryPromptFingerprints(persisted);
+      const released = releaseEditPins();
       refreshEncodingCards();
       refreshOptimizationCards();
-      setFeedback(elements.encodingFeedback, 'Receipt changes saved.');
+      const nowHidden = releasedHiddenNotice(released.filter(row => row.hidden).map(row => row.dataset.receiptId || ''));
+      setFeedback(elements.encodingFeedback, `Receipt changes saved.${nowHidden ? ` ${nowHidden}` : ''}`);
       await processPostSaveDirectoryCandidates(candidates);
     } catch (error) { setFeedback(elements.encodingFeedback, `Could not save receipt changes: ${error.message}`); }
     finally { savePending = false; elements.saveDraft.disabled = false; }
@@ -1044,12 +1124,11 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       [elements.optimizationMinAmount, elements.optimizationMaxAmount].forEach(field => field.addEventListener('input', applyToolbarChange));
       elements.clearOptimizationSearch.addEventListener('click', () => { clearTimeout(searchDebounce); elements.optimizationSearch.value = ''; applyToolbarChange(); elements.optimizationSearch.focus(); });
       elements.clearOptimizationFilters.addEventListener('click', clearFilters);
-      elements.receiptStatusFilter.addEventListener('change', applyToolbarChange);
-      elements.encodingAmountCompartment.addEventListener('change', () => {
-        encodingDisplayState.compartment = normalizeEncodingAmountCompartment(elements.encodingAmountCompartment.value);
-        persistEncodingDisplayState();
-        refreshEncodingCards();
-      });
+      elements.receiptStatusFilter.addEventListener('change', () => { releaseEditPins(); applyToolbarChange(); });
+      elements.encodingAmountCompartment.addEventListener('change', applyAmountRangeChange);
+      elements.showAllAmounts?.addEventListener('click', showAllAmounts);
+      elements.expandAllReceipts?.addEventListener('click', expandAllReceipts);
+      elements.collapseAllReceipts?.addEventListener('click', collapseAllReceipts);
       document.addEventListener('keydown', event => { if (modalFocus) return; if (event.key === 'Escape' && !elements.editModal.hidden) closeEditModal(); else if (event.key === 'Escape' && !elements.exportConfirmModal.hidden) closeExportConfirmation(); });
       collapseKeptReceiptsOnShortWindows(elements.keptReceipts);
       trackTextEntry(elements.encodingWorkspace);

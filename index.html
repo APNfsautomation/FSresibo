@@ -57,7 +57,7 @@
       <aside class="application-navigation" id="navigationDrawer" aria-label="Application navigation" aria-hidden="false">
         <p class="navigation-brand"><span class="brand-slash" aria-hidden="true"></span><span class="brand-name" data-app-name>FS Receipt Management Tool</span></p>
         <nav aria-label="Workflows">
-          <button class="navigation-item" id="receiptsNavigationItem" type="button" aria-current="page">Receipts</button>
+          <button class="navigation-item" id="receiptsNavigationItem" type="button" aria-current="page">My Receipts</button>
           <button class="navigation-item" id="monthlyFilingNavigationItem" type="button" aria-current="false">Monthly Filing</button>
           <button class="navigation-item" id="quickOptimizerNavigationItem" type="button" aria-current="false">Quick Optimizer</button>
         </nav>
@@ -80,8 +80,14 @@
 
       <section class="workspace-view encoding-workspace" id="encodingWorkspace" role="tabpanel" aria-labelledby="encodingTab">
         <div class="workspace-heading">
-          <h1>Receipt Encoding</h1>
-          <div class="encoding-workspace-tools"><p id="availableTotal" class="available-total">Available Total — ₱0.00</p><label class="encoding-compartment-filter" for="encodingAmountCompartment">Amount compartment<select id="encodingAmountCompartment"></select></label></div>
+          <h1>My Receipt Encoding</h1>
+          <div class="encoding-workspace-tools">
+            <section class="available-summary" aria-label="Saved Available receipts">
+              <div class="summary-metric"><svg class="summary-icon" viewBox="0 0 24 24" width="22" height="22" focusable="false" aria-hidden="true"><path d="M3.5 7.5A2.5 2.5 0 0 1 6 5h11.5a1.5 1.5 0 0 1 1.5 1.5V8M3.5 7.5V17A2.5 2.5 0 0 0 6 19.5h12.5A1.5 1.5 0 0 0 20 18V9.5A1.5 1.5 0 0 0 18.5 8H6a2.5 2.5 0 0 1-2.5-2.5M15.5 13.75h2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><div><p class="summary-label">Available total</p><p class="summary-value" id="availableTotal">₱0.00</p></div></div>
+              <div class="summary-metric"><svg class="summary-icon" viewBox="0 0 24 24" width="22" height="22" focusable="false" aria-hidden="true"><path d="M6 3.5h12v17l-2.25-1.5L13.5 20.5 12 19l-1.5 1.5L8.25 19 6 20.5v-17ZM9 8.5h6M9 12h6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><div><p class="summary-label">Available receipts</p><p class="summary-value" id="availableCount">0</p></div></div>
+              <p class="summary-note" id="availableSummaryNote" hidden>Totals reflect saved receipts. Unsaved changes are not included.</p>
+            </section>
+            <label class="encoding-compartment-filter" for="encodingAmountCompartment">Amount compartment<select id="encodingAmountCompartment"></select></label></div>
         </div>
         <div class="encoding-actions action-bar" id="encodingActions">
           <button class="ghost danger" id="clearAll" type="button">Clear form</button>
@@ -91,14 +97,16 @@
           <p class="workflow-feedback" id="encodingFeedback" role="status" aria-live="polite"></p>
         </div>
         <div class="panel encoding-panel">
-          <div class="panel-heading"><div><h2>Your receipts</h2><p id="receiptCount">No receipts added</p></div></div>
+          <div class="panel-heading"><div><h2>Your receipts</h2><p id="receiptCount">No receipts added</p></div>
+            <div class="list-tools"><button class="ghost list-tool" id="expandAllReceipts" type="button"><svg class="button-icon" viewBox="0 0 16 16" width="14" height="14" focusable="false" aria-hidden="true"><path d="M3.5 6 8 10.5 12.5 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Expand all</span></button><button class="ghost list-tool" id="collapseAllReceipts" type="button"><svg class="button-icon" viewBox="0 0 16 16" width="14" height="14" focusable="false" aria-hidden="true"><path d="M3.5 10 8 5.5 12.5 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Collapse all</span></button></div></div>
+          <div class="filter-notice" id="encodingFilterNotice" role="status" hidden><svg class="notice-icon" viewBox="0 0 24 24" width="22" height="22" focusable="false" aria-hidden="true"><path d="M12 3.75 21 19.5H3L12 3.75ZM12 10v4.25M12 17h.01" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><p id="encodingFilterNoticeText"></p><button class="secondary" id="showAllAmounts" type="button">Show all amounts</button></div>
           <div id="receiptList" class="encoding-list" aria-live="polite"></div>
           <div class="photo-note"><span aria-hidden="true">⌁</span><p><strong>Free printed-text OCR.</strong> Open a receipt and choose Scan printed details to fill printed store details. Check handwritten amounts manually.</p></div>
         </div>
       </section>
 
       <section class="workspace-view optimization-workspace" id="optimizationWorkspace" role="tabpanel" aria-labelledby="optimizationTab" hidden>
-        <div class="workspace-heading"><h1>Receipt Optimization</h1></div>
+        <div class="workspace-heading"><h1>My Receipt Optimization</h1></div>
         <div class="optimization-layout">
           <section class="optimization-controls" aria-label="Optimization controls">
             <div class="target-card" aria-labelledby="target-label">
@@ -235,23 +243,23 @@
 
     <template id="receiptTemplate">
       <details class="receipt-card">
-        <summary class="receipt-summary" title="Show receipt details"><span class="summary-id">Receipt 1</span><span class="summary-store">Store not set</span><strong class="summary-amount">₱0.00</strong><span class="receipt-status-badge" hidden>Consumed</span><span class="summary-toggle" aria-hidden="true"><span class="toggle-label">Details</span><span class="toggle-icon">⌄</span></span></summary>
+        <summary class="receipt-summary" title="Show receipt details"><span class="summary-id">Receipt 1</span><span class="summary-store">Store not set</span><strong class="summary-amount">₱0.00</strong><span class="receipt-status-badge" hidden>Consumed</span><span class="receipt-range-flag" hidden>Outside range</span><span class="summary-toggle" aria-hidden="true"><span class="toggle-label">Details</span><svg class="toggle-icon" viewBox="0 0 16 16" width="16" height="16" focusable="false" aria-hidden="true"><path d="M3.5 6.25 8 10.75l4.5-4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></summary>
         <div class="receipt-content">
-          <section class="receipt-form-group" aria-labelledby="receipt-details-title">
-            <p class="form-group-title" id="receipt-details-title">Receipt details</p>
-            <div class="receipt-fields receipt-core-fields">
-              <label>Amount<input class="receipt-amount" inputmode="decimal" placeholder="0.00" /></label>
-              <label>Receipt date<input class="receipt-receiptDate" type="date" /></label>
-              <label>VAT status<select class="receipt-vat"><option value="">Not set</option><option value="VAT">VAT</option><option value="Non-VAT">Non-VAT</option></select></label>
-              <label>Invoice number<input class="receipt-invoice" placeholder="Invoice / OR number" /></label>
-            </div>
-          </section>
           <section class="receipt-form-group" aria-labelledby="store-details-title">
             <p class="form-group-title" id="store-details-title">Store details</p>
             <div class="receipt-fields receipt-store-fields">
               <label class="wide store-name-field">Store name<input class="receipt-store" placeholder="Store or business name" autocomplete="off" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" /><ul class="store-suggestions" role="listbox" hidden></ul></label>
               <label class="wide">Store address<input class="receipt-address" placeholder="Store address" /></label>
               <label>Store TIN<input class="receipt-tin" placeholder="000-000-000-000" /></label>
+              <label>VAT status<select class="receipt-vat"><option value="">Not set</option><option value="VAT">VAT</option><option value="Non-VAT">Non-VAT</option></select></label>
+            </div>
+          </section>
+          <section class="receipt-form-group" aria-labelledby="receipt-details-title">
+            <p class="form-group-title" id="receipt-details-title">Receipt details</p>
+            <div class="receipt-fields receipt-core-fields">
+              <label>Amount<input class="receipt-amount" inputmode="decimal" placeholder="0.00" /></label>
+              <label>Receipt date<input class="receipt-receiptDate" type="date" /></label>
+              <label>Invoice number<input class="receipt-invoice" placeholder="Invoice / OR number" /></label>
               <label class="scan-label">Receipt photo<input class="receipt-photo" type="file" accept="image/*" capture="environment" /><span class="scan-button">⌁ Scan printed details</span></label>
             </div>
           </section>
@@ -271,7 +279,7 @@
         <button class="ghost compact-edit" type="button">Edit</button><button class="secondary compact-restore" type="button" hidden>Mark Available</button>
       </article>
     </template>
-    <template id="monthlyFilingReceiptTemplate"><article class="receipt-card monthly-card"><button class="monthly-summary" type="button" aria-expanded="true"><span class="monthly-summary-id">Receipt 1</span><span class="monthly-summary-store">Store not set</span><strong class="monthly-summary-amount">₱0.00</strong><span class="monthly-summary-date">No date</span><span class="monthly-summary-flags"></span><span class="monthly-summary-chevron" aria-hidden="true">⌄</span></button><div class="receipt-content"><div class="receipt-form-group"><p class="form-group-title"><span class="monthly-receipt-id">Receipt 1</span> <span class="monthly-status" hidden></span> <span class="monthly-unsaved" hidden></span></p><div class="receipt-fields"><label class="wide store-name-field">Store<input class="monthly-store" placeholder="Store name" autocomplete="off" /><div class="store-suggestions monthly-suggestions" hidden></div></label><label class="wide">Address<input class="monthly-address" placeholder="Address" /></label><label>TIN<input class="monthly-tin" placeholder="TIN" /></label><label>VAT status<select class="monthly-vat"><option value="">Not set</option><option value="VAT">VAT</option><option value="Non-VAT">Non-VAT</option></select></label><label>Amount<input class="monthly-amount" inputmode="decimal" placeholder="0.00" /></label><label>Receipt date<input class="monthly-receiptDate" type="date" /></label><label>Invoice number<input class="monthly-invoice" placeholder="Invoice / OR number" /></label></div></div><div class="receipt-form-footer"><button class="delete-receipt monthly-delete" type="button">Delete receipt</button><button class="secondary monthly-return-active" type="button" hidden>Return to Active</button></div></div></article></template>
+    <template id="monthlyFilingReceiptTemplate"><article class="receipt-card monthly-card"><button class="monthly-summary" type="button" aria-expanded="true"><span class="monthly-summary-id">Receipt 1</span><span class="monthly-summary-store">Store not set</span><strong class="monthly-summary-amount">₱0.00</strong><span class="monthly-summary-date">No date</span><span class="monthly-summary-flags"></span><span class="monthly-summary-chevron" aria-hidden="true"><svg class="chevron-icon" viewBox="0 0 16 16" width="16" height="16" focusable="false" aria-hidden="true"><path d="M3.5 6.25 8 10.75l4.5-4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button><div class="receipt-content"><div class="receipt-form-group"><p class="form-group-title"><span class="monthly-receipt-id">Receipt 1</span> <span class="monthly-status" hidden></span> <span class="monthly-unsaved" hidden></span></p><div class="receipt-fields"><label class="wide store-name-field">Store<input class="monthly-store" placeholder="Store name" autocomplete="off" /><div class="store-suggestions monthly-suggestions" hidden></div></label><label class="wide">Address<input class="monthly-address" placeholder="Address" /></label><label>TIN<input class="monthly-tin" placeholder="TIN" /></label><label>VAT status<select class="monthly-vat"><option value="">Not set</option><option value="VAT">VAT</option><option value="Non-VAT">Non-VAT</option></select></label><label>Amount<input class="monthly-amount" inputmode="decimal" placeholder="0.00" /></label><label>Receipt date<input class="monthly-receiptDate" type="date" /></label><label>Invoice number<input class="monthly-invoice" placeholder="Invoice / OR number" /></label></div></div><div class="receipt-form-footer"><button class="delete-receipt monthly-delete" type="button">Delete receipt</button><button class="secondary monthly-return-active" type="button" hidden>Return to Active</button></div></div></article></template>
     <section class="edit-modal" id="exportConfirmModal" role="dialog" aria-modal="true" aria-labelledby="exportConfirmTitle" hidden>
       <div class="modal-backdrop" id="exportConfirmBackdrop"></div>
       <div class="modal-card export-confirm-card"><p class="eyebrow">EXPORT SELECTED</p><h2 id="exportConfirmTitle">Export selected receipts?</h2><p id="exportConfirmMessage">After the export is prepared, these receipts will be marked as Consumed and excluded from future optimization.</p><div class="modal-actions"><button class="primary" id="confirmExport" type="button">Export &amp; Mark Consumed</button><button class="ghost" id="cancelExport" type="button">Cancel</button></div></div>
