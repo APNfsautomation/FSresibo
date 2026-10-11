@@ -84,11 +84,11 @@ test('summary card, notice, flag and chevron use semantic tokens only (Light and
   const notice = css.slice(css.indexOf('/* Edit pins:'), css.indexOf('.encoding-list .receipt-card.is-outside-range'));
   const chevron = css.slice(css.indexOf('.summary-toggle {'), css.indexOf('.receipt-card[open] .summary-toggle'));
   for (const part of [block, notice, chevron]) { assert.doesNotMatch(part, /#[0-9a-fA-F]{3,8}\b/, 'no raw colours'); assert.doesNotMatch(part, /!important/); }
-  assert.match(block, /\.available-summary \{[^}]*border: var\(--border-width\) solid var\(--border\); border-left: 3px solid var\(--primary\)[^}]*background: var\(--surface\)/, 'compact neutral card with a subtle blue accent');
-  assert.doesNotMatch(block, /success/, 'no green fill or green accents on the summary card');
+  assert.match(block, /\.available-summary \{[^}]*padding: 0; border: 0; background: none;/, 'unboxed: no fill, border or container padding');
+  assert.doesNotMatch(block, /box-shadow|border-left|success/, 'no shadow, accent border or green');
   assert.match(block, /\.summary-icon \{[^}]*color: var\(--primary\)/);
   assert.match(notice, /\.filter-notice \{[^}]*border-left: 4px solid var\(--warning\)[^}]*background: var\(--warning-soft\)/);
-  assert.match(css, /\.encoding-list \.receipt-card\.is-outside-range \{ box-shadow: inset 4px 0 0 var\(--warning\); \}/);
+  assert.match(css, /\.encoding-list \.receipt-card\.is-outside-range\[open\] \{ border-color: var\(--warning\); box-shadow: inset 4px 0 0 var\(--warning\); \}/);
   assert.match(css, /\.summary-toggle \{[^}]*width: 32px; height: 32px; border: var\(--border-width\) solid var\(--border-strong\)[^}]*border-radius: var\(--radius-sm\)/, 'outlined 32px icon button');
   assert.match(css, /\.receipt-card\[open\] \.toggle-icon \{ transform: rotate\(180deg\); \}/);
   assert.match(css, /prefers-reduced-motion: reduce\) \{ \* \{ transition: none !important; \}/, 'the chevron rotation is not animated for reduced motion');
@@ -503,11 +503,24 @@ test('deleting a Consumed receipt never touches the Company Directory, Monthly F
   assert.match(ui, /row\.querySelector\('\.delete-consumed'\)\.hidden = !consumed;/);
 });
 
-test('the sticky action bar separates from the page: neutral surface, a clearer border and a restrained shadow, on desktop and phones, with a single Save', () => {
+test('receipts are separate cards: a gap, own border and radius, no connecting dividers, blue and amber accents distinguishable', () => {
+  assert.match(css, /\.encoding-list \{ display: grid; gap: 10px; padding: var\(--space-3\); \}/);
+  assert.match(css, /\.encoding-list \.receipt-card \{[^}]*border: var\(--border-width\) solid var\(--border-strong\); border-radius: var\(--radius-md\)/);
+  assert.doesNotMatch(css, /\.encoding-list \.receipt-card \{[^}]*border-bottom/);
+  assert.match(css, /\.encoding-list \.receipt-card\[open\] \{ border-color: var\(--primary\); box-shadow: inset 4px 0 0 var\(--primary\); \}/);
+  assert.match(css, /\.encoding-list \.receipt-card\.is-outside-range, \.encoding-list \.receipt-card\.is-outside-range\[open\] \{ border-color: var\(--warning\); box-shadow: inset 4px 0 0 var\(--warning\); \}/, 'amber wins over blue while outside the range');
+  assert.match(css, /\[hidden\] \{ display: none !important; \}/, 'filtered receipts leave no empty grid cell');
+  assert.match(receiptTemplate, /^\s*<details class="receipt-card">/, 'native details/summary kept');
+});
+
+test('the action bar is a distinct slate-blue command bar (tokens, border, elevation) with one Save, on desktop and phones', () => {
+  assert.match(css, /--toolbar-bg: #dbe5f3;/); assert.match(css, /--toolbar-bg: #213652;/, 'Dark token');
   const desktop = css.slice(css.indexOf('@media (min-width: 641px) and (min-height: 480px) {'), css.indexOf('.photo-note {'));
-  assert.match(desktop, /#encodingActions \{ position: sticky; top: var\(--space-2\); z-index: 12;[^}]*border: var\(--border-width\) solid var\(--control-border\)[^}]*background: var\(--surface-2\); box-shadow: 0 2px 8px rgba\(19, 35, 61, \.14\); \}/);
+  assert.match(desktop, /#encodingActions \{ position: sticky; top: var\(--space-2\); z-index: 12;[^}]*border: var\(--border-width\) solid var\(--toolbar-border\)[^}]*background: var\(--toolbar-bg\); box-shadow: 0 4px 14px/);
   const phone = css.slice(css.indexOf('@media (max-width: 640px) {\n  .receipts-bar'));
-  assert.match(phone, /\.encoding-workspace > #encodingActions \{[^}]*border-top: var\(--border-width\) solid var\(--control-border\); background: var\(--surface-2\); box-shadow: 0 -2px 8px rgba\(19, 35, 61, \.14\);/);
+  assert.match(phone, /\.encoding-workspace > #encodingActions \{[^}]*border-top: 2px solid var\(--toolbar-border\); background: var\(--toolbar-bg\);/);
+  assert.match(phone, /#encodingActions \.action-bar-spacer, #encodingActions \.action-bar-label \{ display: none; \}/, 'the label is not shown on phones, so the bar gains no height');
+  assert.match(staticHtml, /<span class="action-bar-label" aria-hidden="true">RECEIPT ACTIONS<\/span>/);
   assert.equal(count(staticHtml, /id="saveDraft"/g), 1, 'still a single Save changes control');
   assert.match(css, /@media \(min-width: 641px\) and \(min-height: 480px\)/, 'sticky only on tall viewports');
   assert.match(phone, /\.encoding-workspace > #encodingActions, \.encoding-workspace\.is-editing > #encodingActions:not\(:focus-within\) \{ position: static;/, 'short viewports and zoom keep the static override');
