@@ -28,12 +28,12 @@ test('user-facing labels are "My Receipts", "My Receipt Encoding" and "My Receip
 });
 
 // ---- markup contracts -------------------------------------------------------------------------------------------------------------------------
-test('the Available summary card shows only the saved total and the saved count, with a note slot for pending changes', () => {
+test('the Available summary card shows only the saved total and the saved count (the unsaved explanation moved to the Save controls)', () => {
   const card = encoding.slice(encoding.indexOf('class="available-summary"'), encoding.indexOf('class="encoding-compartment-filter"'));
   assert.match(card, /<p class="summary-value" id="availableTotal">₱0\.00<\/p>/); assert.match(card, /<p class="summary-value" id="availableCount">0<\/p>/);
   assert.equal(count(card, /class="summary-metric"/g), 2, 'exactly two metrics');
   assert.doesNotMatch(card, /lowest|highest|minimum|maximum|average/i, 'no lowest/highest amounts');
-  assert.match(card, /<p class="summary-note" id="availableSummaryNote" hidden>Totals reflect saved receipts\. Unsaved changes are not included\.<\/p>/);
+  assert.doesNotMatch(card, /summary-note|availableSummaryNote|Unsaved changes|not included/i, 'the unsaved explanation lives with the Save controls, not in the card');
   assert.equal(count(card, /<svg class="summary-icon"[^>]*aria-hidden="true"/g), 2, 'decorative inline icons, no dependency');
   assert.doesNotMatch(html, /fontawesome|material-icons|<img[^>]*icon/i);
   const ids = [...staticHtml.matchAll(/\bid="([^"]+)"/g)].map(match => match[1]);
@@ -80,11 +80,13 @@ test('zoom budgets: 200% of a 1440×900 window is 720×450 and 400% of 1280×800
 });
 
 test('summary card, notice, flag and chevron use semantic tokens only (Light and Dark come from the theme)', () => {
-  const start = css.indexOf('/* Saved-data summary card'); const block = css.slice(start, css.indexOf('.summary-note {', start) + 200);
+  const start = css.indexOf('/* Saved-data summary card'); const block = css.slice(start, css.indexOf('.encoding-compartment-filter {', start));
   const notice = css.slice(css.indexOf('/* Edit pins:'), css.indexOf('.encoding-list .receipt-card.is-outside-range'));
   const chevron = css.slice(css.indexOf('.summary-toggle {'), css.indexOf('.receipt-card[open] .summary-toggle'));
   for (const part of [block, notice, chevron]) { assert.doesNotMatch(part, /#[0-9a-fA-F]{3,8}\b/, 'no raw colours'); assert.doesNotMatch(part, /!important/); }
-  assert.match(block, /\.available-summary \{[^}]*border: var\(--border-width\) solid var\(--success-border\)[^}]*background: var\(--success-soft\)/);
+  assert.match(block, /\.available-summary \{[^}]*border: var\(--border-width\) solid var\(--border\); border-left: 3px solid var\(--primary\)[^}]*background: var\(--surface\)/, 'compact neutral card with a subtle blue accent');
+  assert.doesNotMatch(block, /success/, 'no green fill or green accents on the summary card');
+  assert.match(block, /\.summary-icon \{[^}]*color: var\(--primary\)/);
   assert.match(notice, /\.filter-notice \{[^}]*border-left: 4px solid var\(--warning\)[^}]*background: var\(--warning-soft\)/);
   assert.match(css, /\.encoding-list \.receipt-card\.is-outside-range \{ box-shadow: inset 4px 0 0 var\(--warning\); \}/);
   assert.match(css, /\.summary-toggle \{[^}]*width: 32px; height: 32px; border: var\(--border-width\) solid var\(--border-strong\)[^}]*border-radius: var\(--radius-sm\)/, 'outlined 32px icon button');
@@ -92,10 +94,10 @@ test('summary card, notice, flag and chevron use semantic tokens only (Light and
   assert.match(css, /prefers-reduced-motion: reduce\) \{ \* \{ transition: none !important; \}/, 'the chevron rotation is not animated for reduced motion');
 });
 
-test('the editor columns follow the field order: Store group left, Receipt group right, stacked below 1100px, two columns on phones', () => {
-  assert.match(css, /\.encoding-list \.receipt-content \{[^}]*grid-template-columns: minmax\(0, 7fr\) minmax\(0, 5fr\)/);
-  assert.match(css, /\.receipt-core-fields \.scan-label \{ align-self: end; \}/);
-  assert.match(css, /@media \(max-width: 1100px\) \{\n  \.encoding-list \.receipt-content \{ grid-template-columns: minmax\(0, 1fr\)/);
+test('the editor is one grid in reading order: 12 columns on desktop, two on tablets, Store and Address full width on phones', () => {
+  assert.match(css, /\.encoding-list \.receipt-editor-fields \{ grid-template-columns: repeat\(12, minmax\(0, 1fr\)\);/);
+  assert.match(css, /\.receipt-editor-fields \.scan-label \{ align-self: end; \}/);
+  assert.match(css, /@media \(max-width: 1100px\) \{\n  \.encoding-list \.receipt-editor-fields \.field-store[^\n]*grid-column: span 6; \}/);
   const phone = css.slice(css.indexOf('@media (max-width: 640px) {\n  .receipts-bar'));
   assert.match(phone, /\.encoding-workspace-tools \{ flex-direction: column; align-items: stretch; \}/);
   assert.match(phone, /\.list-tool \{ min-height: 44px; \}/);
@@ -131,7 +133,7 @@ globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} }
 globalThis.Option = class { constructor(label, value) { this.label = label; this.value = value; } };
 const settle = () => new Promise(resolve => setTimeout(resolve, 5));
 
-async function fixture({ loaded = [], confirm = async () => true } = {}) {
+async function fixture({ loaded = [], confirm = async () => true, deleteConsumed } = {}) {
   globalThis.window = { addEventListener() {}, removeEventListener() {}, setTimeout, clearTimeout };
   globalThis.matchMedia = () => ({ matches: false });
   globalThis.requestAnimationFrame = callback => { callback(); return 0; };
@@ -154,7 +156,8 @@ async function fixture({ loaded = [], confirm = async () => true } = {}) {
   const makeRow = () => {
     const parts = new Map();
     const part = selector => { if (!parts.has(selector)) parts.set(selector, node({ value: '', files: [] })); return parts.get(selector); };
-    return node({ open: false, querySelector: part, querySelectorAll: selector => selector === 'input, select' ? fieldSelectors.map(part) : [], part });
+    const row = node({ open: false, querySelector: part, querySelectorAll: selector => selector === 'input, select' ? fieldSelectors.map(part) : [], part, remove() { list.children = list.children.filter(item => item !== row); } });
+    return row;
   };
   globalThis.document = { createDocumentFragment: () => ({ append() {} }), createElement: () => node({ className: '' }), addEventListener() {}, get activeElement() { return state.activeElement; } };
   const list = node({ append(row) { list.children.push(row); }, replaceChildren(...rows) { list.children = rows; } });
@@ -163,13 +166,15 @@ async function fixture({ loaded = [], confirm = async () => true } = {}) {
     receiptStatusFilter: node({ value: 'available' }), optimizationSort: node({ value: 'default' }), optimizationStrategy: node({ value: optimizationStrategies.closest }), encodingAmountCompartment: node({ value: 'all' })
   };
   const elements = new Proxy(overrides, { get: (target, key) => key in target ? target[key] : (target[key] = node()) });
-  const calls = { create: [], update: [] }; let sequence = 0;
+  const calls = { create: [], update: [], delete: [], deleteConsumed: [], confirmations: [] }; let sequence = 0;
   const receiptService = {
     loadReceipts: async () => loaded.map(item => ({ status: 'available', ...item })),
     createReceipt: async values => { calls.create.push({ ...values }); return { ...values, dbId: `new-${++sequence}`, status: 'available', updatedAt: '' }; },
-    updateReceipt: async (id, values) => { calls.update.push([id, { ...values }]); return { ...values, dbId: id, status: 'available', updatedAt: '' }; }
+    updateReceipt: async (id, values) => { calls.update.push([id, { ...values }]); return { ...values, dbId: id, status: 'available', updatedAt: '' }; },
+    deleteReceipt: async id => { calls.delete.push(id); },
+    deleteConsumedReceipt: async id => { calls.deleteConsumed.push(id); if (deleteConsumed) return deleteConsumed(id); }
   };
-  const ui = createReceiptUi({ elements, findBest, optimizationStrategies, toCents: value => Math.round(Number(String(value || 0).replace(/[^0-9.]/g, '')) * 100), scanPrintedDetails: async () => ({}), downloadSelectedReceipts() {}, receiptService, sharedStoreService: { listActiveSharedStores: async () => [] }, confirmAction: confirm });
+  const ui = createReceiptUi({ elements, findBest, optimizationStrategies, toCents: value => Math.round(Number(String(value || 0).replace(/[^0-9.]/g, '')) * 100), scanPrintedDetails: async () => ({}), downloadSelectedReceipts() {}, receiptService, sharedStoreService: { listActiveSharedStores: async () => [] }, confirmAction: async options => { calls.confirmations.push(options); return confirm(options); } });
   ui.start(); await ui.loadForUser({ id: 'user-1' });
   const rows = () => list.children;
   const field = (row, name) => row.part(`.receipt-${name}`);
@@ -333,28 +338,29 @@ test('the Available summary counts saved Available receipts only, in exact centa
   await f.range('below-200'); assert.equal(f.money(f.elements.availableTotal), '₱950.30'); assert.equal(f.elements.availableCount.textContent, '5');
   f.elements.receiptStatusFilter.value = 'consumed'; await f.elements.receiptStatusFilter.emit('change');
   assert.equal(f.money(f.elements.availableTotal), '₱950.30', 'still the Available total in the Consumed view'); assert.equal(f.elements.availableCount.textContent, '5');
-  assert.equal(f.elements.availableSummaryNote.hidden, true);
+  assert.equal(f.elements.encodingUnsavedIndicator.hidden, true);
 });
 
-test('unsaved edits never change the saved totals; a concise note appears and the totals follow a successful Save', async () => {
+test('unsaved edits never change the saved totals; the unsaved indicator counts them and the totals follow a successful Save', async () => {
   const f = await fixture({ loaded });
   assert.equal(f.money(f.elements.availableTotal), '₱950.00'); assert.equal(f.elements.availableCount.textContent, '3');
   await f.type(f.rows()[0], 'amount', '1,100');
   assert.equal(f.money(f.elements.availableTotal), '₱950.00', 'saved total unchanged by a pending edit');
-  assert.equal(f.elements.availableSummaryNote.hidden, false);
+  assert.equal(f.elements.encodingUnsavedIndicator.hidden, false); assert.equal(f.elements.encodingUnsavedText.textContent, '1 unsaved receipt');
   await f.click(f.elements.floatingAdd); await f.type(f.rows().at(-1), 'store', 'New draft'); await f.type(f.rows().at(-1), 'amount', '50');
   assert.equal(f.money(f.elements.availableTotal), '₱950.00'); assert.equal(f.elements.availableCount.textContent, '3', 'unsaved receipts are not counted');
+  assert.equal(f.elements.encodingUnsavedText.textContent, '2 unsaved receipts');
   await f.click(f.elements.saveDraft);
   assert.equal(f.money(f.elements.availableTotal), '₱2,000.00', '1,100 + 300 + 550 + the newly saved 50');
-  assert.equal(f.elements.availableSummaryNote.hidden, true);
+  assert.equal(f.elements.encodingUnsavedIndicator.hidden, true, 'the indicator clears after a successful Save');
   assert.equal(f.elements.availableCount.textContent, '4');
 });
 
-test('editing back to the saved value removes the note, and typing only in a blank new receipt does not raise it', async () => {
+test('editing back to the saved value clears the indicator, and a blank new receipt does not raise it', async () => {
   const f = await fixture({ loaded });
-  await f.type(f.rows()[0], 'amount', '101'); assert.equal(f.elements.availableSummaryNote.hidden, false);
-  await f.type(f.rows()[0], 'amount', '100.00'); assert.equal(f.elements.availableSummaryNote.hidden, true);
-  await f.click(f.elements.floatingAdd); assert.equal(f.elements.availableSummaryNote.hidden, true);
+  await f.type(f.rows()[0], 'amount', '101'); assert.equal(f.elements.encodingUnsavedIndicator.hidden, false);
+  await f.type(f.rows()[0], 'amount', '100.00'); assert.equal(f.elements.encodingUnsavedIndicator.hidden, true, 'equivalent numeric formatting is not a change');
+  await f.click(f.elements.floatingAdd); assert.equal(f.elements.encodingUnsavedIndicator.hidden, true);
 });
 
 test('the summary uses the existing integer-centavo helpers, not floating-point sums', async () => {
@@ -374,4 +380,143 @@ test('pins and presentation state are never persisted, and the save, delete, res
   assert.ok(service.includes(".update({ status: 'consumed' }).in('id', uniqueIds).eq('status', 'available')"));
   const engine = await read('../services/optimizationService.js');
   assert.match(engine, /export const MAXIMUM_EXCESS_CENTS = 5000;/);
+});
+
+// ---- CP10-C1R: unsaved indicator, feedback severity, REVIEW-03, Consumed deletion -----------------------------------------------------------
+const showConsumed = async f => { f.elements.receiptStatusFilter.value = 'consumed'; await f.elements.receiptStatusFilter.emit('change'); };
+
+test('the unsaved indicator counts edited and new receipts with content, uses plain text, and follows delete and save', async () => {
+  const f = await fixture({ loaded });
+  const indicator = f.elements.encodingUnsavedIndicator; const text = f.elements.encodingUnsavedText;
+  assert.equal(indicator.hidden, true, 'nothing unsaved at load');
+  await f.type(f.rows()[0], 'store', 'Renamed'); assert.equal(indicator.hidden, false); assert.equal(text.textContent, '1 unsaved receipt');
+  await f.click(f.elements.floatingAdd); assert.equal(text.textContent, '1 unsaved receipt', 'a blank new receipt is not a change');
+  await f.type(f.rows().at(-1), 'amount', '75'); assert.equal(text.textContent, '2 unsaved receipts');
+  await f.click(f.rows().at(-1).part('.delete-receipt')); assert.equal(text.textContent, '1 unsaved receipt', 'discarding a draft updates the count');
+  await f.click(f.rows()[0].part('.delete-receipt')); assert.equal(indicator.hidden, true, 'deleting the edited saved receipt clears it');
+  assert.equal(text.textContent, '');
+});
+
+test('the unsaved indicator is cleared by a successful Save and never changes the saved total', async () => {
+  const f = await fixture({ loaded });
+  await f.type(f.rows()[1], 'amount', '350'); assert.equal(f.elements.encodingUnsavedText.textContent, '1 unsaved receipt');
+  assert.equal(f.money(f.elements.availableTotal), '₱950.00');
+  await f.click(f.elements.saveDraft);
+  assert.equal(f.elements.encodingUnsavedIndicator.hidden, true); assert.equal(f.money(f.elements.availableTotal), '₱1,000.00');
+});
+
+test('the unsaved indicator is announced through a polite status region and is text, not colour alone', () => {
+  assert.match(encoding, /<span class="unsaved-status" role="status"><span class="unsaved-indicator" id="encodingUnsavedIndicator" hidden><span class="unsaved-dot" aria-hidden="true">●<\/span> <span id="encodingUnsavedText"><\/span><\/span><\/span>/);
+  assert.match(css, /\.unsaved-indicator \{[^}]*border: var\(--border-width\) solid var\(--warning-border\)[^}]*background: var\(--warning-soft\)/);
+  assert.doesNotMatch(css.slice(css.indexOf('.unsaved-status'), css.indexOf('.photo-note')), /#[0-9a-fA-F]{3,8}\b|!important/, 'tokens only');
+});
+
+test('feedback severity is explicit: success, warning, error and info come from the call site, never from the wording', async () => {
+  const f = await fixture({ loaded });
+  const feedback = f.elements.encodingFeedback;
+  await f.type(f.rows()[0], 'amount', '12,34.50'); await f.click(f.elements.saveDraft);
+  assert.equal(feedback.dataset.severity, 'error');
+  await f.type(f.rows()[0], 'amount', '120'); await f.click(f.elements.saveDraft);
+  assert.equal(feedback.dataset.severity, 'success'); assert.match(feedback.textContent, /^Receipt changes saved/);
+  const ui = await read('../ui/receiptUi.js');
+  assert.match(ui, /const setFeedback = \(target, text = '', severity = ''\) => \{[\s\S]*?dataset\.severity = severity; else delete target\.dataset\.severity;/);
+  assert.doesNotMatch(ui, /includes\('(Could not|saved|error)/i, 'no substring classification of messages');
+  for (const severity of ['success', 'warning', 'error', 'info']) assert.ok(ui.includes(`'${severity}')`), `call sites pass '${severity}'`);
+});
+
+test('every severity has a distinct accessible style: an icon with a text alternative, plus border and tint, in Light and Dark via tokens', () => {
+  for (const [severity, icon, alt] of [['success', '✓', 'Success: '], ['warning', '⚠', 'Warning: '], ['error', '✕', 'Error: '], ['info', 'ℹ', 'Note: ']]) assert.ok(css.includes(`#encodingActions .workflow-feedback[data-severity="${severity}"]:not(:empty)::before { content: "${icon}" / "${alt}";`), severity);
+  assert.match(css, /\[data-severity="error"\]:not\(:empty\) \{[^}]*border-left-color: var\(--danger\)[^}]*background: var\(--danger-soft\)/);
+  assert.match(css, /\[data-severity="success"\]:not\(:empty\) \{[^}]*border-left-color: var\(--success\)[^}]*background: var\(--success-soft\)/);
+  assert.match(css, /\[data-severity="warning"\]:not\(:empty\) \{[^}]*border-left-color: var\(--warning\)[^}]*background: var\(--warning-soft\)/);
+});
+
+test('REVIEW-03: an invalid Available receipt hidden by the Consumed view keeps the view, keeps the input, explains why and focuses View receipts', async () => {
+  const f = await fixture({ loaded });
+  const [row] = f.rows(); await f.type(row, 'amount', '12,34.50');
+  await showConsumed(f);
+  assert.equal(row.hidden, true);
+  await f.click(f.elements.saveDraft);
+  assert.equal(f.calls.update.length, 0, 'nothing saved');
+  assert.equal(f.elements.receiptStatusFilter.value, 'consumed', 'the filter is never changed silently');
+  assert.equal(row.hidden, true); assert.equal(f.field(row, 'amount').value, '12,34.50', 'the invalid input is kept');
+  assert.match(f.elements.encodingFeedback.textContent, /hidden by the View receipts filter \(your filter was not changed\); choose Available or All to see it\./);
+  assert.equal(f.elements.encodingFeedback.dataset.severity, 'error');
+  assert.equal(f.focusLog.at(-1), f.elements.receiptStatusFilter, 'focus goes to the control that explains why, not to a hidden field');
+});
+
+test('an invalid receipt that is visible still gets its Amount field focused', async () => {
+  const f = await fixture({ loaded });
+  const [row] = f.rows(); await f.type(row, 'amount', '12,34.50'); await f.click(f.elements.saveDraft);
+  assert.equal(f.focusLog.at(-1), f.field(row, 'amount'));
+});
+
+test('Delete permanently is offered on Consumed receipts only; Available receipts keep Delete receipt and Mark Available stays on Consumed', async () => {
+  const f = await fixture({ loaded });
+  const [available] = f.rows(); const consumed = f.rows().at(-1);
+  assert.equal(available.part('.delete-consumed').hidden, true); assert.equal(available.part('.delete-receipt').hidden, false);
+  assert.equal(consumed.part('.delete-consumed').hidden, false); assert.equal(consumed.part('.delete-receipt').hidden, true);
+  assert.equal(consumed.part('.restore-receipt').hidden, false, 'Mark Available is unchanged');
+  assert.equal(available.part('.restore-receipt').hidden, true);
+});
+
+test('permanently deleting a Consumed receipt: destructive confirmation, one database call, row removed after success, derived state refreshed', async () => {
+  const f = await fixture({ loaded });
+  await showConsumed(f);
+  const consumed = f.rows().at(-1); assert.equal(consumed.hidden, false);
+  await f.click(consumed.part('.delete-consumed'));
+  const [confirmation] = f.calls.confirmations;
+  assert.equal(confirmation.title, 'Permanently delete this Consumed receipt?'); assert.equal(confirmation.confirmLabel, 'Delete permanently'); assert.equal(confirmation.danger, true);
+  assert.match(confirmation.message, /permanently deletes the saved receipt\. It cannot be undone\./);
+  assert.deepEqual(f.calls.deleteConsumed, ['d']); assert.deepEqual(f.calls.delete, [], 'the Available delete path is not used');
+  assert.equal(f.rows().includes(consumed), false, 'the row is gone');
+  assert.equal(f.rows().length, 3);
+  assert.equal(f.elements.encodingFeedback.dataset.severity, 'success'); assert.equal(f.elements.encodingFeedback.textContent, 'Consumed receipt deleted permanently.');
+  assert.equal(f.money(f.elements.availableTotal), '₱950.00', 'Available totals are unaffected'); assert.equal(f.elements.availableCount.textContent, '3');
+  assert.equal(f.elements.receiptStatusFilter.value, 'consumed', 'the view is kept');
+});
+
+test('cancelling the Consumed deletion changes nothing and makes no database call', async () => {
+  const f = await fixture({ loaded, confirm: async () => false });
+  await showConsumed(f);
+  const consumed = f.rows().at(-1); await f.click(consumed.part('.delete-consumed'));
+  assert.deepEqual(f.calls.deleteConsumed, []); assert.equal(f.rows().includes(consumed), true); assert.equal(f.elements.encodingFeedback.textContent, '');
+});
+
+test('a failed or unconfirmed Consumed deletion keeps the row, says so as an error and allows a retry', async () => {
+  let attempt = 0;
+  const f = await fixture({ loaded, deleteConsumed: async () => { if (++attempt === 1) throw new Error('The receipt is no longer Consumed (or no longer exists), so it was not deleted.'); } });
+  await showConsumed(f);
+  const consumed = f.rows().at(-1);
+  await f.click(consumed.part('.delete-consumed'));
+  assert.equal(f.rows().includes(consumed), true, 'the row stays after a failure'); assert.equal(f.rows().length, 4);
+  assert.equal(f.elements.encodingFeedback.dataset.severity, 'error');
+  assert.match(f.elements.encodingFeedback.textContent, /^Could not delete this Consumed receipt: The receipt is no longer Consumed .* not deleted\. It was not removed from your list\.$/);
+  assert.equal(consumed.part('.delete-consumed').disabled, false, 'the control is usable again');
+  await f.click(consumed.part('.delete-consumed'));
+  assert.equal(f.rows().includes(consumed), false, 'the retry succeeds'); assert.equal(f.calls.deleteConsumed.length, 2);
+});
+
+test('deleting a Consumed receipt never touches the Company Directory, Monthly Filing or the Available delete path', async () => {
+  const ui = await read('../ui/receiptUi.js'); const start = ui.indexOf('export function createConsumedDeleteHandler'); const handler = ui.slice(start, ui.indexOf('export const floatingAddVisibleForStatus'));
+  assert.doesNotMatch(handler, /sharedStore|directory|monthly|contribute|deleteReceipt\b/i);
+  assert.match(ui, /row\.querySelector\('\.delete-consumed'\)\.hidden = !consumed;/);
+});
+
+test('the sticky action bar separates from the page: neutral surface, a clearer border and a restrained shadow, on desktop and phones, with a single Save', () => {
+  const desktop = css.slice(css.indexOf('@media (min-width: 641px) and (min-height: 480px) {'), css.indexOf('.photo-note {'));
+  assert.match(desktop, /#encodingActions \{ position: sticky; top: var\(--space-2\); z-index: 12;[^}]*border: var\(--border-width\) solid var\(--control-border\)[^}]*background: var\(--surface-2\); box-shadow: 0 2px 8px rgba\(19, 35, 61, \.14\); \}/);
+  const phone = css.slice(css.indexOf('@media (max-width: 640px) {\n  .receipts-bar'));
+  assert.match(phone, /\.encoding-workspace > #encodingActions \{[^}]*border-top: var\(--border-width\) solid var\(--control-border\); background: var\(--surface-2\); box-shadow: 0 -2px 8px rgba\(19, 35, 61, \.14\);/);
+  assert.equal(count(staticHtml, /id="saveDraft"/g), 1, 'still a single Save changes control');
+  assert.match(css, /@media \(min-width: 641px\) and \(min-height: 480px\)/, 'sticky only on tall viewports');
+  assert.match(phone, /\.encoding-workspace > #encodingActions, \.encoding-workspace\.is-editing > #encodingActions:not\(:focus-within\) \{ position: static;/, 'short viewports and zoom keep the static override');
+});
+
+test('the scrollable suggestion list is not a Tab stop, so Tab goes Store to Address; on phones the unsaved indicator gets its own line above the buttons', () => {
+  assert.match(receiptTemplate, /<ul class="store-suggestions" role="listbox" tabindex="-1" hidden><\/ul>/, 'a scrollable list would otherwise be keyboard-focusable in Chromium and interrupt the Tab order');
+  assert.doesNotMatch(receiptTemplate, /tabindex="[1-9]/);
+  const phone = css.slice(css.indexOf('@media (max-width: 640px) {\n  .receipts-bar'));
+  assert.match(phone, /#encodingActions \.unsaved-status \{ display: block; flex: 1 1 100%; order: -1; \}/);
+  assert.match(phone, /#encodingActions \.unsaved-status:has\(> \.unsaved-indicator\[hidden\]\) \{ margin-bottom: calc\(var\(--space-2\) \* -1\); \}/, 'no empty gap while nothing is unsaved');
 });

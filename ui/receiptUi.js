@@ -227,7 +227,39 @@ export function createReceiptDeleteHandler({ row, triggerFallback, getCurrentUse
       refreshOptimizationCards();
       (nextFocus?.querySelector('summary') || triggerFallback).focus({ preventScroll: true });
     } catch (error) {
-      setFeedback(feedbackTarget, `Could not delete this receipt: ${error.message}`);
+      setFeedback(feedbackTarget, `Could not delete this receipt: ${error.message}`, 'error');
+    } finally {
+      deletePending = false;
+      trigger.disabled = false;
+    }
+  };
+}
+// Permanent deletion of a saved Consumed receipt. The row stays in the list until the database has confirmed the deletion.
+export function createConsumedDeleteHandler({ row, triggerFallback, getCurrentUser, getReceiptStatus, confirmAction, deleteConsumedReceipt, removeStoreSourceReceipt, clearSelection, refreshReceiptIds, refreshEncodingCards, refreshOptimizationCards, setFeedback, feedbackTarget }) {
+  let deletePending = false;
+  const visibleNeighbour = (start, step) => { let node = start; while (node && node.hidden) node = node[step]; return node; };
+  return async event => {
+    const trigger = event.currentTarget;
+    if (!trigger || trigger.disabled || deletePending) return;
+    const id = row.dataset.receiptDbId;
+    if (!id || !getCurrentUser() || getReceiptStatus() !== 'consumed') return;
+    const nextFocus = visibleNeighbour(row.nextElementSibling, 'nextElementSibling') || visibleNeighbour(row.previousElementSibling, 'previousElementSibling');
+    deletePending = true;
+    try {
+      if (!await confirmAction({ title: 'Permanently delete this Consumed receipt?', message: 'This permanently deletes the saved receipt. It cannot be undone. Receipts you already exported are not affected.', confirmLabel: 'Delete permanently', cancelLabel: 'Keep receipt', danger: true, trigger })) return;
+      trigger.disabled = true;
+      setFeedback(feedbackTarget);
+      await deleteConsumedReceipt(id);
+      row.remove();
+      removeStoreSourceReceipt(id);
+      clearSelection();
+      refreshReceiptIds();
+      refreshEncodingCards();
+      refreshOptimizationCards();
+      setFeedback(feedbackTarget, 'Consumed receipt deleted permanently.', 'success');
+      (nextFocus?.querySelector('summary') || triggerFallback)?.focus?.({ preventScroll: true });
+    } catch (error) {
+      setFeedback(feedbackTarget, `Could not delete this Consumed receipt: ${String(error?.message || 'Unknown error').replace(/[.\s]+$/, '')}. It was not removed from your list.`, 'error');
     } finally {
       deletePending = false;
       trigger.disabled = false;
@@ -268,7 +300,12 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   let importPending = false;
   let editSavePending = false;
   const format = cents => money.format(cents / 100);
-  const setFeedback = (target, text = '') => { if (target) target.textContent = text; };
+  // Severity is explicit: 'success' | 'warning' | 'error' | 'info' (no severity = a neutral note). It is exposed as data-severity for styling.
+  const setFeedback = (target, text = '', severity = '') => {
+    if (!target) return;
+    target.textContent = text;
+    if (text && severity) target.dataset.severity = severity; else delete target.dataset.severity;
+  };
   const formatDate = value => {
     const date = calendarReceiptDate(value);
     if (!date) return 'Date not set';
@@ -286,7 +323,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   const combinedStoreProfiles = () => combineStoreProfiles(sharedStoreProfiles, storeProfiles);
   const reloadSharedStores = async () => {
     try { sharedStoreProfiles = await sharedStoreService.listActiveSharedStores(); return true; }
-    catch { setFeedback(elements.encodingFeedback, 'Company Store Directory is temporarily unavailable. Your receipt history is still available.'); return false; }
+    catch { setFeedback(elements.encodingFeedback, 'Company Store Directory is temporarily unavailable. Your receipt history is still available.', 'warning'); return false; }
   };
   const upsertStoreSourceReceipt = receipt => {
     if (!receipt?.dbId) return;
@@ -428,18 +465,25 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   };
   const savedReceiptFor = row => row.dataset.receiptDbId ? storeSourceReceipts.find(receipt => receipt.dbId === row.dataset.receiptDbId) : undefined;
   // The summary card shows persisted Available receipts only (all amount ranges); pending edits are announced, never added in.
+  // Receipts whose typed values differ from what is saved (new drafts with content count too). Uses the same comparison as before: amounts as exact centavos.
+  const countUnsavedReceipts = () => [...elements.list.children].filter(row => {
+    if (receiptStatus(row) === 'consumed') return false;
+    if (row.dataset.receiptDbId && !savedReceiptFor(row)) return false;
+    return receiptHasUnsavedChanges(rowValues(row), savedReceiptFor(row));
+  }).length;
+  const refreshUnsavedIndicator = () => {
+    if (!elements.encodingUnsavedIndicator) return;
+    const count = countUnsavedReceipts();
+    const text = count ? `${count} unsaved receipt${count === 1 ? '' : 's'}` : '';
+    if (elements.encodingUnsavedText.textContent !== text) elements.encodingUnsavedText.textContent = text;
+    elements.encodingUnsavedIndicator.hidden = count === 0;
+  };
   const refreshAvailableSummary = () => {
     const availableSaved = storeSourceReceipts.filter(receipt => normalizeReceiptStatus(receipt.status) === 'available');
     const total = availableReceiptTotalCents(storeSourceReceipts.map(receipt => ({ status: receipt.status, cents: toCents(receipt.amount) })));
     elements.availableTotal.textContent = format(total);
     if (elements.availableCount) elements.availableCount.textContent = String(availableSaved.length);
-    if (elements.availableSummaryNote) {
-      elements.availableSummaryNote.hidden = ![...elements.list.children].some(row => {
-        if (receiptStatus(row) === 'consumed') return false;
-        if (row.dataset.receiptDbId && !savedReceiptFor(row)) return false;
-        return receiptHasUnsavedChanges(rowValues(row), savedReceiptFor(row));
-      });
-    }
+    refreshUnsavedIndicator();
   };
   const refreshEncodingCards = () => {
     const outsideRows = [];
@@ -480,7 +524,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     rows.forEach(row => { row.open = false; });
     refreshEncodingCards();
     const hidden = nowHidden.filter(row => row.hidden).map(row => row.dataset.receiptId || '');
-    if (hidden.length) setFeedback(elements.encodingFeedback, releasedHiddenNotice(hidden));
+    if (hidden.length) setFeedback(elements.encodingFeedback, releasedHiddenNotice(hidden), 'warning');
   };
   // Collapsing a pinned receipt that is outside the range hides it again; keep keyboard focus on a receipt that is still visible.
   const releasePinAfterCollapse = row => {
@@ -490,7 +534,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     delete row.dataset.filterPinned;
     refreshEncodingCards();
     if (!wasOutside || !row.hidden) return;
-    setFeedback(elements.encodingFeedback, releasedHiddenNotice([row.dataset.receiptId || '']));
+    setFeedback(elements.encodingFeedback, releasedHiddenNotice([row.dataset.receiptId || '']), 'warning');
     if (!focusedInside) return;
     const next = visibleReceiptRows().find(candidate => visibleRows.indexOf(candidate) > position) || visibleReceiptRows().at(-1);
     (next ? next.querySelector('summary') : elements.encodingAmountCompartment)?.focus?.({ preventScroll: true });
@@ -500,6 +544,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     row.classList.toggle('is-consumed', consumed);
     row.querySelector('.receipt-status-badge').hidden = !consumed;
     row.querySelector('.delete-receipt').hidden = consumed;
+    row.querySelector('.delete-consumed').hidden = !consumed;
     row.querySelector('.restore-receipt').hidden = !consumed;
     row.querySelector('.contribute-store').hidden = consumed;
     row.querySelectorAll('input, select').forEach(field => { field.disabled = consumed; });
@@ -734,22 +779,37 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     row.querySelector('.contribute-store').addEventListener('click', async event => {
       if (receiptStatus(row) === 'consumed') return;
       const values = rowValues(row);
-      if (!currentUser || !values.store.trim() || (!values.address.trim() && !values.tin.trim())) return setFeedback(elements.encodingFeedback, 'Add a Store Name and either an Address or TIN before contributing.');
+      if (!currentUser || !values.store.trim() || (!values.address.trim() && !values.tin.trim())) return setFeedback(elements.encodingFeedback, 'Add a Store Name and either an Address or TIN before contributing.', 'warning');
       const candidate = { storeName: values.store, address: values.address, tin: values.tin, vat: values.vat };
       const resolution = resolveSharedContributionCandidate(candidate, sharedStoreProfiles);
-      if (resolution.status === 'existing') return setFeedback(elements.encodingFeedback, 'This store already exists in the Company Store Directory.');
-      if (resolution.status === 'ambiguous') return setFeedback(elements.encodingFeedback, 'Multiple Company profiles match. Add an Address or TIN before contributing.');
+      if (resolution.status === 'existing') return setFeedback(elements.encodingFeedback, 'This store already exists in the Company Store Directory.', 'info');
+      if (resolution.status === 'ambiguous') return setFeedback(elements.encodingFeedback, 'Multiple Company profiles match. Add an Address or TIN before contributing.', 'warning');
       event.currentTarget.disabled = true;
       try {
         await sharedStoreService.contributeSharedStore(candidate, currentUser.id);
         await reloadSharedStores();
-        setFeedback(elements.encodingFeedback, 'Store added to the Company Store Directory.');
+        setFeedback(elements.encodingFeedback, 'Store added to the Company Store Directory.', 'success');
       } catch (error) {
-        if (error?.name === 'SharedStoreDuplicateError') { await reloadSharedStores(); resolveSharedContributionCandidate(candidate, sharedStoreProfiles); setFeedback(elements.encodingFeedback, 'This store was already added to the Company Store Directory.'); }
-        else setFeedback(elements.encodingFeedback, `Could not add this store: ${error.message}`);
+        if (error?.name === 'SharedStoreDuplicateError') { await reloadSharedStores(); resolveSharedContributionCandidate(candidate, sharedStoreProfiles); setFeedback(elements.encodingFeedback, 'This store was already added to the Company Store Directory.', 'info'); }
+        else setFeedback(elements.encodingFeedback, `Could not add this store: ${error.message}`, 'error');
       } finally { event.currentTarget.disabled = false; }
     });
     row.querySelector('.restore-receipt').addEventListener('click', event => restoreReceipt([...elements.list.children].indexOf(row), event.currentTarget));
+    row.querySelector('.delete-consumed').addEventListener('click', createConsumedDeleteHandler({
+      row,
+      triggerFallback: elements.receiptStatusFilter,
+      getCurrentUser: () => currentUser,
+      getReceiptStatus: () => receiptStatus(row),
+      confirmAction,
+      deleteConsumedReceipt: id => receiptService.deleteConsumedReceipt(id),
+      removeStoreSourceReceipt,
+      clearSelection,
+      refreshReceiptIds,
+      refreshEncodingCards,
+      refreshOptimizationCards,
+      setFeedback,
+      feedbackTarget: elements.encodingFeedback
+    }));
     installStoreAutocomplete(row);
     const storeInput = row.querySelector('.receipt-store');
     row.querySelectorAll('input, select').forEach(field => {
@@ -779,7 +839,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     const rows = [...elements.list.children];
     const row = rows.find(candidate => isBlankUnsavedReceipt(candidate) && !candidate.hidden) || rows.find(isBlankUnsavedReceipt) || addReceipt();
     pinReceipt(row); refreshEncodingCards();
-    if (row.hidden) return setFeedback(elements.encodingFeedback, 'The new receipt is hidden by the current view. Choose Available or All in View receipts to see it.');
+    if (row.hidden) return setFeedback(elements.encodingFeedback, 'The new receipt is hidden by the current view. Choose Available or All in View receipts to see it.', 'warning');
     setFeedback(elements.encodingFeedback);
     focusReceiptForEncoding(row);
   };
@@ -791,20 +851,20 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     try {
       await sharedStoreService.contributeSharedStore(candidate, currentUser.id);
       await reloadSharedStores();
-      setFeedback(elements.encodingFeedback, 'Receipt saved. Store added to the Company Directory.');
+      setFeedback(elements.encodingFeedback, 'Receipt saved. Store added to the Company Directory.', 'success');
     } catch (error) {
       if (error?.name === 'SharedStoreDuplicateError') {
         await reloadSharedStores();
-        setFeedback(elements.encodingFeedback, 'Receipt saved. This store is already in the Company Directory.');
+        setFeedback(elements.encodingFeedback, 'Receipt saved. This store is already in the Company Directory.', 'success');
       } else {
-        setFeedback(elements.encodingFeedback, `Receipt saved, but the store could not be added to the Company Directory: ${error.message}`);
+        setFeedback(elements.encodingFeedback, `Receipt saved, but the store could not be added to the Company Directory: ${error.message}`, 'warning');
       }
     }
   };
   const processPostSaveDirectoryCandidates = async candidates => {
     for (const decision of deduplicateDirectoryCandidates(candidates)) {
       if (decision.status === 'ambiguous') {
-        setFeedback(elements.encodingFeedback, 'Receipt saved. Multiple Company profiles match this store; add more identifying information before adding it to the directory.');
+        setFeedback(elements.encodingFeedback, 'Receipt saved. Multiple Company profiles match this store; add more identifying information before adding it to the directory.', 'warning');
         continue;
       }
       if (decision.status !== 'new') continue;
@@ -816,7 +876,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
         trigger: elements.saveDraft
       });
       if (!confirmed) {
-        setFeedback(elements.encodingFeedback, 'Receipt saved. Store kept in My Receipt History.');
+        setFeedback(elements.encodingFeedback, 'Receipt saved. Store kept in My Receipt History.', 'success');
         continue;
       }
       await contributeAfterReceiptSave(decision.candidate);
@@ -824,15 +884,16 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   };
   const saveDraft = async () => {
     if (savePending) return;
-    if (!currentUser) return setFeedback(elements.encodingFeedback, 'Please sign in before saving receipts.');
+    if (!currentUser) return setFeedback(elements.encodingFeedback, 'Please sign in before saving receipts.', 'warning');
     savePending = true;
     elements.saveDraft.disabled = true;
     try {
       const invalidRow = [...elements.list.children].find(row => receiptStatus(row) !== 'consumed' && !isBlankUnsavedReceipt(row) && amountProblem(row));
       if (invalidRow) {
         invalidRow.open = true; pinReceipt(invalidRow); refreshEncodingCards();
-        setFeedback(elements.encodingFeedback, `Could not save receipt changes. ${rowAmountMessage(invalidRow, amountProblem(invalidRow))} Nothing was saved; correct the amount and save again.${invalidRow.hidden ? ' This receipt is hidden by the View receipts filter; choose Available or All to see it.' : ''}`);
-        invalidRow.querySelector('.receipt-amount').focus?.({ preventScroll: false });
+        setFeedback(elements.encodingFeedback, `Could not save receipt changes. ${rowAmountMessage(invalidRow, amountProblem(invalidRow))} Nothing was saved; correct the amount and save again.${invalidRow.hidden ? ' This receipt is hidden by the View receipts filter (your filter was not changed); choose Available or All to see it.' : ''}`, 'error');
+        // A receipt hidden by the Available/Consumed view cannot take focus: send focus to the control that explains why instead.
+        (invalidRow.hidden ? elements.receiptStatusFilter : invalidRow.querySelector('.receipt-amount')).focus?.({ preventScroll: false });
         return;
       }
       const { persisted, candidates, error } = await persistReceiptsBeforeDirectoryPrompts([...elements.list.children], async row => {
@@ -848,7 +909,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
         return { row, fingerprint, decision: postSaveDirectoryDecision({ values: receipt, previousFingerprint, profiles: sharedStoreProfiles }) };
       });
       if (error) {
-        setFeedback(elements.encodingFeedback, `Could not save receipt changes: ${error.message}`);
+        setFeedback(elements.encodingFeedback, `Could not save receipt changes: ${error.message}`, 'error');
         return;
       }
       finalizeDirectoryPromptFingerprints(persisted);
@@ -856,9 +917,9 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       refreshEncodingCards();
       refreshOptimizationCards();
       const nowHidden = releasedHiddenNotice(released.filter(row => row.hidden).map(row => row.dataset.receiptId || ''));
-      setFeedback(elements.encodingFeedback, `Receipt changes saved.${nowHidden ? ` ${nowHidden}` : ''}`);
+      setFeedback(elements.encodingFeedback, `Receipt changes saved.${nowHidden ? ` ${nowHidden}` : ''}`, 'success');
       await processPostSaveDirectoryCandidates(candidates);
-    } catch (error) { setFeedback(elements.encodingFeedback, `Could not save receipt changes: ${error.message}`); }
+    } catch (error) { setFeedback(elements.encodingFeedback, `Could not save receipt changes: ${error.message}`, 'error'); }
     finally { savePending = false; elements.saveDraft.disabled = false; }
   };
   const calculate = () => {
@@ -940,10 +1001,10 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       localStorage.setItem(migrationKey, 'true');
       if (data.target) elements.target.value = data.target;
       imported.forEach(receipt => { addReceipt(receipt); upsertStoreSourceReceipt(receipt); });
-      setFeedback(elements.encodingFeedback, 'Import completed. Your original browser draft was kept as a backup.');
+      setFeedback(elements.encodingFeedback, 'Import completed. Your original browser draft was kept as a backup.', 'success');
       return true;
     } catch (error) {
-      setFeedback(elements.encodingFeedback, `Could not import saved browser receipts: ${error.message}`);
+      setFeedback(elements.encodingFeedback, `Could not import saved browser receipts: ${error.message}`, 'error');
       return false;
     } finally { importPending = false; }
   };
@@ -1022,8 +1083,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       upsertStoreSourceReceipt(saved);
       refreshEncodingCards();
       refreshOptimizationCards();
-      setFeedback(elements.encodingFeedback, 'Receipt marked as Available.');
-    } catch (error) { setFeedback(elements.encodingFeedback, `Could not restore this receipt: ${error.message}`); if (trigger) trigger.disabled = false; }
+      setFeedback(elements.encodingFeedback, 'Receipt marked as Available.', 'success');
+    } catch (error) { setFeedback(elements.encodingFeedback, `Could not restore this receipt: ${error.message}`, 'error'); if (trigger) trigger.disabled = false; }
   };
   const saveModalCorrection = async event => {
     event.preventDefault();
@@ -1034,7 +1095,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     if (receiptStatus(row) === 'consumed') return closeEditModal();
     const values = { amount: elements.editAmount.value, receiptDate: elements.editReceiptDate.value, vat: elements.editVat.value, invoice: elements.editInvoice.value, store: elements.editStore.value, address: elements.editAddress.value, tin: elements.editTin.value };
     const parsedAmount = parseMoneyAmount(values.amount);
-    if (parsedAmount.valid === false) return setFeedback(elements.editFeedback, `Could not save correction: ${parsedAmount.message}`);
+    if (parsedAmount.valid === false) return setFeedback(elements.editFeedback, `Could not save correction: ${parsedAmount.message}`, 'error');
     editSavePending = true;
     const submitButton = event.submitter;
     if (submitButton) submitButton.disabled = true;
@@ -1043,7 +1104,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
         const saved = await receiptService.updateReceipt(row.dataset.receiptDbId, values, currentUser.id);
         if (saved.updatedAt) row.dataset.receiptUpdatedAt = saved.updatedAt;
         upsertStoreSourceReceipt(saved);
-      } catch (error) { setFeedback(elements.editFeedback, `Could not save correction: ${error.message}`); editSavePending = false; if (submitButton) submitButton.disabled = false; return; }
+      } catch (error) { setFeedback(elements.editFeedback, `Could not save correction: ${error.message}`, 'error'); editSavePending = false; if (submitButton) submitButton.disabled = false; return; }
     }
     Object.entries(values).forEach(([key, value]) => { row.querySelector(`.receipt-${key}`).value = value; });
     refreshSummary(row);

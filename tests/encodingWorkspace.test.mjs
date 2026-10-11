@@ -29,9 +29,9 @@ test('Receipt workspace controls keep their IDs inside one compact bar', () => {
 test('Clear form, Add receipt and Save changes sit in one action bar above the list, once each, with the status line beside them', () => {
   const bar = encoding.slice(encoding.indexOf('id="encodingActions"'), encoding.indexOf('class="panel encoding-panel"'));
   assert.ok(bar.length > 0 && encoding.indexOf('id="encodingActions"') < encoding.indexOf('id="receiptList"'), 'the bar precedes the receipt list');
-  const order = ['id="clearAll"', 'class="action-bar-spacer"', 'id="floatingAddReceipt"', 'id="saveDraft"', 'id="encodingFeedback"'].map(token => bar.indexOf(token));
+  const order = ['id="clearAll"', 'class="action-bar-spacer"', 'id="encodingUnsavedIndicator"', 'id="floatingAddReceipt"', 'id="saveDraft"', 'id="encodingFeedback"'].map(token => bar.indexOf(token));
   assert.ok(order.every(position => position > 0));
-  assert.deepEqual([...order].sort((a, b) => a - b), order, 'Clear, spacer, Add, Save, then the status line');
+  assert.deepEqual([...order].sort((a, b) => a - b), order, 'Clear, spacer, unsaved indicator, Add, Save, then the status line');
   for (const id of ['clearAll', 'floatingAddReceipt', 'saveDraft', 'encodingFeedback']) assert.equal(count(staticHtml, new RegExp(`id="${id}"`, 'g')), 1, `#${id} is not duplicated`);
   assert.match(bar, /<button class="primary action-save" id="saveDraft" type="button">Save changes<\/button>/);
   assert.match(bar, /<button class="ghost danger" id="clearAll" type="button">Clear form<\/button>/);
@@ -40,23 +40,29 @@ test('Clear form, Add receipt and Save changes sit in one action bar above the l
 });
 
 test('the receipt template keeps every field, action and the keyboard-reachable scan control', () => {
-  for (const cls of ['receipt-amount', 'receipt-receiptDate', 'receipt-vat', 'receipt-invoice', 'receipt-store', 'receipt-address', 'receipt-tin', 'receipt-photo', 'contribute-store', 'delete-receipt', 'restore-receipt', 'ocr-status', 'store-suggestions', 'summary-id', 'summary-store', 'summary-amount', 'receipt-status-badge', 'summary-toggle']) {
+  for (const cls of ['receipt-amount', 'receipt-receiptDate', 'receipt-vat', 'receipt-invoice', 'receipt-store', 'receipt-address', 'receipt-tin', 'receipt-photo', 'contribute-store', 'delete-receipt', 'delete-consumed', 'restore-receipt', 'ocr-status', 'store-suggestions', 'summary-id', 'summary-store', 'summary-amount', 'receipt-status-badge', 'summary-toggle']) {
     assert.equal(count(template, new RegExp(`class="([^"]* )?${cls}( [^"]*)?"`, 'g')), 1, `.${cls} appears once in the template`);
   }
   assert.match(template, /<input class="receipt-photo" type="file" accept="image\/\*" capture="environment" \/>/);
   assert.doesNotMatch(template, /receipt-photo[^>]*(tabindex="-1"|hidden)/, 'the file input stays focusable');
   assert.match(template, /role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false"/, 'store autocomplete roles unchanged');
-  const order = ['receipt-store', 'receipt-address', 'receipt-tin', 'receipt-vat', 'receipt-amount', 'receipt-receiptDate', 'receipt-invoice', 'receipt-photo'].map(cls => template.indexOf(`class="${cls}"`));
+  const order = ['receipt-store', 'receipt-address', 'receipt-amount', 'receipt-receiptDate', 'receipt-tin', 'receipt-vat', 'receipt-invoice', 'receipt-photo'].map(cls => template.indexOf(`class="${cls}"`));
   assert.ok(order.every(position => position > 0));
-  assert.deepEqual([...order].sort((a, b) => a - b), order, 'DOM (Tab) order is Store, Address, TIN, VAT, Amount, Date, Invoice, then the scan control (same as Monthly Filing)');
+  assert.deepEqual([...order].sort((a, b) => a - b), order, 'DOM (Tab) order is Store, Address, Amount, Receipt date, TIN, VAT, Invoice, then the scan control');
+  assert.doesNotMatch(template, /tabindex="[1-9]/, 'no positive tabindex: the native DOM order is the Tab order');
+  assert.equal(count(template, /receipt-editor-fields/g), 1, 'one editor grid, so DOM order equals the visual reading order');
+  assert.doesNotMatch(template, /receipt-store-fields|receipt-core-fields/, 'no separate field groups that would split the reading order');
 });
 
 // ---- CSS: layout rules ------------------------------------------------------------------------------------------------------
-test('rows are one compact line and the editor is two columns on wide windows, stacked below 1100px', () => {
+test('rows are one compact line and the editor is one twelve-column grid on wide windows, two columns below 1100px', () => {
   assert.match(css, /\.receipt-summary \{[^}]*min-height: 48px/);
   assert.match(css, /\.receipt-summary \{[^}]*grid-template-areas: "id store amount badge toggle"/);
-  assert.match(css, /\.encoding-list \.receipt-content \{[^}]*grid-template-columns: minmax\(0, 7fr\) minmax\(0, 5fr\)/);
-  assert.match(css, /@media \(max-width: 1100px\) \{\n  \.encoding-list \.receipt-content \{ grid-template-columns: minmax\(0, 1fr\)/);
+  assert.match(css, /\.encoding-list \.receipt-editor-fields \{ grid-template-columns: repeat\(12, minmax\(0, 1fr\)\);/);
+  assert.match(css, /\.field-invoice, \.encoding-list \.receipt-editor-fields \.field-scan \{ grid-column: span 6; \}/, 'Store, Address and Invoice, Scan are half rows');
+  assert.match(css, /\.field-amount, \.encoding-list \.receipt-editor-fields \.field-date, \.encoding-list \.receipt-editor-fields \.field-tin, \.encoding-list \.receipt-editor-fields \.field-vat \{ grid-column: span 3; \}/, 'Amount, Date, TIN, VAT share one row');
+  assert.match(css, /@media \(max-width: 1100px\) \{\n  \.encoding-list \.receipt-editor-fields \.field-store[^\n]*grid-column: span 6; \}/, 'two columns on tablets, row-major order preserved');
+  assert.match(css, /\.field-store, \.encoding-list \.receipt-editor-fields \.field-address \{ grid-column: 1 \/ -1; \}/, 'phones: Store and Address full width, the rest in pairs');
   assert.match(css, /\.encoding-list \.receipt-amount \{[^}]*font-size: 1\.125rem[^}]*font-weight: var\(--weight-bold\)/, 'Amount is prominent and at least 16px');
   assert.match(css, /\.summary-store \{[^}]*text-overflow: ellipsis/, 'long names truncate in the row (the full name is the title and the editor value)');
 });

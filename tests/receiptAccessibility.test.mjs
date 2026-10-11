@@ -67,7 +67,7 @@ test('every id used by the receipt template is rewritten per clone, never render
   const template = html.match(/<template id="receiptTemplate">([\s\S]*?)<\/template>/)[1];
   const templateIds = [...template.matchAll(/\sid="([^"]+)"/g)].map(match => match[1]);
   const labelledBy = [...template.matchAll(/aria-labelledby="([^"]+)"/g)].map(match => match[1]);
-  assert.ok(templateIds.length > 0 && labelledBy.every(reference => templateIds.includes(reference)));
+  assert.ok(labelledBy.every(reference => templateIds.includes(reference)), 'any aria-labelledby in the template points at an id inside it (the CP10-C1R editor is one grid and carries no ids)');
   const rendered = [1, 2, 3].flatMap(index => { const clone = node({}, templateIds.map(id => node({ id }))); makeTemplateIdsUnique(clone, `receipt-${index}`); return clone.all().map(element => element.id); });
   assert.equal(new Set(rendered).size, rendered.length);
   const source = await readFile(new URL('../ui/receiptUi.js', import.meta.url), 'utf8');

@@ -64,6 +64,17 @@ export async function deleteReceipt(id) {
   if (error) throw error;
 }
 
+// Permanently deletes ONE receipt, and only while its status in the database is still 'consumed'.
+// Row-level security already limits deletes to the caller's own rows; the status condition is added here so a receipt that another session
+// has meanwhile restored to Available is never deleted. The call succeeds only if the database confirms exactly one deleted row.
+export async function deleteConsumedReceipt(id) {
+  if (!id) throw new Error('A saved receipt is required.');
+  const client = await clientOrThrow();
+  const { data, error } = await client.from('receipts').delete().eq('id', id).eq('status', 'consumed').select('id');
+  if (error) throw error;
+  if (!Array.isArray(data) || data.length !== 1 || data[0]?.id !== id) throw new Error('The receipt is no longer Consumed (or no longer exists), so it was not deleted. Refresh to see its current status.');
+}
+
 export async function updateReceiptStatus(id, status) {
   if (!['available', 'consumed'].includes(status)) throw new Error('Unsupported receipt status.');
   const client = await clientOrThrow();

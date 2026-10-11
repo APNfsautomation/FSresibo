@@ -85,13 +85,13 @@
             <section class="available-summary" aria-label="Saved Available receipts">
               <div class="summary-metric"><svg class="summary-icon" viewBox="0 0 24 24" width="22" height="22" focusable="false" aria-hidden="true"><path d="M3.5 7.5A2.5 2.5 0 0 1 6 5h11.5a1.5 1.5 0 0 1 1.5 1.5V8M3.5 7.5V17A2.5 2.5 0 0 0 6 19.5h12.5A1.5 1.5 0 0 0 20 18V9.5A1.5 1.5 0 0 0 18.5 8H6a2.5 2.5 0 0 1-2.5-2.5M15.5 13.75h2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><div><p class="summary-label">Available total</p><p class="summary-value" id="availableTotal">₱0.00</p></div></div>
               <div class="summary-metric"><svg class="summary-icon" viewBox="0 0 24 24" width="22" height="22" focusable="false" aria-hidden="true"><path d="M6 3.5h12v17l-2.25-1.5L13.5 20.5 12 19l-1.5 1.5L8.25 19 6 20.5v-17ZM9 8.5h6M9 12h6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><div><p class="summary-label">Available receipts</p><p class="summary-value" id="availableCount">0</p></div></div>
-              <p class="summary-note" id="availableSummaryNote" hidden>Totals reflect saved receipts. Unsaved changes are not included.</p>
             </section>
             <label class="encoding-compartment-filter" for="encodingAmountCompartment">Amount compartment<select id="encodingAmountCompartment"></select></label></div>
         </div>
         <div class="encoding-actions action-bar" id="encodingActions">
           <button class="ghost danger" id="clearAll" type="button">Clear form</button>
           <span class="action-bar-spacer" aria-hidden="true"></span>
+          <span class="unsaved-status" role="status"><span class="unsaved-indicator" id="encodingUnsavedIndicator" hidden><span class="unsaved-dot" aria-hidden="true">●</span> <span id="encodingUnsavedText"></span></span></span>
           <button class="secondary floating-add" id="floatingAddReceipt" type="button"><span aria-hidden="true">+</span> Add receipt</button>
           <button class="primary action-save" id="saveDraft" type="button">Save changes</button>
           <p class="workflow-feedback" id="encodingFeedback" role="status" aria-live="polite"></p>
@@ -245,26 +245,19 @@
       <details class="receipt-card">
         <summary class="receipt-summary" title="Show receipt details"><span class="summary-id">Receipt 1</span><span class="summary-store">Store not set</span><strong class="summary-amount">₱0.00</strong><span class="receipt-status-badge" hidden>Consumed</span><span class="receipt-range-flag" hidden>Outside range</span><span class="summary-toggle" aria-hidden="true"><span class="toggle-label">Details</span><svg class="toggle-icon" viewBox="0 0 16 16" width="16" height="16" focusable="false" aria-hidden="true"><path d="M3.5 6.25 8 10.75l4.5-4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></summary>
         <div class="receipt-content">
-          <section class="receipt-form-group" aria-labelledby="store-details-title">
-            <p class="form-group-title" id="store-details-title">Store details</p>
-            <div class="receipt-fields receipt-store-fields">
-              <label class="wide store-name-field">Store name<input class="receipt-store" placeholder="Store or business name" autocomplete="off" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" /><ul class="store-suggestions" role="listbox" hidden></ul></label>
-              <label class="wide">Store address<input class="receipt-address" placeholder="Store address" /></label>
-              <label>Store TIN<input class="receipt-tin" placeholder="000-000-000-000" /></label>
-              <label>VAT status<select class="receipt-vat"><option value="">Not set</option><option value="VAT">VAT</option><option value="Non-VAT">Non-VAT</option></select></label>
-            </div>
-          </section>
-          <section class="receipt-form-group" aria-labelledby="receipt-details-title">
-            <p class="form-group-title" id="receipt-details-title">Receipt details</p>
-            <div class="receipt-fields receipt-core-fields">
-              <label>Amount<input class="receipt-amount" inputmode="decimal" placeholder="0.00" /></label>
-              <label>Receipt date<input class="receipt-receiptDate" type="date" /></label>
-              <label>Invoice number<input class="receipt-invoice" placeholder="Invoice / OR number" /></label>
-              <label class="scan-label">Receipt photo<input class="receipt-photo" type="file" accept="image/*" capture="environment" /><span class="scan-button">⌁ Scan printed details</span></label>
-            </div>
-          </section>
+          <!-- One grid, so the keyboard (DOM) order is also the visual reading order: Store, Address, Amount, Receipt date, TIN, VAT, Invoice, Scan. No tabindex is used. -->
+          <div class="receipt-fields receipt-editor-fields">
+            <label class="field-store store-name-field">Store name<input class="receipt-store" placeholder="Store or business name" autocomplete="off" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" /><ul class="store-suggestions" role="listbox" tabindex="-1" hidden></ul></label>
+            <label class="field-address">Store address<input class="receipt-address" placeholder="Store address" /></label>
+            <label class="field-amount">Amount<input class="receipt-amount" inputmode="decimal" placeholder="0.00" /></label>
+            <label class="field-date">Receipt date<input class="receipt-receiptDate" type="date" /></label>
+            <label class="field-tin">Store TIN<input class="receipt-tin" placeholder="000-000-000-000" /></label>
+            <label class="field-vat">VAT status<select class="receipt-vat"><option value="">Not set</option><option value="VAT">VAT</option><option value="Non-VAT">Non-VAT</option></select></label>
+            <label class="field-invoice">Invoice number<input class="receipt-invoice" placeholder="Invoice / OR number" /></label>
+            <label class="scan-label field-scan">Receipt photo<input class="receipt-photo" type="file" accept="image/*" capture="environment" /><span class="scan-button">⌁ Scan printed details</span></label>
+          </div>
           <div class="receipt-form-footer">
-            <button class="ghost contribute-store" type="button">Add to Store Directory</button><button class="delete-receipt" type="button">Delete receipt</button><button class="secondary restore-receipt" type="button" hidden>Mark Available</button>
+            <button class="ghost contribute-store" type="button">Add to Store Directory</button><button class="delete-receipt" type="button">Delete receipt</button><button class="delete-consumed" type="button" hidden>Delete permanently</button><button class="secondary restore-receipt" type="button" hidden>Mark Available</button>
           </div>
           <p class="ocr-status" aria-live="polite"></p>
         </div>
