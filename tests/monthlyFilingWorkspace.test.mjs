@@ -612,20 +612,31 @@ test('C2-06: Archived receipts show "Archived · date" (or "Archived"), never a 
   assert.equal(f.cards()[0].querySelector('.monthly-delete').hidden, true); assert.equal(f.field(f.cards()[0], 'store').disabled, true); assert.equal(f.cards()[0].querySelector('.monthly-return-active').hidden, false);
 });
 
-test('C2-01/D-09: displayed numbers equal the workbook Item No. and the Amount sums agree, matched by receipt identity', async () => {
-  const f = fixture({ records: [saved('a1', { store: 'Alpha', amount: '500' }), saved('a2', { store: 'Beta', amount: '700.10' }), { ...saved('z1', { store: 'Old' }), status: 'archived' }, saved('a3', { store: 'Gamma', amount: '300.20' })] }); await f.ui.loadForUser(user);
-  await f.click(f.cards()[1].querySelector('.monthly-delete'));
-  await f.click(f.elements.add); await f.edit(f.cards().at(-1), 'store', 'Delta'); await f.edit(f.cards().at(-1), 'amount', '1,000.05');
-  await f.edit(f.cards()[0], 'amount', '510');
-  const shownByStore = new Map(f.cards().map(card => [f.field(card, 'store').value, f.label(card)])); const shownTotal = totalLine(f)[0];
-  assert.equal(shownTotal, 'Active Total: ₱1,810.25');
+test('C2-01/D-09: displayed numbers equal the workbook Item No., matched by database ID (several receipts share one store name), and the totals reconcile', async () => {
+  const f = fixture({ records: [saved('a1', { store: 'Shared', amount: '500' }), saved('a2', { store: 'Shared', amount: '700.10' }), { ...saved('z1', { store: 'Shared' }), status: 'archived' }, saved('a3', { store: 'Other', amount: '300.20' })] }); await f.ui.loadForUser(user);
+  await f.click(f.cards()[0].querySelector('.monthly-delete'));
+  assert.deepEqual(f.cards().map(card => [card.dataset.monthlyId, f.label(card)]), [['a2', 'Receipt 1'], ['a3', 'Receipt 2']], 'deleting a1 renumbers the others dynamically');
+  for (const [store, invoice, amount] of [['Shared', 'D-1', '1,000.05'], ['Shared', 'D-2', '10']]) { await f.click(f.elements.add); const card = f.cards().at(-1); await f.edit(card, 'store', store); await f.edit(card, 'invoice', invoice); await f.edit(card, 'amount', amount); }
+  await f.edit(f.cards()[0], 'amount', '710.10');
+  // Displayed numbers before export. Persisted receipts are keyed by database ID; unsaved drafts have no ID yet, so they are keyed by their unique invoice.
+  const persisted = new Map(); const drafts = new Map();
+  f.cards().forEach(card => { if (card.dataset.monthlyId) persisted.set(card.dataset.monthlyId, f.label(card)); else drafts.set(f.field(card, 'invoice').value, f.label(card)); });
+  assert.deepEqual([...persisted], [['a2', 'Receipt 1'], ['a3', 'Receipt 2']]); assert.deepEqual([...drafts], [['D-1', 'Receipt 3'], ['D-2', 'Receipt 4']]);
+  assert.equal(totalLine(f)[0], 'Active Total: ₱2,020.35');
   await f.click(f.elements.exportActive);
   const [snapshot] = f.calls.snapshots; const rows = buildExpenseDetailedReportRows(snapshot);
-  assert.deepEqual(snapshot.map(record => record.store), ['Alpha', 'Gamma', 'Delta']);
-  snapshot.forEach((record, index) => assert.equal(`Receipt ${rows[index + 2][0]}`, shownByStore.get(record.store), `${record.store}: Item No. equals the number shown before export`));
-  assert.equal(dollars(sheetCents(rows)), '₱1,810.25', 'workbook Amount column = displayed Active Total');
-  assert.match(f.elements.feedback.textContent, /^Exported and archived 3 Monthly Filing receipts \(Total: ₱1,810\.25\)\.$/, 'the reported total comes from the exported snapshot');
-  assert.equal(monthlyFilingSnapshotTotalCents(snapshot), 181025);
+  // Drafts acquire their database ID during Save: recover it from the create call that persisted each draft (new-1, new-2 in call order).
+  const createdId = new Map(f.calls.create.map((receipt, index) => [receipt.invoice, `new-${index + 1}`]));
+  assert.deepEqual(snapshot.map(record => record.dbId), ['a2', 'a3', 'new-1', 'new-2'], 'the exact saved snapshot, in export order');
+  assert.equal(new Set(snapshot.map(record => record.dbId)).size, 4, 'distinct database IDs'); assert.equal(snapshot.filter(record => record.store === 'Shared').length, 3, 'three different receipts share one store name');
+  snapshot.forEach((record, index) => {
+    const shown = persisted.get(record.dbId) ?? [...drafts].find(([invoice]) => createdId.get(invoice) === record.dbId)?.[1];
+    assert.ok(shown, `${record.dbId} had a number on screen before the export`);
+    assert.equal(`Receipt ${rows[index + 2][0]}`, shown, `${record.dbId}: Item No. equals the number shown before export`);
+  });
+  assert.equal(dollars(sheetCents(rows)), '₱2,020.35', 'workbook Amount column = displayed Active Total');
+  assert.equal(monthlyFilingSnapshotTotalCents(snapshot), 202035);
+  assert.match(f.elements.feedback.textContent, /^Exported and archived 4 Monthly Filing receipts \(Total: ₱2,020\.35\)\.$/, 'the reported total comes from the same exported snapshot');
 });
 
 test('D-09: a receipt without an amount adds nothing, is counted as "without amount", and the existing workbook writes it as a numeric 0 (documented, unchanged)', async () => {
