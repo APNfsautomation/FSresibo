@@ -5,6 +5,7 @@ export { deduplicateDirectoryCandidates, finalizeDirectoryPromptFingerprints, fi
 import { makeTemplateIdsUnique, receiptSummaryAccessibleName } from './receiptAccessibility.js';
 import { collapseKeptReceiptsOnShortWindows } from './optimizationPresentation.js';
 import { trackTextEntry } from './textEntryFocus.js';
+import { parseMoneyAmount } from '../domain/moneyAmount.js';
 
 const draftKey = 'receipt-match-draft-v2';
 const money = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' });
@@ -274,6 +275,10 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     return dateFormatter.format(new Date(year, month - 1, day));
   };
   const rowValues = row => Object.fromEntries(['amount', 'receiptDate', 'vat', 'invoice', 'store', 'address', 'tin'].map(key => [key, row.querySelector(`.receipt-${key}`).value]));
+  // Strict amount rules shared with the persistence boundary (domain/moneyAmount.js): a malformed non-blank amount is never guessed at.
+  const amountProblem = row => { const parsed = parseMoneyAmount(row.querySelector('.receipt-amount').value); return parsed.valid === false ? parsed.message : ''; };
+  const amountCents = row => { const parsed = parseMoneyAmount(row.querySelector('.receipt-amount').value); return parsed.valid ? parsed.cents : 0; };
+  const rowAmountMessage = (row, problem) => `Receipt ${row.dataset.receiptId || ''}: ${problem}`.replace('Receipt : ', '');
   const rebuildStoreProfiles = () => { storeProfiles = buildStoreProfiles(storeSourceReceipts); };
   const sharedProfile = profile => ({ ...profile, storeName: profile.storeName || profile.store, address: profile.address || '', tin: profile.tin || '' });
   const profileIdentity = sharedProfileIdentity;
@@ -745,6 +750,13 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     savePending = true;
     elements.saveDraft.disabled = true;
     try {
+      const invalidRow = [...elements.list.children].find(row => receiptStatus(row) !== 'consumed' && !isBlankUnsavedReceipt(row) && amountProblem(row));
+      if (invalidRow) {
+        invalidRow.open = true;
+        setFeedback(elements.encodingFeedback, `Could not save receipt changes. ${rowAmountMessage(invalidRow, amountProblem(invalidRow))} Nothing was saved; correct the amount and save again.`);
+        invalidRow.querySelector('.receipt-amount').focus?.({ preventScroll: false });
+        return;
+      }
       const { persisted, candidates, error } = await persistReceiptsBeforeDirectoryPrompts([...elements.list.children], async row => {
         if (receiptStatus(row) === 'consumed') return undefined;
         const receipt = rowValues(row);
@@ -771,7 +783,9 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   };
   const calculate = () => {
     const targetCents = toCents(elements.target.value);
-    const receipts = availableOptimizerReceipts([...elements.list.children].map((row, index) => ({ index, dbId: row.dataset.receiptDbId, label: `Receipt ${row.dataset.receiptId}`, cents: toCents(row.querySelector('.receipt-amount').value), status: receiptStatus(row), ...rowValues(row) })));
+    const invalidRow = [...elements.list.children].find(row => receiptStatus(row) === 'available' && amountProblem(row));
+    if (invalidRow) { clearSelection(); refreshOptimizationCards(); showEmpty(); elements.difference.textContent = `${rowAmountMessage(invalidRow, amountProblem(invalidRow))} Correct it before running Find Best Match.`; return; }
+    const receipts = availableOptimizerReceipts([...elements.list.children].map((row, index) => ({ index, dbId: row.dataset.receiptDbId, label: `Receipt ${row.dataset.receiptId}`, cents: amountCents(row), status: receiptStatus(row), ...rowValues(row) })));
     if (!targetCents || !receipts.length) { clearSelection(); refreshOptimizationCards(); showEmpty(); return; }
     try {
       const strategy = setActiveStrategy(getActiveStrategy());
@@ -864,9 +878,15 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   };
   const selectedReceiptsForExport = () => selectedReceiptIds.map(id => {
     const row = [...elements.list.children].find(candidate => candidate.dataset.receiptDbId === id);
-    return row && receiptStatus(row) === 'available' ? { ...rowValues(row), dbId: id, status: 'available' } : null;
+    if (!row || receiptStatus(row) !== 'available') return null;
+    const values = rowValues(row); const parsed = parseMoneyAmount(values.amount);
+    // The workbook receives the normalized amount ("1,250.50" -> "1250.50"), never the raw typed text.
+    return { ...values, amount: parsed.valid ? parsed.canonical : values.amount, dbId: id, status: 'available' };
   }).filter(Boolean);
+  const invalidExportRow = () => selectedReceiptIds.map(id => [...elements.list.children].find(candidate => candidate.dataset.receiptDbId === id)).find(row => row && amountProblem(row));
   const openExportConfirmation = () => {
+    const invalidRow = invalidExportRow();
+    if (invalidRow) return setFeedback(elements.difference, `${rowAmountMessage(invalidRow, amountProblem(invalidRow))} Correct it before exporting.`);
     const receipts = selectedReceiptsForExport();
     if (!receipts.length || receipts.length !== selectedReceiptIndexes.size) return setFeedback(elements.difference, 'Run Find Best Match with saved Available receipts before exporting.');
     elements.exportConfirmMessage.textContent = `Export ${receipts.length} selected receipt${receipts.length === 1 ? '' : 's'}? After the export is prepared, these receipts will be marked as Consumed and excluded from future optimization.`;
@@ -880,6 +900,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     elements.confirmExport.disabled = true;
     elements.confirmExport.setAttribute('aria-busy', 'true');
     elements.confirmExport.textContent = 'Preparing export…';
+    const invalidRow = invalidExportRow();
+    if (invalidRow) { exportPending = false; closeExportConfirmation(); return setFeedback(elements.difference, `${rowAmountMessage(invalidRow, amountProblem(invalidRow))} Correct it before exporting.`); }
     const receipts = selectedReceiptsForExport();
     if (!receipts.length || receipts.length !== selectedReceiptIndexes.size) { exportPending = false; closeExportConfirmation(); return setFeedback(elements.difference, 'The selected result is no longer exportable. Run Find Best Match again.'); }
     try { downloadSelectedReceipts(receipts); } catch (error) { exportPending = false; closeExportConfirmation(); return setFeedback(elements.difference, `Could not prepare the XLSX export: ${error.message}`); }
@@ -931,6 +953,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     if (!row) return closeEditModal();
     if (receiptStatus(row) === 'consumed') return closeEditModal();
     const values = { amount: elements.editAmount.value, receiptDate: elements.editReceiptDate.value, vat: elements.editVat.value, invoice: elements.editInvoice.value, store: elements.editStore.value, address: elements.editAddress.value, tin: elements.editTin.value };
+    const parsedAmount = parseMoneyAmount(values.amount);
+    if (parsedAmount.valid === false) return setFeedback(elements.editFeedback, `Could not save correction: ${parsedAmount.message}`);
     editSavePending = true;
     const submitButton = event.submitter;
     if (submitButton) submitButton.disabled = true;

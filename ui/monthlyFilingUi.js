@@ -1,5 +1,6 @@
 import { installTablistKeyboard } from './tablistKeyboard.js';
 import { trackTextEntry } from './textEntryFocus.js';
+import { parseMoneyAmount } from '../domain/moneyAmount.js';
 import { deduplicateDirectoryCandidates, persistedStoreFingerprint, postSaveDirectoryDecision, resolveSharedContributionCandidate } from '../domain/sharedStoreProfiles.js';
 
 export const monthlyFilingEditableFields = Object.freeze(['store', 'address', 'tin', 'vat', 'amount', 'receiptDate', 'invoice']);
@@ -309,6 +310,12 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
       synchronizeVisibleActiveDrafts();
       const rowsByIndex = new Map([...elements.list.children].filter(row => row.matches('.monthly-card')).map(row => [Number(row.dataset.recordIndex), row]));
       const pending = records.map((record, recordIndex) => ({ record, recordIndex, row: rowsByIndex.get(recordIndex) })).filter(({ record }) => record.status === 'active' && !isBlankUnsavedMonthlyFilingRecord(record));
+      // Validate every amount before anything is persisted: a malformed non-blank amount is never saved, exported or archived.
+      const invalid = pending.map(entry => ({ entry, parsed: parseMoneyAmount(entry.record.amount) })).find(({ parsed }) => parsed.valid === false);
+      if (invalid) {
+        view.setExpanded(invalid.entry.record, true); refreshPresentation(); focusReceipt(invalid.entry.record, '.monthly-amount');
+        throw new Error(`Monthly receipt ${view.labelOf(invalid.entry.record)}${String(invalid.entry.record.store || '').trim() ? ` (${String(invalid.entry.record.store).trim()})` : ''}: ${invalid.parsed.message} Nothing was saved; correct the amount and try again.`);
+      }
       const { saved, error } = await persistMonthlyFilingRows(pending, async entry => {
         const { record, recordIndex, row } = entry; const receipt = { ...record }; const previousFingerprint = record.persistedStoreFingerprint || '';
         const stored = record.dbId ? await monthlyFilingService.updateMonthlyFilingReceipt(record.dbId, receipt, currentUser.id) : await monthlyFilingService.createMonthlyFilingReceipt(receipt, currentUser.id);

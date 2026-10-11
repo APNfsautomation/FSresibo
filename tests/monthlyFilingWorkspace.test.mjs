@@ -1,6 +1,7 @@
 import nodeAssert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { toDatabaseMonthlyFilingReceipt } from '../services/monthlyFilingService.js';
 import { createMonthlyFilingUi, createMonthlyFilingViewState, monthlyFilingAmountText, monthlyFilingDirtyLabel, monthlyFilingSignature, monthlyFilingSummaryName } from '../ui/monthlyFilingUi.js';
 
 // match/doesNotMatch report the pattern, not the whole stylesheet, when they fail.
@@ -502,4 +503,56 @@ test('Return to Active uses the current record too: a receipt returned from Arch
   const returned = f.cards().find(card => card.dataset.monthlyId === 'z1');
   await f.click(returned.querySelector('.monthly-delete'));
   assert.deepEqual(f.calls.remove, ['z1']);
+});
+
+// ---- amount validation (NF-01): malformed amounts are never saved, exported or archived ---------------------------------------------------
+test('Monthly Save with a malformed amount persists nothing, names the receipt, and keeps the typed value and the unsaved marker', async () => {
+  const f = fixture({ records: activeRecords() }); await f.ui.loadForUser(user);
+  await f.edit(f.cards()[1], 'invoice', 'ALSO-EDITED'); await f.edit(f.cards()[0], 'amount', '12,34.50');
+  await f.click(f.elements.save);
+  assert.equal(f.calls.update.length + f.calls.create.length, 0, 'not even the valid receipt is sent');
+  assert.match(f.elements.feedback.textContent, /^Could not save Monthly Filing changes: Monthly receipt 1 \(Alpha\): Invalid amount "12,34\.50"\. Thousands commas must group exactly three digits/);
+  assert.match(f.elements.feedback.textContent, /Nothing was saved/);
+  assert.equal(f.field(f.cards()[0], 'amount').value, '12,34.50');
+  assert.equal(f.flag(f.cards()[0]).textContent, 'Unsaved changes'); assert.equal(f.flag(f.cards()[1]).textContent, 'Unsaved changes');
+  assert.equal(f.cards()[0].classList.contains('is-collapsed'), false, 'the receipt is expanded so the field can be corrected');
+  assert.equal(f.elements.save.disabled, false);
+  await f.edit(f.cards()[0], 'amount', '12,340.50'); await f.click(f.elements.save);
+  assert.deepEqual(f.calls.update.map(([id, receipt]) => [id, receipt.amount]), [['a1', '12,340.50'], ['a2', '100']], 'once corrected, both receipts save');
+  assert.deepEqual(toDatabaseMonthlyFilingReceipt(f.calls.update[0][1], 'u').amount, 12340.5);
+});
+
+test('a malformed amount on a new Monthly receipt is not created; blank and zero amounts still save', async () => {
+  const f = fixture({ records: [] }); await f.ui.loadForUser(user);
+  await f.click(f.elements.add); await f.edit(f.cards()[0], 'store', 'Negative'); await f.edit(f.cards()[0], 'amount', '-5');
+  await f.click(f.elements.save);
+  assert.equal(f.calls.create.length, 0); assert.match(f.elements.feedback.textContent, /Invalid amount "-5"\. Amounts cannot be negative\./);
+  await f.edit(f.cards()[0], 'amount', '');
+  await f.click(f.elements.add); await f.edit(f.cards()[1], 'store', 'Zero'); await f.edit(f.cards()[1], 'amount', '0');
+  await f.click(f.elements.save);
+  assert.deepEqual(f.calls.create.map(receipt => receipt.amount), ['', '0'], 'blank (NULL) and zero are both still allowed');
+  assert.deepEqual(f.calls.create.map(receipt => toDatabaseMonthlyFilingReceipt(receipt, 'u').amount), [null, 0]);
+});
+
+test('Export & archive is refused when an Active amount is malformed: no workbook, no archive, receipts stay Active', async () => {
+  const f = fixture({ records: activeRecords() }); await f.ui.loadForUser(user);
+  await f.edit(f.cards()[1], 'amount', '1,250.999');
+  await f.click(f.elements.exportActive);
+  assert.equal(f.calls.workbook.length, 0); assert.equal(f.calls.archive.length, 0); assert.equal(f.calls.update.length, 0);
+  assert.match(f.elements.feedback.textContent, /Could not save Monthly Filing changes: Monthly receipt 2 \(Beta\): Invalid amount "1,250\.999"/);
+  assert.doesNotMatch(f.elements.feedback.textContent, /Exported and archived/);
+  assert.equal(f.elements.activeTab.textContent, 'Active (2)'); assert.equal(f.elements.archivedTab.textContent, 'Archived (1)');
+  assert.equal(f.elements.exportActive.disabled, false, 'export is available again after correction (not uncertain-archive blocked)');
+  await f.edit(f.cards()[1], 'amount', '1,250.99'); await f.click(f.elements.exportActive);
+  assert.deepEqual(f.calls.archive, [['a1', 'a2']]); assert.equal(f.elements.activeTab.textContent, 'Active (0)');
+});
+
+test('the Monthly workbook is built from the saved (normalized) records, so amounts match what was stored', async () => {
+  const f = fixture({ records: activeRecords() }); await f.ui.loadForUser(user);
+  await f.edit(f.cards()[0], 'amount', '1,250.50');
+  await f.click(f.elements.exportActive);
+  const snapshotAmounts = f.calls.workbook.length;
+  assert.equal(snapshotAmounts, 1);
+  const stored = toDatabaseMonthlyFilingReceipt(f.calls.update.find(([id]) => id === 'a1')[1], 'u').amount;
+  assert.equal(stored, 1250.5, 'the value persisted for the exported receipt is the normalized amount');
 });

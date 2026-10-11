@@ -1,12 +1,12 @@
 import { getSupabaseClient } from '../config/supabase.js';
+import { normalizeMoneyAmount } from '../domain/moneyAmount.js';
 
-function toDatabaseReceipt(receipt, userId) {
-  const amount = String(receipt.amount ?? '').trim();
-  const numericAmount = Number(amount);
+export function toDatabaseReceipt(receipt, userId) {
+  // A blank amount is stored as NULL; a malformed non-blank amount is rejected here, never turned into NULL.
   return {
     user_id: userId,
     store_name: receipt.store || '',
-    amount: amount && Number.isFinite(numericAmount) ? numericAmount : null,
+    amount: normalizeMoneyAmount(receipt.amount),
     receipt_date: receipt.receiptDate || null,
     address: receipt.address || null,
     tin: receipt.tin || null,
@@ -85,7 +85,8 @@ export async function consumeReceipts(ids) {
 export async function importReceipts(receipts, userId) {
   if (!receipts.length) return [];
   const client = await clientOrThrow();
-  const { data, error } = await client.from('receipts').insert(receipts.map(receipt => toDatabaseReceipt(receipt, userId))).select();
+  const rows = receipts.map((receipt, index) => { try { return toDatabaseReceipt(receipt, userId); } catch (error) { throw new Error(`Browser draft receipt ${index + 1}: ${error.message}`); } });
+  const { data, error } = await client.from('receipts').insert(rows).select();
   if (error) throw error;
   return data.map(fromDatabaseReceipt);
 }
