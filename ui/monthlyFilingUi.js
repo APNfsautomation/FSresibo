@@ -74,8 +74,8 @@ export async function persistMonthlyFilingRows(rows, persistRow) {
 // never by array position, so expansion, labels and unsaved markers follow the right receipt across re-renders, saves and deletions.
 export const monthlyFilingSignature = record => monthlyFilingEditableFields.map(key => String(record[key] ?? '')).join('\u0001');
 export function createMonthlyFilingViewState() {
-  const draftKeys = new WeakMap(); const expanded = new Set(); const labels = new Map(); const baselines = new Map();
-  let draftSequence = 0; let labelSequence = 0;
+  const draftKeys = new WeakMap(); const expanded = new Set(); const baselines = new Map(); const savedCents = new Map();
+  let draftSequence = 0;
   const keyOf = record => {
     if (record.dbId) return `db:${record.dbId}`;
     if (!draftKeys.has(record)) draftKeys.set(record, `draft:${++draftSequence}`);
@@ -84,40 +84,91 @@ export function createMonthlyFilingViewState() {
   const move = (from, to) => {
     if (from === to) return;
     if (expanded.delete(from)) expanded.add(to);
-    if (labels.has(from)) { labels.set(to, labels.get(from)); labels.delete(from); }
   };
   return {
     keyOf,
-    // Stable per-receipt number for this session; never reused or renumbered when other receipts are deleted.
-    labelOf: record => { const key = keyOf(record); if (!labels.has(key)) labels.set(key, ++labelSequence); return labels.get(key); },
     isExpanded: record => expanded.has(keyOf(record)),
     setExpanded: (record, open) => { if (open) expanded.add(keyOf(record)); else expanded.delete(keyOf(record)); },
     // A record object was replaced by an edited copy or by the saved version: the receipt keeps its identity and its state.
     replace: (previous, next) => { const from = keyOf(previous); if (!next.dbId) draftKeys.set(next, from); move(from, keyOf(next)); },
-    markPersisted: record => { if (record.dbId && record.status === 'active') baselines.set(keyOf(record), monthlyFilingSignature(record)); },
-    markPersistedIfNew: record => { if (record.dbId && record.status === 'active' && !baselines.has(keyOf(record))) baselines.set(keyOf(record), monthlyFilingSignature(record)); },
+    markPersisted: record => { if (record.dbId && record.status === 'active') { baselines.set(keyOf(record), monthlyFilingSignature(record)); savedCents.set(keyOf(record), monthlyFilingSavedCents(record)); } },
+    markPersistedIfNew: record => { if (record.dbId && record.status === 'active' && !baselines.has(keyOf(record))) { baselines.set(keyOf(record), monthlyFilingSignature(record)); savedCents.set(keyOf(record), monthlyFilingSavedCents(record)); } },
+    // The amount last persisted for a saved Active receipt (exact centavos), for the Saved Total.
+    savedCentsOf: record => savedCents.get(keyOf(record)),
     // 'new' = a not-yet-saved receipt with content; 'edited' = a saved Active receipt that differs from what was last persisted; Archived is never dirty.
     dirtyState: record => {
       if (record.status !== 'active') return 'clean';
       if (!record.dbId) return isBlankUnsavedMonthlyFilingRecord(record) ? 'clean' : 'new';
       return baselines.get(keyOf(record)) === undefined || baselines.get(keyOf(record)) === monthlyFilingSignature(record) ? 'clean' : 'edited';
     },
-    forget: record => { const key = keyOf(record); expanded.delete(key); labels.delete(key); baselines.delete(key); }
+    forget: record => { const key = keyOf(record); expanded.delete(key); baselines.delete(key); savedCents.delete(key); }
   };
 }
-const pesoFormat = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' });
-export const monthlyFilingAmountText = value => { const amount = Number(String(value ?? '').replaceAll(',', '')); return String(value ?? '').trim() && Number.isFinite(amount) ? pesoFormat.format(amount) : '₱0.00'; };
+const pesoWhole = new Intl.NumberFormat('en-PH', { maximumFractionDigits: 0 });
+// Exact formatting from integer centavos (no floating-point arithmetic is involved in the figure itself).
+export const formatMonthlyFilingCents = cents => `₱${pesoWhole.format(Math.floor(cents / 100))}.${String(cents % 100).padStart(2, '0')}`;
+// Typed amount state through the CP10-C0 parser: 'valid' (exact centavos), 'blank' or 'invalid' (never treated as zero).
+export const monthlyFilingAmountState = value => { const parsed = parseMoneyAmount(value); return parsed.blank ? { kind: 'blank' } : parsed.valid ? { kind: 'valid', cents: parsed.cents } : { kind: 'invalid', message: parsed.message, reason: parsed.reason }; };
+export const monthlyFilingAmountText = value => { const state = monthlyFilingAmountState(value); return state.kind === 'valid' ? formatMonthlyFilingCents(state.cents) : state.kind === 'blank' ? 'No amount' : 'Invalid amount'; };
+const monthlyFilingSavedCents = record => { const state = monthlyFilingAmountState(record.amount); return state.kind === 'valid' ? state.cents : 0; };
+// Item No. each Active receipt has in the export: its position among the non-blank Active records, in the same order as activeMonthlyFilingSnapshot().
+// Blank placeholders and Archived receipts have no number. This is display-only: identity stays with view.keyOf.
+export const monthlyFilingExportNumbers = records => {
+  const numbers = new Map(); let position = 0;
+  records.forEach(record => { if (record.status === 'active' && !isBlankUnsavedMonthlyFilingRecord(record)) numbers.set(record, ++position); });
+  return numbers;
+};
+export const monthlyFilingArchivedLabel = archivedAt => {
+  const date = archivedAt ? new Date(archivedAt) : undefined;
+  return date && !Number.isNaN(date.getTime()) ? `Archived · ${date.toLocaleDateString('en-PH', { day: 'numeric', month: 'short', year: 'numeric' })}` : 'Archived';
+};
+export const monthlyFilingReceiptLabel = (record, number) => monthlyFilingIsReadOnly(record) ? monthlyFilingArchivedLabel(record.archivedAt) : number ? `Receipt ${number}` : 'New receipt';
+// Active Total: exact centavos over the meaningful Active receipts. Any invalid amount makes the total unavailable (no partial figure); blank amounts add nothing and are counted.
+export function summarizeActiveMonthlyFiling(records, { savedCentsOf = () => undefined, isDirty = () => false } = {}) {
+  const numbers = monthlyFilingExportNumbers(records);
+  let workingCents = 0; let savedCents = 0; let withoutAmount = 0; let hasUnsaved = false; const invalid = [];
+  numbers.forEach((number, record) => {
+    const amount = monthlyFilingAmountState(record.amount);
+    if (amount.kind === 'invalid') invalid.push(number); else if (amount.kind === 'valid') workingCents += amount.cents; else withoutAmount += 1;
+    if (record.dbId) savedCents += savedCentsOf(record) ?? 0;
+    if (isDirty(record)) hasUnsaved = true;
+  });
+  return { count: numbers.size, workingCents, savedCents, withoutAmount, invalid, hasUnsaved, available: invalid.length === 0 };
+}
+export const monthlyFilingTotalText = summary => {
+  if (!summary.count) return { main: '', detail: '', available: true };
+  if (!summary.available) return { main: 'Active Total unavailable', detail: summary.invalid.length === 1 ? `Receipt ${summary.invalid[0]} has an invalid amount` : `Receipts ${summary.invalid.join(', ')} have invalid amounts`, available: false };
+  const detail = [`${summary.count} receipt${summary.count === 1 ? '' : 's'}${summary.withoutAmount ? ` · ${summary.withoutAmount} without amount` : ''}`];
+  if (summary.hasUnsaved) detail.push('Includes unsaved changes', `Saved Total: ${formatMonthlyFilingCents(summary.savedCents)}`);
+  return { main: `Active Total: ${formatMonthlyFilingCents(summary.workingCents)}`, detail: detail.join(' · '), available: true };
+};
+// Total of the amounts in an export snapshot (the authoritative saved records); null if any amount is not a valid money value.
+export const monthlyFilingSnapshotTotalCents = records => { let total = 0; for (const record of records) { const amount = monthlyFilingAmountState(record.amount); if (amount.kind === 'invalid') return null; if (amount.kind === 'valid') total += amount.cents; } return total; };
 export const monthlyFilingDirtyLabel = state => state === 'new' ? 'New, unsaved' : state === 'edited' ? 'Unsaved changes' : '';
 export const monthlyFilingSummaryName = ({ number, store, amountText, date, archived, dirty }) =>
-  [`Monthly receipt ${number}`, store, amountText, date || 'no date', archived ? 'archived' : '', monthlyFilingDirtyLabel(dirty).toLowerCase()].filter(Boolean).join(', ');
+  [archived ? 'Archived monthly receipt' : number ? `Monthly receipt ${number}` : 'New monthly receipt', store, amountText, date || 'no date', archived ? 'archived' : '', monthlyFilingDirtyLabel(dirty).toLowerCase()].filter(Boolean).join(', ');
 export const matchingDirectoryEntries = (entries, candidate) => {
   const key = persistedStoreFingerprint(candidate);
   return entries.filter(entry => entry.decision?.candidate && persistedStoreFingerprint(entry.decision.candidate) === key);
 };
-export const directoryOutcomeFeedback = outcomes => outcomes.map(outcome => outcome.message).filter(Boolean).join(' ');
+// Aggregates Company Directory outcomes by type: failures first (every distinct reason is kept), then ambiguous, contributed, already-existing and declined.
+// { saved: false } omits the leading "Monthly Filing saved." (used when appended to an export message that already reports success).
+export const directoryOutcomeFeedback = (outcomes, { saved = true } = {}) => {
+  const byType = type => outcomes.filter(outcome => outcome.type === type);
+  const stores = n => `${n} store${n === 1 ? '' : 's'}`; const were = n => n === 1 ? 'was' : 'were';
+  const reasons = list => [...new Set(list.map(outcome => String(outcome.reason || '').trim().replace(/[.\s]+$/, '')).filter(Boolean))];
+  const parts = [];
+  const failed = byType('directory-failed'); if (failed.length) parts.push(`${stores(failed.length)} could not be added to the Company Directory${reasons(failed).length ? `: ${reasons(failed).join('; ')}` : ''}.`);
+  const association = byType('association-failed'); if (association.length) parts.push(`The Company Directory association could not be recorded for ${association.length} receipt${association.length === 1 ? '' : 's'}${reasons(association).length ? `: ${reasons(association).join('; ')}` : ''}.`);
+  const ambiguous = byType('ambiguous'); if (ambiguous.length) parts.push(`${stores(ambiguous.length)} ${ambiguous.length === 1 ? 'matches' : 'match'} multiple Company profiles; add more identifying information before adding ${ambiguous.length === 1 ? 'it' : 'them'} to the directory.`);
+  const contributed = byType('contributed'); if (contributed.length) parts.push(`${stores(contributed.length)} ${were(contributed.length)} added to the Company Directory.`);
+  const existing = byType('duplicate-reused'); if (existing.length) parts.push(`${stores(existing.length)} ${were(existing.length)} already in the Company Directory.`);
+  const declined = byType('declined'); if (declined.length) parts.push(`${stores(declined.length)} ${were(declined.length)} kept only in Monthly Filing.`);
+  return parts.length ? [saved && 'Monthly Filing saved.', ...parts].filter(Boolean).join(' ') : '';
+};
 
 export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedStoreService, downloadExpenseDetailedReport, confirmAction = async () => false }) {
-  let currentUser; let records = []; let profiles = []; let loading = false; let lastDirectoryFeedback = ''; let activeTab = 'active'; let view = createMonthlyFilingViewState(); let contentSequence = 0;
+  let currentUser; let records = []; let profiles = []; let loading = false; let lastDirectoryFeedback = ''; let lastDirectoryDetail = ''; let activeTab = 'active'; let view = createMonthlyFilingViewState(); let contentSequence = 0;
   const lifecycle = createMonthlyFilingLifecycleState();
   const mutations = createMonthlyFilingMutationState();
   const feedback = text => { elements.feedback.textContent = text || ''; };
@@ -139,26 +190,39 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
     elements.activeActions.hidden = activeTab !== 'active'; elements.exportHelper.hidden = activeTab !== 'active'; elements.archivedActions.hidden = activeTab !== 'archived';
   };
   const monthlyCards = () => [...elements.list.children].filter(row => row.matches?.('.monthly-card'));
-  const refreshRowPresentation = row => {
+  const exportNumbers = () => monthlyFilingExportNumbers(records);
+  const refreshRowPresentation = (row, numbers = exportNumbers()) => {
     const record = records[Number(row.dataset.recordIndex)];
     if (!record) return;
     const dirty = view.dirtyState(record); const archived = monthlyFilingIsReadOnly(record);
-    const store = String(record.store || '').trim() || 'Store not set'; const amountText = monthlyFilingAmountText(record.amount);
-    const open = view.isExpanded(record); const number = view.labelOf(record); const label = monthlyFilingDirtyLabel(dirty);
+    const store = String(record.store || '').trim() || 'Store not set'; const amount = monthlyFilingAmountState(record.amount); const amountText = monthlyFilingAmountText(record.amount);
+    const open = view.isExpanded(record); const number = numbers.get(record); const label = monthlyFilingDirtyLabel(dirty); const receiptLabel = monthlyFilingReceiptLabel(record, number);
     row.classList.toggle('is-unsaved', dirty !== 'clean'); row.classList.toggle('is-collapsed', !open);
-    row.querySelector('.monthly-receipt-id').textContent = `Receipt ${number}`;
+    row.querySelector('.monthly-receipt-id').textContent = receiptLabel;
+    // An invalid amount is flagged beside the Amount field itself (summaries are not visible on wide screens), never shown as money.
+    const invalidAmount = amount.kind === 'invalid' && !archived; const amountInput = row.querySelector('.monthly-amount'); const amountError = row.querySelector('.monthly-amount-error');
+    row.classList.toggle('has-invalid-amount', invalidAmount);
+    if (invalidAmount) { amountInput.setAttribute('aria-invalid', 'true'); if (amountError.id) amountInput.setAttribute('aria-describedby', amountError.id); } else { amountInput.removeAttribute('aria-invalid'); amountInput.removeAttribute('aria-describedby'); }
+    amountError.hidden = !invalidAmount; amountError.textContent = invalidAmount ? `Invalid amount. ${amount.reason}` : '';
     const unsaved = row.querySelector('.monthly-unsaved'); unsaved.textContent = label; unsaved.hidden = !label;
     const summary = row.querySelector('.monthly-summary');
-    summary.querySelector('.monthly-summary-id').textContent = `Receipt ${number}`;
+    summary.querySelector('.monthly-summary-id').textContent = receiptLabel;
     summary.querySelector('.monthly-summary-store').textContent = store; summary.querySelector('.monthly-summary-store').title = store;
-    summary.querySelector('.monthly-summary-amount').textContent = amountText;
+    summary.querySelector('.monthly-summary-amount').textContent = amountText; summary.querySelector('.monthly-summary-amount').classList.toggle('is-invalid', amount.kind === 'invalid');
     summary.querySelector('.monthly-summary-date').textContent = record.receiptDate || 'No date';
-    const flags = summary.querySelector('.monthly-summary-flags'); flags.replaceChildren(...[archived && 'Archived', label].filter(Boolean).map(text => { const flag = document.createElement('span'); flag.className = 'monthly-flag'; flag.textContent = text; return flag; }));
+    const flags = summary.querySelector('.monthly-summary-flags'); flags.replaceChildren(...[archived && 'Archived', invalidAmount && 'Invalid amount', label].filter(Boolean).map(text => { const flag = document.createElement('span'); flag.className = 'monthly-flag'; flag.textContent = text; return flag; }));
     summary.setAttribute('aria-expanded', String(open));
     summary.setAttribute('aria-label', monthlyFilingSummaryName({ number, store, amountText, date: record.receiptDate, archived, dirty }));
   };
+  const activeTotalSummary = () => summarizeActiveMonthlyFiling(records, { savedCentsOf: record => view.savedCentsOf(record), isDirty: record => view.dirtyState(record) !== 'clean' });
   const refreshPresentation = () => {
-    monthlyCards().forEach(refreshRowPresentation);
+    const numbers = exportNumbers();
+    monthlyCards().forEach(row => refreshRowPresentation(row, numbers));
+    if (elements.activeTotal) {
+      const text = monthlyFilingTotalText(activeTotalSummary());
+      elements.activeTotal.hidden = !text.main; elements.activeTotal.classList.toggle('is-unavailable', !text.available);
+      elements.activeTotalMain.textContent = text.main; elements.activeTotalDetail.textContent = text.detail;
+    }
     if (elements.unsavedNote) {
       const count = records.filter(record => view.dirtyState(record) !== 'clean').length;
       elements.unsavedNote.hidden = count === 0; elements.unsavedNote.textContent = count ? `${count} unsaved ${count === 1 ? 'receipt' : 'receipts'}` : '';
@@ -191,13 +255,13 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
     elements.list.replaceChildren(); updateActions();
     const visibleRecords = monthlyFilingRecordsForTab(records, activeTab);
     if (!visibleRecords.length) { const empty = document.createElement('p'); empty.className = 'monthly-empty'; empty.textContent = activeTab === 'active' ? 'No Active Monthly Filing receipts yet. Add one to begin.' : 'No Archived Monthly Filing receipts.'; elements.list.append(empty); return; }
-    records.forEach(record => view.labelOf(record));
     visibleRecords.forEach(record => {
       const recordIndex = records.indexOf(record);
       const row = elements.template.content.firstElementChild.cloneNode(true);
       row.dataset.recordKey = view.keyOf(record);
       const content = row.querySelector('.receipt-content'); content.id = `monthly-card-content-${++contentSequence}`;
       row.querySelector('.monthly-summary').setAttribute('aria-controls', content.id);
+      row.querySelector('.monthly-amount-error').id = `monthly-amount-error-${contentSequence}`;
       row.querySelector('.monthly-summary').addEventListener('click', () => { const current = records[Number(row.dataset.recordIndex)]; if (!current) return; view.setExpanded(current, !view.isExpanded(current)); refreshRowPresentation(row); });
       row.dataset.recordIndex = String(recordIndex);
       const currentRecord = () => records[Number(row.dataset.recordIndex)] ?? record; row.dataset.monthlyId = record.dbId || ''; row.dataset.sharedStoreId = record.sharedStoreId || ''; row.dataset.status = record.status; row.dataset.persistedStoreFingerprint = record.persistedStoreFingerprint || '';
@@ -253,7 +317,7 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
     try {
       const associated = await monthlyFilingService.associateMonthlyFilingSharedStore(entry.saved.dbId, profile.id);
       entry.saved = associated; setRecord(entry.recordIndex, associated, entry.fingerprint); if (entry.row) synchronizeMonthlyFilingRow(entry.row, associated);
-    } catch (error) { return { type: 'association-failed', message: `Monthly Filing saved, but its Company Directory association could not be recorded: ${error.message}` }; }
+    } catch (error) { return { type: 'association-failed', reason: error.message }; }
   };
   const associateMatchingEntries = async (entries, candidate, profile) => {
     const outcomes = [];
@@ -276,22 +340,22 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
       }
     }
     for (const decision of deduplicateDirectoryCandidates(entries.map(entry => entry.decision).filter(decision => decision.status === 'new' || decision.status === 'ambiguous'))) {
-      if (decision.status === 'ambiguous') { outcomes.push({ type: 'ambiguous', message: 'Monthly Filing saved. Multiple Company profiles match this store; add more identifying information before adding it to the directory.' }); continue; }
+      if (decision.status === 'ambiguous') { outcomes.push({ type: 'ambiguous' }); continue; }
       const confirmed = await confirmAction({ title: 'Add store to Company Directory?', message: candidateMessage(decision.candidate), confirmLabel: 'Add to Company Directory', cancelLabel: 'Keep only in Monthly Filing', trigger: elements.save });
-      if (!confirmed) { outcomes.push({ type: 'declined', message: 'Monthly Filing saved. Store kept only in Monthly Filing.' }); continue; }
+      if (!confirmed) { outcomes.push({ type: 'declined' }); continue; }
       try {
         const profile = await sharedStoreService.contributeSharedStore(decision.candidate, currentUser.id);
         await reloadSharedStores();
-        outcomes.push({ type: 'contributed', message: 'Monthly Filing saved. Store added to the Company Directory.' }, ...await associateMatchingEntries(entries, decision.candidate, profile));
+        outcomes.push({ type: 'contributed' },...await associateMatchingEntries(entries, decision.candidate, profile));
       } catch (error) {
         if (error?.name === 'SharedStoreDuplicateError') {
           try {
             await reloadSharedStores();
             const resolved = resolveSharedContributionCandidate(decision.candidate, profiles);
             if (resolved.status === 'existing') outcomes.push(...await associateMatchingEntries(entries, decision.candidate, resolved.profile));
-            outcomes.push({ type: 'duplicate-reused', message: 'Monthly Filing saved. This store is already in the Company Directory.' });
-          } catch { outcomes.push({ type: 'directory-failed', message: 'Monthly Filing saved. The Company Directory changed; refresh before trying this store again.' }); }
-        } else outcomes.push({ type: 'directory-failed', message: `Monthly Filing saved, but the store could not be added to the Company Directory: ${error.message}` });
+            outcomes.push({ type: 'duplicate-reused' });
+          } catch { outcomes.push({ type: 'directory-failed', reason: 'the Company Directory changed; refresh before trying this store again' }); }
+        } else outcomes.push({ type: 'directory-failed', reason: error.message });
       }
     }
     return outcomes;
@@ -314,7 +378,7 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
       const invalid = pending.map(entry => ({ entry, parsed: parseMoneyAmount(entry.record.amount) })).find(({ parsed }) => parsed.valid === false);
       if (invalid) {
         view.setExpanded(invalid.entry.record, true); refreshPresentation(); focusReceipt(invalid.entry.record, '.monthly-amount');
-        throw new Error(`Monthly receipt ${view.labelOf(invalid.entry.record)}${String(invalid.entry.record.store || '').trim() ? ` (${String(invalid.entry.record.store).trim()})` : ''}: ${invalid.parsed.message} Nothing was saved; correct the amount and try again.`);
+        throw new Error(`Monthly receipt ${exportNumbers().get(invalid.entry.record)}${String(invalid.entry.record.store || '').trim() ? ` (${String(invalid.entry.record.store).trim()})` : ''}: ${invalid.parsed.message} Nothing was saved; correct the amount and try again.`);
       }
       const { saved, error } = await persistMonthlyFilingRows(pending, async entry => {
         const { record, recordIndex, row } = entry; const receipt = { ...record }; const previousFingerprint = record.persistedStoreFingerprint || '';
@@ -324,10 +388,13 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
         return { row, recordIndex, receipt, previousFingerprint, saved: stored };
       });
       if (error) throw error;
-      lastDirectoryFeedback = directoryOutcomeFeedback(await processDirectoryDecisions(saved));
+      const directoryOutcomes = await processDirectoryDecisions(saved); lastDirectoryFeedback = directoryOutcomeFeedback(directoryOutcomes); lastDirectoryDetail = directoryOutcomeFeedback(directoryOutcomes, { saved: false });
       render(); if (successFeedback) feedback(lastDirectoryFeedback || 'Monthly Filing changes saved.'); return true;
     } catch (error) { feedback(`Could not save Monthly Filing changes: ${error.message}`); return false; } finally { loading = false; if (!fromExport) mutations.finish(); updateActions(); }
   };
+  // Totals come from the exact snapshot that was exported (database-returned amounts), never from the screen.
+  const exportedTotalText = records => { const cents = monthlyFilingSnapshotTotalCents(records); return cents === null ? '' : ` (Total: ${formatMonthlyFilingCents(cents)})`; };
+  const exportedTotalNote = (records, label) => { const cents = monthlyFilingSnapshotTotalCents(records); return cents === null ? '' : ` ${label}: ${formatMonthlyFilingCents(cents)}.`; };
   const exportActive = async event => {
     if (!lifecycle.beginExport()) return;
     if (!mutations.begin('export')) { lifecycle.finishExport(); return; }
@@ -336,13 +403,15 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
     synchronizeVisibleActiveDrafts();
     const count = monthlyFilingActiveExportCount(records);
     if (!count) return feedback('There are no Active Monthly Filing receipts to export.');
-    if (!await confirmAction({ title: 'Export Active Monthly Filing receipts?', message: `This will generate the Expense Detailed Report for all ${count} currently Active Monthly Filing receipt${count === 1 ? '' : 's'}. After the workbook is generated successfully, those receipts will be Archived and become read-only.`, confirmLabel: 'Export & Archive', cancelLabel: 'Cancel', trigger: event.currentTarget })) return;
+    const before = activeTotalSummary(); const totalNote = before.available ? ` Active Total: ${formatMonthlyFilingCents(before.workingCents)}.` : '';
+    lastDirectoryFeedback = ''; lastDirectoryDetail = '';
+    if (!await confirmAction({ title: 'Export Active Monthly Filing receipts?', message: `This will generate the Expense Detailed Report for all ${count} currently Active Monthly Filing receipt${count === 1 ? '' : 's'}.${totalNote} Unsaved changes are saved first. After the workbook is generated successfully, those receipts will be Archived and become read-only.`, confirmLabel: 'Export & Archive', cancelLabel: 'Cancel', trigger: event.currentTarget })) return;
     const result = await runMonthlyFilingExport({ save: () => save({ successFeedback: false, fromExport: true }), snapshot: activeRecords, generateWorkbook: snapshot => downloadExpenseDetailedReport(snapshot, monthlyFilingExportFilename()), archive: ids => monthlyFilingService.archiveMonthlyFilingReceipts(ids) });
     if (result.state === 'save-failed') return;
     if (result.state === 'empty') return feedback('There are no persisted Active Monthly Filing receipts to export.');
     if (result.state === 'generation-failed') return feedback(`Could not prepare the XLSX export: ${result.error.message}`);
-    if (result.state === 'archive-failed') { lifecycle.markArchiveUncertain(); return feedback(`Workbook generated, but archive status could not be confirmed. Refresh Monthly Filing before exporting again. (${result.error.message})${lastDirectoryFeedback ? ` ${lastDirectoryFeedback}` : ''}`); }
-    const archivedById = new Map(result.archived.map(record => [record.dbId, record])); records = records.map(record => archivedById.has(record.dbId) ? { ...archivedById.get(record.dbId), persistedStoreFingerprint: record.persistedStoreFingerprint } : record); render(); feedback(`Exported and archived ${result.records.length} Monthly Filing receipt${result.records.length === 1 ? '' : 's'}.${lastDirectoryFeedback ? ` ${lastDirectoryFeedback}` : ''}`);
+    if (result.state === 'archive-failed') { lifecycle.markArchiveUncertain(); return feedback(`Workbook generated, but archive status could not be confirmed. Refresh Monthly Filing before exporting again. (${result.error.message})${exportedTotalNote(result.records, 'Workbook total')}${lastDirectoryDetail ? ` ${lastDirectoryDetail}` : ''}`); }
+    const archivedById = new Map(result.archived.map(record => [record.dbId, record])); records = records.map(record => archivedById.has(record.dbId) ? { ...archivedById.get(record.dbId), persistedStoreFingerprint: record.persistedStoreFingerprint } : record); render(); feedback(`Exported and archived ${result.records.length} Monthly Filing receipt${result.records.length === 1 ? '' : 's'}${exportedTotalText(result.records)}.${lastDirectoryDetail ? ` ${lastDirectoryDetail}` : ''}`);
     } finally { lifecycle.finishExport(); mutations.finish(); updateActions(); keepFocusReachable(); }
   };
   // A closing dialog returns focus to its trigger, which may have just become disabled: look again after the frame.

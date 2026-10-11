@@ -57,7 +57,7 @@ test('Expand all and Collapse all are real buttons in the list header; chevrons 
 
 test('Monthly Filing numbering, totals, export and lifecycle markup were not touched', () => {
   assert.match(monthlyTemplate, /<span class="monthly-summary-id">Receipt 1<\/span>/);
-  assert.match(html, /id="monthlyFilingExportActive"/); assert.doesNotMatch(html, /monthlyActiveTotal/);
+  assert.match(html, /id="monthlyFilingExportActive"/);
 });
 
 // ---- CSS ---------------------------------------------------------------------------------------------------------------------------------------

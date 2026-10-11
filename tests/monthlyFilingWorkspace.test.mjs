@@ -2,7 +2,9 @@ import nodeAssert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { toDatabaseMonthlyFilingReceipt } from '../services/monthlyFilingService.js';
-import { createMonthlyFilingUi, createMonthlyFilingViewState, monthlyFilingAmountText, monthlyFilingDirtyLabel, monthlyFilingSignature, monthlyFilingSummaryName } from '../ui/monthlyFilingUi.js';
+import { createMonthlyFilingUi, createMonthlyFilingViewState, directoryOutcomeFeedback, monthlyFilingAmountText, monthlyFilingArchivedLabel, monthlyFilingDirtyLabel, monthlyFilingExportNumbers, monthlyFilingSignature, monthlyFilingSnapshotTotalCents, monthlyFilingSummaryName, monthlyFilingTotalText, summarizeActiveMonthlyFiling } from '../ui/monthlyFilingUi.js';
+import { buildExpenseDetailedReportRows } from '../services/exportService.js';
+import { normalizeMoneyAmount } from '../domain/moneyAmount.js';
 
 // match/doesNotMatch report the pattern, not the whole stylesheet, when they fail.
 const assert = { ...nodeAssert, match: (text, pattern, message) => nodeAssert.ok(pattern.test(text), message ?? `expected a match for ${pattern}`), doesNotMatch: (text, pattern, message) => nodeAssert.ok(!pattern.test(text), message ?? `expected no match for ${pattern}`) };
@@ -121,17 +123,15 @@ test('record identity follows the receipt, not its array position, and survives 
   const edited = { ...draft, store: 'New cafe' };
   view.replace(draft, edited);
   assert.equal(view.keyOf(edited), key, 'an edited copy of a draft keeps its key');
-  view.setExpanded(edited, true); const number = view.labelOf(edited);
+  view.setExpanded(edited, true);
   const persisted = saved('db-1', { store: 'New cafe' });
   view.replace(edited, persisted);
   assert.equal(view.keyOf(persisted), 'db:db-1');
   assert.equal(view.isExpanded(persisted), true, 'expansion moves from the draft key to the database key');
-  assert.equal(view.labelOf(persisted), number, 'the receipt keeps its number when it is saved');
-  const other = saved('db-2'); const otherNumber = view.labelOf(other);
+  const other = saved('db-2');
   view.forget(persisted);
   assert.equal(view.isExpanded(other), false);
-  assert.equal(view.labelOf(other), otherNumber, 'deleting another receipt never renumbers this one');
-  assert.ok(view.labelOf(saved('db-3')) > otherNumber, 'numbers are not reused');
+  assert.equal(view.labelOf, undefined, 'display numbers are no longer session state: they come from export order');
   const second = { ...base }; view.setExpanded(second, true);
   assert.equal(view.isExpanded({ ...base }), false, 'a different draft never inherits another receipt\'s state');
 });
@@ -153,15 +153,17 @@ test('unsaved state reflects real edits: new, edited, clean, reverted, Archived 
 });
 
 test('summary text helpers: amounts, labels and accessible names (state is not colour alone)', () => {
-  assert.equal(monthlyFilingAmountText('4120.5'), '₱4,120.50'); assert.equal(monthlyFilingAmountText(''), '₱0.00'); assert.equal(monthlyFilingAmountText('abc'), '₱0.00');
+  assert.equal(monthlyFilingAmountText('4120.5'), '₱4,120.50'); assert.equal(monthlyFilingAmountText('1,250.50'), '₱1,250.50'); assert.equal(monthlyFilingAmountText(1250.5), '₱1,250.50'); assert.equal(monthlyFilingAmountText(''), 'No amount'); assert.equal(monthlyFilingAmountText('  '), 'No amount');
+  for (const bad of ['abc', '12,34.50', '1,250.999', '-5', '1e3']) assert.equal(monthlyFilingAmountText(bad), 'Invalid amount', `${bad} is never formatted as money`);
   assert.equal(monthlyFilingDirtyLabel('new'), 'New, unsaved'); assert.equal(monthlyFilingDirtyLabel('edited'), 'Unsaved changes'); assert.equal(monthlyFilingDirtyLabel('clean'), '');
   assert.equal(monthlyFilingSummaryName({ number: 3, store: 'Shell', amountText: '₱2,000.00', date: '2026-10-04', archived: false, dirty: 'edited' }), 'Monthly receipt 3, Shell, ₱2,000.00, 2026-10-04, unsaved changes');
-  assert.equal(monthlyFilingSummaryName({ number: 5, store: 'Store not set', amountText: '₱0.00', date: '', archived: true, dirty: 'clean' }), 'Monthly receipt 5, Store not set, ₱0.00, no date, archived');
+  assert.equal(monthlyFilingSummaryName({ number: 5, store: 'Store not set', amountText: '₱0.00', date: '', archived: true, dirty: 'clean' }), 'Archived monthly receipt, Store not set, ₱0.00, no date, archived');
+  assert.equal(monthlyFilingSummaryName({ number: undefined, store: 'Store not set', amountText: 'No amount', date: '', archived: false, dirty: 'new' }), 'New monthly receipt, Store not set, No amount, no date, new, unsaved');
   assert.equal(monthlyFilingSignature(saved('x')), monthlyFilingSignature({ ...saved('x'), unrelated: 1 }));
 });
 
 // ---- D. the real Monthly Filing UI against a DOM fixture --------------------------------------------------------------------------
-function fixture({ records = [], confirm = async () => true, reduced = false } = {}) {
+function fixture({ records = [], confirm = async () => true, reduced = false, sharedStoreService = { listActiveSharedStores: async () => [] } } = {}) {
   const focusLog = []; const scrollLog = []; const state = { activeElement: null };
   globalThis.matchMedia = query => ({ matches: query.includes('prefers-reduced-motion') ? reduced : false });
   globalThis.requestAnimationFrame = callback => { callback(); return 0; };
@@ -191,22 +193,22 @@ function fixture({ records = [], confirm = async () => true, reduced = false } =
     row.querySelectorAll = selector => selector === 'input, select' ? fieldKeys.map(key => row.querySelector(`.monthly-${key}`)) : [];
     return row;
   };
-  const elements = { workspace: node(), list, template: { content: { firstElementChild: { cloneNode: () => makeRow() } } }, activeTab: node(), archivedTab: node(), activeActions: node(), archivedActions: node(), exportHelper: node(), add: node(), save: node(), exportActive: node(), clearArchived: node(), clearAll: node(), feedback: node(), unsavedNote: node() };
-  const calls = { create: [], update: [], remove: [], archive: [], ret: [], workbook: [], confirms: [], order: [] };
+  const elements = { workspace: node(), list, template: { content: { firstElementChild: { cloneNode: () => makeRow() } } }, activeTab: node(), archivedTab: node(), activeActions: node(), archivedActions: node(), exportHelper: node(), add: node(), save: node(), exportActive: node(), clearArchived: node(), clearAll: node(), feedback: node(), unsavedNote: node(), activeTotal: node(), activeTotalMain: node(), activeTotalDetail: node() };
+  const calls = { create: [], update: [], remove: [], archive: [], ret: [], workbook: [], snapshots: [], confirms: [], confirmOptions: [], order: [] };
   let sequence = 0; const failures = { update: new Set(), createAt: new Set(), create: false, workbook: false, archive: false }; let createAttempts = 0;
   const service = {
     loadMonthlyFilingReceipts: async () => records.map(record => ({ ...record })),
-    createMonthlyFilingReceipt: async receipt => { calls.order.push('create'); createAttempts += 1; if (failures.create || failures.createAt.has(createAttempts)) throw new Error('create failed'); calls.create.push(receipt); return { ...receipt, dbId: `new-${++sequence}`, status: 'active' }; },
-    updateMonthlyFilingReceipt: async (id, receipt) => { calls.order.push('update'); if (failures.update.has(id)) throw new Error(`update ${id} failed`); calls.update.push([id, receipt]); return { ...receipt, dbId: id, status: 'active' }; },
+    createMonthlyFilingReceipt: async receipt => { calls.order.push('create'); createAttempts += 1; if (failures.create || failures.createAt.has(createAttempts)) throw new Error('create failed'); calls.create.push(receipt); return { ...receipt, amount: String(normalizeMoneyAmount(receipt.amount) ?? ''), dbId: `new-${++sequence}`, status: 'active' }; },
+    updateMonthlyFilingReceipt: async (id, receipt) => { calls.order.push('update'); if (failures.update.has(id)) throw new Error(`update ${id} failed`); calls.update.push([id, receipt]); return { ...receipt, amount: String(normalizeMoneyAmount(receipt.amount) ?? ''), dbId: id, status: 'active' }; },
     deleteMonthlyFilingReceipt: async id => { calls.remove.push(id); },
     archiveMonthlyFilingReceipts: async ids => { calls.order.push('archive'); if (failures.archive) throw new Error('archive failed'); calls.archive.push(ids); return ids.map(id => ({ ...records.find(record => record.dbId === id), dbId: id, status: 'archived' })); },
     returnMonthlyFilingReceiptToActive: async id => { calls.ret.push(id); return { ...records.find(record => record.dbId === id), dbId: id, status: 'active' }; },
     associateMonthlyFilingSharedStore: async id => ({ ...records.find(record => record.dbId === id), dbId: id })
   };
   const ui = createMonthlyFilingUi({
-    elements, monthlyFilingService: service, sharedStoreService: { listActiveSharedStores: async () => [] },
-    downloadExpenseDetailedReport: snapshot => { calls.order.push('workbook'); if (failures.workbook) throw new Error('workbook failed'); calls.workbook.push(snapshot.map(record => record.dbId)); },
-    confirmAction: async options => { calls.confirms.push(options.title); return confirm(options); }
+    elements, monthlyFilingService: service, sharedStoreService,
+    downloadExpenseDetailedReport: snapshot => { calls.order.push('workbook'); if (failures.workbook) throw new Error('workbook failed'); calls.workbook.push(snapshot.map(record => record.dbId)); calls.snapshots.push(snapshot.map(record => ({ ...record }))); },
+    confirmAction: async options => { calls.confirms.push(options.title); calls.confirmOptions.push(options); return confirm(options); }
   });
   ui.start();
   const cards = () => list.kids.filter(kid => kid.matches('.monthly-card'));
@@ -263,7 +265,7 @@ test('Add receipt creates one blank receipt, expands it, scrolls it into view an
   assert.equal(f.focusLog.at(-1).node, f.field(f.cards()[2], 'store'));
   await f.edit(f.cards()[2], 'store', 'Gamma');
   assert.equal(f.flag(f.cards()[2]).textContent, 'New, unsaved');
-  assert.equal(f.label(f.cards()[2]), 'Receipt 4', 'a new receipt continues the numbering (the archived one is Receipt 3)');
+  assert.equal(f.label(f.cards()[2]), 'Receipt 3', 'a new receipt is next in export order; the Archived receipt has no Item No.');
   await f.click(f.elements.add);
   assert.equal(f.cards().length, 4, 'once the blank receipt is used, Add creates another');
 });
@@ -286,7 +288,7 @@ test('Save clears the unsaved markers and keeps each receipt expanded and number
   assert.ok(f.cards().every(card => f.flag(card).hidden), 'markers cleared');
   assert.equal(f.elements.unsavedNote.hidden, true);
   assert.deepEqual(f.cards().map(card => card.classList.contains('is-collapsed')), [false, true, false], 'expansion follows the receipts across the re-render');
-  assert.deepEqual(f.cards().map(f.label), ['Receipt 1', 'Receipt 2', 'Receipt 4']);
+  assert.deepEqual(f.cards().map(f.label), ['Receipt 1', 'Receipt 2', 'Receipt 3']);
   assert.equal(f.elements.feedback.textContent, 'Monthly Filing changes saved.');
 });
 
@@ -318,7 +320,7 @@ test('expansion and unsaved edits survive switching to Archived and back', async
   await f.click(f.summary(f.cards()[1])); await f.edit(f.cards()[1], 'amount', '777');
   await f.click(f.elements.archivedTab);
   assert.equal(f.cards().length, 1); assert.equal(f.cards()[0].dataset.status, 'archived');
-  assert.equal(f.label(f.cards()[0]), 'Receipt 3');
+  assert.equal(f.label(f.cards()[0]), 'Archived', 'Archived receipts carry no Item No.');
   assert.ok(f.cards()[0].querySelector('.monthly-return-active').hidden === false && f.cards()[0].querySelector('.monthly-delete').hidden === true);
   assert.ok(f.flag(f.cards()[0]).hidden, 'Archived receipts are never marked unsaved');
   await f.click(f.elements.activeTab);
@@ -333,7 +335,7 @@ test('deleting a receipt keeps the others\' numbers and expansion, and moves foc
   f.focusLog.length = 0;
   await f.click(f.cards()[1].querySelector('.monthly-delete'));
   assert.deepEqual(f.calls.remove, ['a2']); assert.ok(f.calls.confirms.includes('Delete Monthly Filing receipt?'));
-  assert.deepEqual(f.cards().map(f.label), ['Receipt 1', 'Receipt 3'], 'Receipt 3 is not renumbered to 2');
+  assert.deepEqual(f.cards().map(f.label), ['Receipt 1', 'Receipt 2'], 'deleting renumbers the receipts below it (export order)');
   assert.deepEqual(f.cards().map(card => card.classList.contains('is-collapsed')), [true, false], 'the expanded receipt stayed expanded; the deleted one left no state behind');
   assert.ok([f.field(f.cards()[1], 'store'), f.summary(f.cards()[1])].includes(f.focusLog.at(-1).node), 'focus lands on a control of the receipt that took its place');
 });
@@ -378,7 +380,7 @@ test('Export saves first, then generates the workbook from the exact saved snaps
   assert.deepEqual(f.calls.workbook, [['a1', 'a2']]); assert.deepEqual(f.calls.archive, [['a1', 'a2']]);
   assert.deepEqual(f.calls.update.find(([id]) => id === 'a1')[1].invoice, 'PRE-EXPORT');
   assert.equal(f.elements.activeTab.textContent, 'Active (0)'); assert.equal(f.elements.archivedTab.textContent, 'Archived (3)');
-  assert.match(f.elements.feedback.textContent, /Exported and archived 2 Monthly Filing receipts\./);
+  assert.match(f.elements.feedback.textContent, /^Exported and archived 2 Monthly Filing receipts \(Total: ₱200\.00\)\.$/);
   assert.ok(f.calls.confirms.includes('Export Active Monthly Filing receipts?'));
 });
 
@@ -468,7 +470,7 @@ test('Delete on the receipt that was just persisted asks for confirmation and ca
   await f.click(f.cards()[0].querySelector('.monthly-delete'));
   assert.ok(f.calls.confirms.includes('Delete Monthly Filing receipt?'), 'the destructive confirmation is still required');
   assert.deepEqual(f.calls.remove, ['new-1'], 'the persisted receipt is deleted in the database, not only locally');
-  assert.equal(f.cards().length, 1); assert.equal(f.label(f.cards()[0]), 'Receipt 2', 'the other receipt keeps its number');
+  assert.equal(f.cards().length, 1); assert.equal(f.label(f.cards()[0]), 'Receipt 1', 'the remaining receipt is renumbered to its export position');
   assert.deepEqual(['store', 'amount'].map(key => f.field(f.cards()[0], key).value), ['Second cafe', '20']);
   assert.equal(f.flag(f.cards()[0]).textContent, 'New, unsaved');
   assert.ok([f.field(f.cards()[0], 'store'), f.summary(f.cards()[0])].includes(f.focusLog.at(-1).node), 'focus lands on the receipt that took its place');
@@ -555,4 +557,230 @@ test('the Monthly workbook is built from the saved (normalized) records, so amou
   assert.equal(snapshotAmounts, 1);
   const stored = toDatabaseMonthlyFilingReceipt(f.calls.update.find(([id]) => id === 'a1')[1], 'u').amount;
   assert.equal(stored, 1250.5, 'the value persisted for the exported receipt is the normalized amount');
+});
+
+// ---- CP10-C2: export-order numbering, Active Total, D-09, directory feedback, invalid amounts, Archived labels --------------------------------
+const totalLine = f => [f.elements.activeTotalMain.textContent, f.elements.activeTotalDetail.textContent];
+const dollars = cents => `₱${(Math.floor(cents / 100)).toLocaleString('en-PH')}.${String(cents % 100).padStart(2, '0')}`;
+const sheetCents = rows => rows.slice(2).reduce((sum, row) => sum + (typeof row[7] === 'number' ? Math.round(row[7] * 100) : 0), 0);
+
+test('C2-01: Active receipts are numbered 1..N in export order; Archived receipts and blank placeholders take no number', async () => {
+  const f = fixture({ records: [saved('a1', { store: 'Alpha' }), { ...saved('z0', { store: 'Old' }), status: 'archived' }, saved('a2', { store: 'Beta' }), saved('a3', { store: 'Gamma' })] }); await f.ui.loadForUser(user);
+  assert.deepEqual(f.cards().map(f.label), ['Receipt 1', 'Receipt 2', 'Receipt 3'], 'the Archived receipt between them does not consume a number');
+  await f.click(f.elements.add);
+  assert.equal(f.label(f.cards().at(-1)), 'New receipt', 'a blank placeholder has no Item No.');
+  assert.deepEqual([...monthlyFilingExportNumbers([saved('x'), { ...base }, saved('y')]).values()], [1, 2], 'the pure helper skips blanks');
+  await f.edit(f.cards().at(-1), 'store', 'Delta');
+  assert.equal(f.label(f.cards().at(-1)), 'Receipt 4', 'a meaningful draft takes its prospective export number');
+});
+
+test('C2-01: deleting renumbers the receipts below it while identity, expansion and focus stay with the receipt', async () => {
+  const f = fixture({ records: [saved('a1', { store: 'Alpha' }), saved('a2', { store: 'Beta' }), saved('a3', { store: 'Gamma' })] }); await f.ui.loadForUser(user);
+  const keyBefore = f.cards()[2].dataset.recordKey; await f.click(f.summary(f.cards()[2]));
+  await f.click(f.cards()[0].querySelector('.monthly-delete'));
+  assert.deepEqual(f.cards().map(f.label), ['Receipt 1', 'Receipt 2']);
+  assert.deepEqual(f.cards().map(card => card.dataset.monthlyId), ['a2', 'a3']);
+  assert.equal(f.cards()[1].dataset.recordKey, keyBefore, 'the display number changed, the receipt identity did not');
+  assert.equal(f.cards()[1].classList.contains('is-collapsed'), false, 'expansion follows the receipt');
+  assert.deepEqual(f.calls.remove, ['a1']);
+});
+
+test('C2-01: Save keeps the order and numbers; multiple export cycles restart at 1; Return to Active slots in by order', async () => {
+  const f = fixture({ records: [saved('a1', { store: 'Alpha' }), saved('a2', { store: 'Beta' })] }); await f.ui.loadForUser(user);
+  await f.click(f.elements.add); await f.edit(f.cards().at(-1), 'store', 'Gamma');
+  const before = f.cards().map(f.label); await f.click(f.elements.save);
+  assert.deepEqual(f.cards().map(f.label), before, 'saving never renumbers'); assert.deepEqual(before, ['Receipt 1', 'Receipt 2', 'Receipt 3']);
+  await f.click(f.elements.exportActive);
+  assert.equal(f.cards().length, 0, 'everything is Archived after the export');
+  await f.click(f.elements.add); await f.edit(f.cards()[0], 'store', 'Next cycle');
+  assert.equal(f.label(f.cards()[0]), 'Receipt 1', 'a new cycle restarts at 1');
+});
+
+test('C2-01: Return to Active gives the receipt its export position and renumbers the later ones', async () => {
+  const f = fixture({ records: [{ ...saved('z1', { store: 'Back' }), status: 'archived' }, saved('a1', { store: 'Alpha' })] }); await f.ui.loadForUser(user);
+  assert.deepEqual(f.cards().map(f.label), ['Receipt 1']);
+  await f.click(f.elements.archivedTab); await f.click(f.cards()[0].querySelector('.monthly-return-active'));
+  assert.deepEqual(f.cards().map(card => [card.dataset.monthlyId, f.label(card)]), [['z1', 'Receipt 1'], ['a1', 'Receipt 2']]);
+});
+
+test('C2-06: Archived receipts show "Archived · date" (or "Archived"), never a number that could be mistaken for an Item No.', async () => {
+  const f = fixture({ records: [{ ...saved('z1'), status: 'archived', archivedAt: '2026-10-11T12:00:00.000Z' }, { ...saved('z2'), status: 'archived' }] }); await f.ui.loadForUser(user);
+  await f.click(f.elements.archivedTab);
+  assert.match(f.label(f.cards()[0]), /^Archived · .*Oct.*2026$/); assert.equal(f.label(f.cards()[1]), 'Archived');
+  assert.ok(f.cards().every(card => !/Receipt \d/.test(f.label(card)) && !/Receipt \d/.test(f.summary(card).getAttribute('aria-label'))));
+  assert.equal(monthlyFilingArchivedLabel('not a date'), 'Archived'); assert.equal(monthlyFilingArchivedLabel(''), 'Archived');
+  assert.equal(f.cards()[0].querySelector('.monthly-delete').hidden, true); assert.equal(f.field(f.cards()[0], 'store').disabled, true); assert.equal(f.cards()[0].querySelector('.monthly-return-active').hidden, false);
+});
+
+test('C2-01/D-09: displayed numbers equal the workbook Item No. and the Amount sums agree, matched by receipt identity', async () => {
+  const f = fixture({ records: [saved('a1', { store: 'Alpha', amount: '500' }), saved('a2', { store: 'Beta', amount: '700.10' }), { ...saved('z1', { store: 'Old' }), status: 'archived' }, saved('a3', { store: 'Gamma', amount: '300.20' })] }); await f.ui.loadForUser(user);
+  await f.click(f.cards()[1].querySelector('.monthly-delete'));
+  await f.click(f.elements.add); await f.edit(f.cards().at(-1), 'store', 'Delta'); await f.edit(f.cards().at(-1), 'amount', '1,000.05');
+  await f.edit(f.cards()[0], 'amount', '510');
+  const shownByStore = new Map(f.cards().map(card => [f.field(card, 'store').value, f.label(card)])); const shownTotal = totalLine(f)[0];
+  assert.equal(shownTotal, 'Active Total: ₱1,810.25');
+  await f.click(f.elements.exportActive);
+  const [snapshot] = f.calls.snapshots; const rows = buildExpenseDetailedReportRows(snapshot);
+  assert.deepEqual(snapshot.map(record => record.store), ['Alpha', 'Gamma', 'Delta']);
+  snapshot.forEach((record, index) => assert.equal(`Receipt ${rows[index + 2][0]}`, shownByStore.get(record.store), `${record.store}: Item No. equals the number shown before export`));
+  assert.equal(dollars(sheetCents(rows)), '₱1,810.25', 'workbook Amount column = displayed Active Total');
+  assert.match(f.elements.feedback.textContent, /^Exported and archived 3 Monthly Filing receipts \(Total: ₱1,810\.25\)\.$/, 'the reported total comes from the exported snapshot');
+  assert.equal(monthlyFilingSnapshotTotalCents(snapshot), 181025);
+});
+
+test('D-09: a receipt without an amount adds nothing, is counted as "without amount", and the existing workbook writes it as a numeric 0 (documented, unchanged)', async () => {
+  const f = fixture({ records: [saved('a1', { store: 'Alpha', amount: '100' }), saved('a2', { store: 'Beta', amount: '' })] }); await f.ui.loadForUser(user);
+  assert.deepEqual(totalLine(f), ['Active Total: ₱100.00', '2 receipts · 1 without amount']);
+  await f.click(f.elements.exportActive);
+  const rows = buildExpenseDetailedReportRows(f.calls.snapshots[0]);
+  assert.equal(rows[3][7], 0, 'existing behaviour of exportService.numericAmount: a blank amount becomes 0, not an empty cell');
+  assert.equal(sheetCents(rows), 10000); assert.match(f.elements.feedback.textContent, /\(Total: ₱100\.00\)/);
+});
+
+test('C2-02: the Active Total is exact, excludes Archived receipts and blank placeholders, and follows every edit', async () => {
+  const f = fixture({ records: [saved('a1', { amount: '0.10' }), saved('a2', { amount: '0.20' }), { ...saved('z1', { amount: '999' }), status: 'archived' }] }); await f.ui.loadForUser(user);
+  assert.deepEqual(totalLine(f), ['Active Total: ₱0.30', '2 receipts'], '0.10 + 0.20 is exactly 0.30; Archived 999 excluded');
+  await f.click(f.elements.add); assert.deepEqual(totalLine(f), ['Active Total: ₱0.30', '2 receipts'], 'a blank placeholder is not counted');
+  await f.edit(f.cards()[1], 'amount', '9,999,999,999.99'); await f.edit(f.cards()[0], 'amount', '0.01');
+  assert.equal(totalLine(f)[0], 'Active Total: ₱10,000,000,000.00', 'integer centavos carry exactly');
+  assert.equal(f.elements.activeTotal.hidden, false);
+});
+
+test('C2-02: unsaved edits show the working total, "includes unsaved changes" and the Saved Total; reverting returns to the plain total', async () => {
+  const f = fixture({ records: [saved('a1', { amount: '500' }), saved('a2', { amount: '700' }), saved('a3', { amount: '300' })] }); await f.ui.loadForUser(user);
+  assert.deepEqual(totalLine(f), ['Active Total: ₱1,500.00', '3 receipts']);
+  await f.edit(f.cards()[1], 'amount', '800');
+  assert.deepEqual(totalLine(f), ['Active Total: ₱1,600.00', '3 receipts · Includes unsaved changes · Saved Total: ₱1,500.00']);
+  assert.equal(f.elements.unsavedNote.textContent, '1 unsaved receipt', 'the unsaved indicator is unchanged');
+  await f.edit(f.cards()[1], 'amount', '700'); assert.deepEqual(totalLine(f), ['Active Total: ₱1,500.00', '3 receipts']);
+  await f.edit(f.cards()[1], 'amount', '800'); await f.click(f.elements.save);
+  assert.deepEqual(totalLine(f), ['Active Total: ₱1,600.00', '3 receipts'], 'after Save the saved total catches up');
+  await f.click(f.cards()[2].querySelector('.monthly-delete')); assert.deepEqual(totalLine(f), ['Active Total: ₱1,300.00', '2 receipts'], 'Delete updates it');
+});
+
+test('C2-02: an invalid amount makes the total unavailable and names the receipt; no partial figure and never a zero', async () => {
+  const f = fixture({ records: [saved('a1', { amount: '500' }), saved('a2', { amount: '700' })] }); await f.ui.loadForUser(user);
+  await f.edit(f.cards()[1], 'amount', '12,34.50');
+  assert.deepEqual(totalLine(f), ['Active Total unavailable', 'Receipt 2 has an invalid amount']); assert.equal(f.elements.activeTotal.classList.contains('is-unavailable'), true);
+  await f.edit(f.cards()[0], 'amount', 'abc');
+  assert.equal(totalLine(f)[1], 'Receipts 1, 2 have invalid amounts'); assert.doesNotMatch(totalLine(f).join(' '), /₱/);
+  await f.edit(f.cards()[0], 'amount', '500'); await f.edit(f.cards()[1], 'amount', '700');
+  assert.equal(totalLine(f)[0], 'Active Total: ₱1,200.00'); assert.equal(f.elements.activeTotal.classList.contains('is-unavailable'), false);
+});
+
+test('C2-02: after a partial Save the saved total includes only the confirmed write; after a first-write failure it is unchanged', async () => {
+  const f = fixture({ records: [saved('a1', { amount: '100' }), saved('a2', { amount: '100' })] }); await f.ui.loadForUser(user);
+  await f.edit(f.cards()[0], 'amount', '150'); await f.edit(f.cards()[1], 'amount', '250'); f.failures.update.add('a2');
+  await f.click(f.elements.save);
+  assert.deepEqual(totalLine(f), ['Active Total: ₱400.00', '2 receipts · Includes unsaved changes · Saved Total: ₱250.00'], 'a1 (150) is saved, a2 still 100 in the database');
+  assert.equal(f.elements.unsavedNote.textContent, '1 unsaved receipt');
+  const g = fixture({ records: [saved('a1', { amount: '100' })] }); await g.ui.loadForUser(user);
+  await g.edit(g.cards()[0], 'amount', '150'); g.failures.update.add('a1'); await g.click(g.elements.save);
+  assert.deepEqual(totalLine(g), ['Active Total: ₱150.00', '1 receipt · Includes unsaved changes · Saved Total: ₱100.00']);
+});
+
+test('C2-03: the export confirmation states the working total and that unsaved changes are saved first; an unavailable total shows no figure', async () => {
+  const f = fixture({ records: [saved('a1', { amount: '500' }), saved('a2', { amount: '700' })] }); await f.ui.loadForUser(user);
+  await f.edit(f.cards()[1], 'amount', '800'); await f.click(f.elements.exportActive);
+  const [options] = f.calls.confirmOptions; assert.match(options.message, /Active Total: ₱1,300\.00\./); assert.match(options.message, /Unsaved changes are saved first\./);
+  const g = fixture({ records: [saved('a1', { amount: '500' })] }); await g.ui.loadForUser(user);
+  await g.edit(g.cards()[0], 'amount', '5,00,0'); await g.click(g.elements.exportActive);
+  assert.doesNotMatch(g.calls.confirmOptions[0].message, /₱/, 'no misleading total'); assert.deepEqual(g.calls.workbook, [], 'validation still blocks the export');
+  assert.match(g.elements.feedback.textContent, /^Could not save Monthly Filing changes: Monthly receipt 1/);
+});
+
+test('C2-03: export failures never claim success; archive uncertainty keeps its safeguard and may show the confirmed workbook total', async () => {
+  const workbook = fixture({ records: [saved('a1', { amount: '100' })] }); await workbook.ui.loadForUser(user); workbook.failures.workbook = true;
+  await workbook.click(workbook.elements.exportActive);
+  assert.match(workbook.elements.feedback.textContent, /^Could not prepare the XLSX export: workbook failed$/); assert.deepEqual(workbook.calls.archive, []);
+  assert.deepEqual(totalLine(workbook), ['Active Total: ₱100.00', '1 receipt'], 'receipts are still Active');
+  const archive = fixture({ records: [saved('a1', { amount: '100' }), saved('a2', { amount: '50.25' })] }); await archive.ui.loadForUser(user); archive.failures.archive = true;
+  await archive.click(archive.elements.exportActive);
+  assert.match(archive.elements.feedback.textContent, /^Workbook generated, but archive status could not be confirmed\. Refresh Monthly Filing before exporting again\. \(archive failed\) Workbook total: ₱150\.25\.$/);
+  assert.doesNotMatch(archive.elements.feedback.textContent, /Exported and archived/); assert.equal(archive.elements.exportActive.disabled, true, 'uncertain archive blocks another export');
+});
+
+test('C2-05: an invalid amount is never shown as money: summary text, flag, Amount field message, aria-invalid, and it clears when corrected', async () => {
+  const f = fixture({ records: [saved('a1', { amount: '100' })] }); await f.ui.loadForUser(user);
+  const card = f.cards()[0]; const input = f.field(card, 'amount'); const error = card.querySelector('.monthly-amount-error'); const summaryAmount = f.summary(card).querySelector('.monthly-summary-amount');
+  assert.equal(input.getAttribute('aria-invalid'), null); assert.equal(error.hidden, true);
+  await f.edit(card, 'amount', '12,34.50');
+  assert.equal(input.value, '12,34.50', 'the typed text is preserved'); assert.equal(summaryAmount.textContent, 'Invalid amount'); assert.equal(summaryAmount.classList.contains('is-invalid'), true);
+  assert.equal(input.getAttribute('aria-invalid'), 'true'); assert.equal(input.getAttribute('aria-describedby'), error.id); assert.ok(error.id);
+  assert.equal(error.hidden, false); assert.match(error.textContent, /^Invalid amount\. Thousands commas must group exactly three digits/);
+  assert.ok(f.summary(card).querySelector('.monthly-summary-flags').kids.some(flag => flag.textContent === 'Invalid amount'));
+  assert.match(f.summary(card).getAttribute('aria-label'), /Invalid amount/); assert.equal(card.classList.contains('has-invalid-amount'), true);
+  await f.edit(card, 'amount', ''); assert.equal(summaryAmount.textContent, 'No amount'); assert.equal(input.getAttribute('aria-invalid'), null);
+  await f.edit(card, 'amount', '1,250.50'); assert.equal(summaryAmount.textContent, '₱1,250.50');
+  assert.equal(input.getAttribute('aria-invalid'), null); assert.equal(input.getAttribute('aria-describedby'), null); assert.equal(error.hidden, true); assert.equal(card.classList.contains('has-invalid-amount'), false);
+  assert.equal(summaryAmount.classList.contains('is-invalid'), false);
+});
+
+test('C2-05: Save still refuses an invalid amount before writing anything and names the receipt by its export number', async () => {
+  const f = fixture({ records: [saved('a1', { store: 'Alpha', amount: '100' }), saved('a2', { store: 'Beta', amount: '100' })] }); await f.ui.loadForUser(user);
+  await f.edit(f.cards()[1], 'amount', '1,250.999'); await f.click(f.elements.save);
+  assert.equal(f.calls.update.length, 0); assert.match(f.elements.feedback.textContent, /Monthly receipt 2 \(Beta\): Invalid amount "1,250\.999"/);
+});
+
+// ---- C2-04 directory feedback ------------------------------------------------------------------------------------------------------------
+test('C2-04: directoryOutcomeFeedback aggregates by type, puts failures first and keeps every distinct failure reason', () => {
+  assert.equal(directoryOutcomeFeedback([]), '');
+  assert.equal(directoryOutcomeFeedback([{ type: 'declined' }]), 'Monthly Filing saved. 1 store was kept only in Monthly Filing.');
+  assert.equal(directoryOutcomeFeedback(Array.from({ length: 4 }, () => ({ type: 'declined' }))), 'Monthly Filing saved. 4 stores were kept only in Monthly Filing.');
+  assert.equal(directoryOutcomeFeedback([{ type: 'declined' }, { type: 'contributed' }, { type: 'duplicate-reused' }, { type: 'duplicate-reused' }, { type: 'declined' }]),
+    'Monthly Filing saved. 1 store was added to the Company Directory. 2 stores were already in the Company Directory. 2 stores were kept only in Monthly Filing.');
+  const failures = directoryOutcomeFeedback([{ type: 'declined' }, { type: 'directory-failed', reason: 'denied.' }, { type: 'directory-failed', reason: 'timeout' }, { type: 'directory-failed', reason: 'denied' }, { type: 'directory-failed', reason: 'quota' }, { type: 'association-failed', reason: 'locked' }, { type: 'ambiguous' }, { type: 'ambiguous' }]);
+  assert.match(failures, /^Monthly Filing saved\. 4 stores could not be added to the Company Directory: denied; timeout; quota\. The Company Directory association could not be recorded for 1 receipt: locked\. 2 stores match multiple Company profiles; add more identifying information before adding them to the directory\. 1 store was kept only in Monthly Filing\.$/, 'failures first; three distinct reasons, none dropped; duplicates collapsed');
+  assert.equal(directoryOutcomeFeedback([{ type: 'ambiguous' }]), 'Monthly Filing saved. 1 store matches multiple Company profiles; add more identifying information before adding it to the directory.');
+  assert.equal(directoryOutcomeFeedback([{ type: 'declined' }, { type: 'contributed' }], { saved: false }), '1 store was added to the Company Directory. 1 store was kept only in Monthly Filing.', 'no repeated "Monthly Filing saved." when appended to an export message');
+});
+
+const newStore = (id, store) => saved(id, { store, address: `${store} Street`, dbId: '' });
+test('C2-04: several declined stores give ONE concise message; duplicate candidates are asked about once; nothing is added without a yes', async () => {
+  const contributed = []; const f = fixture({ records: [], confirm: async options => options.title !== 'Add store to Company Directory?', sharedStoreService: { listActiveSharedStores: async () => [], contributeSharedStore: async candidate => { contributed.push(candidate); return { id: 's1' }; } } });
+  await f.ui.loadForUser(user);
+  for (const store of ['Alpha', 'Beta', 'Gamma', 'Alpha']) { await f.click(f.elements.add); const card = f.cards().at(-1); await f.edit(card, 'store', store); await f.edit(card, 'address', `${store} Street`); }
+  await f.click(f.elements.save);
+  assert.equal(f.calls.confirms.filter(title => title === 'Add store to Company Directory?').length, 3, 'the duplicate Alpha candidate is asked about once');
+  assert.equal(f.elements.feedback.textContent, 'Monthly Filing saved. 3 stores were kept only in Monthly Filing.'); assert.deepEqual(contributed, []);
+});
+
+test('C2-04: mixed outcomes and contribution failures are reported by type, with the reason kept', async () => {
+  let answers = 0; const f = fixture({ records: [], confirm: async () => ++answers === 1, sharedStoreService: { listActiveSharedStores: async () => [], contributeSharedStore: async () => ({ id: 's1', storeName: 'x' }) } });
+  await f.ui.loadForUser(user);
+  for (const store of ['Alpha', 'Beta']) { await f.click(f.elements.add); const card = f.cards().at(-1); await f.edit(card, 'store', store); await f.edit(card, 'address', `${store} Street`); }
+  await f.click(f.elements.save);
+  assert.equal(f.elements.feedback.textContent, 'Monthly Filing saved. 1 store was added to the Company Directory. 1 store was kept only in Monthly Filing.');
+  const g = fixture({ records: [], sharedStoreService: { listActiveSharedStores: async () => [], contributeSharedStore: async () => { throw new Error('permission denied'); } } });
+  await g.ui.loadForUser(user); await g.click(g.elements.add); await g.edit(g.cards()[0], 'store', 'Alpha'); await g.edit(g.cards()[0], 'address', 'A St'); await g.click(g.elements.save);
+  assert.equal(g.elements.feedback.textContent, 'Monthly Filing saved. 1 store could not be added to the Company Directory: permission denied.');
+});
+
+test('C2-04: the export success message appends the directory summary without repeating "Monthly Filing saved."', async () => {
+  const f = fixture({ records: [saved('a1', { amount: '100' })], confirm: async options => options.title !== 'Add store to Company Directory?' }); await f.ui.loadForUser(user);
+  await f.click(f.elements.add); await f.edit(f.cards().at(-1), 'store', 'Delta'); await f.edit(f.cards().at(-1), 'address', 'D St'); await f.edit(f.cards().at(-1), 'amount', '50');
+  await f.click(f.elements.exportActive);
+  assert.equal(f.elements.feedback.textContent, 'Exported and archived 2 Monthly Filing receipts (Total: ₱150.00). 1 store was kept only in Monthly Filing.');
+});
+
+// ---- markup, styling and service contracts -------------------------------------------------------------------------------------------------
+test('C2 markup: the Amount error sits beside the field, the total is a plain (non-live) text line, and Monthly styling stays token-only and Monthly-scoped', async () => {
+  assert.match(template, /<label>Amount<input class="monthly-amount" inputmode="decimal" placeholder="0\.00" \/><span class="monthly-amount-error" hidden><\/span><\/label>/);
+  assert.match(staticHtml, /<p class="monthly-active-total" id="monthlyActiveTotal" hidden><strong class="monthly-total-main" id="monthlyActiveTotalMain"><\/strong><span class="monthly-total-detail" id="monthlyActiveTotalDetail"><\/span><\/p>/);
+  assert.doesNotMatch(staticHtml.match(/<p class="monthly-active-total"[^>]*>/)[0], /aria-live|role=/, 'not a live region: it changes on every keystroke');
+  const css = await read('../styles.css'); const block = css.slice(css.indexOf('/* Active Total:'), css.indexOf('.monthly-actions-bar .workflow-feedback { min-height: 0;'));
+  assert.doesNotMatch(block, /#[0-9a-fA-F]{3,8}\b|!important/); assert.match(block, /\.monthly-active-total\.is-unavailable \.monthly-total-main::before \{ content: "⚠ "; \}/, 'unavailable is an icon and text, not colour alone');
+  assert.match(block, /\.monthly-amount-error \{ color: var\(--danger\)/); assert.match(block, /\.monthly-card\.has-invalid-amount \.monthly-amount \{ border-color: var\(--danger\)/);
+  assert.match(css, /\.monthly-active-total \{ order: -3; flex: 1 1 100%;/, 'on phones it takes its own line in the same action bar');
+});
+
+test('C2-01 load order: receipts load by created_at then id, so the numbers after a reload are deterministic', async () => {
+  const source = await read('../services/monthlyFilingService.js');
+  assert.match(source, /\.order\('created_at', \{ ascending: true \}\)\.order\('id', \{ ascending: true \}\)/);
+});
+
+test('C2 scope: the export builder and money parser are untouched and still the only sources of workbook and parsing rules', async () => {
+  const ui = await read('../ui/monthlyFilingUi.js');
+  assert.match(ui, /import \{ parseMoneyAmount \} from '\.\.\/domain\/moneyAmount\.js';/); assert.doesNotMatch(ui, /exportService|numericAmount/);
+  assert.doesNotMatch(ui, /Number\(String\(value \?\? ''\)\.replaceAll/, 'the lenient amount formatter is gone');
 });
