@@ -496,6 +496,14 @@ button[aria-busy="true"] { cursor: progress; opacity: .8; }
 .monthly-actions-bar { margin: 0 0 var(--space-3); padding: var(--space-2) var(--space-3); border: var(--border-width) solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
 .monthly-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .monthly-actions .action-bar-spacer { flex: 1 1 0; }
+/* Floating Add receipt (desktop and tablet): the same button and handler as before, fixed bottom-right while scrolling. It lives in the Active actions, so it disappears on the Archived tab.
+   Phones keep it in the sticky bottom bar; short viewports (landscape, 200%/400% zoom) keep it in the bar too. */
+@media (min-width: 641px) and (min-height: 480px) {
+  .monthly-filing-workspace .monthly-add { position: fixed; right: var(--space-5); bottom: var(--space-5); z-index: 11; min-height: 48px; padding: 0 var(--space-5); border: 2px solid var(--primary); border-radius: var(--radius-pill); background: var(--surface); color: var(--primary); font-weight: var(--weight-heavy); box-shadow: var(--shadow-md); }
+  .monthly-filing-workspace .monthly-add:hover:not(:disabled) { background: var(--primary-soft); }
+  .monthly-filing-workspace { padding-bottom: 80px; }
+  html:has(#monthlyFilingWorkspace:not([hidden])) { scroll-padding-bottom: 96px; }
+}
 .monthly-unsaved-note { display: inline-flex; align-items: center; gap: var(--space-2); margin-left: var(--space-2); color: var(--warning); font-size: var(--text-sm); font-weight: var(--weight-bold); }
 .monthly-unsaved-note::before { content: "●"; font-size: .7rem; }
 /* Active Total: one compact, unboxed text line (not a live region); an unavailable total is a warning in text and icon, not colour alone. */
@@ -528,7 +536,8 @@ button[aria-busy="true"] { cursor: progress; opacity: .8; }
 .monthly-card .receipt-fields label:nth-of-type(3) { grid-column: span 3; }
 .monthly-card .receipt-fields label:not(.wide):nth-of-type(n+5) { grid-column: span 3; }
 .monthly-card .receipt-fields input, .monthly-card .receipt-fields select { height: var(--control-height); min-height: var(--control-height); }
-.monthly-card .form-group-title { position: absolute; top: 6px; right: var(--space-4); display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: var(--space-1) var(--space-2); max-width: 55%; margin: 0; color: var(--muted); font-size: var(--text-xs); font-weight: var(--weight-heavy); }
+/* The receipt header (number or "Archived · date", unsaved flag) is an in-flow line above the fields: it takes its own height, so it can never overlap a field label. */
+.monthly-card .form-group-title { display: flex; flex-wrap: wrap; justify-content: flex-start; align-items: center; gap: var(--space-1) var(--space-2); margin: 0 0 var(--space-1); color: var(--text); font-size: var(--text-sm); font-weight: var(--weight-heavy); }
 .monthly-card .monthly-status { margin: 0; }
 .monthly-card .monthly-unsaved { padding: 1px 9px; border: var(--border-width) solid var(--warning-border); border-radius: var(--radius-pill); background: var(--warning-soft); color: var(--warning); font-size: var(--text-xs); font-weight: var(--weight-heavy); }
 .monthly-card .receipt-form-footer { flex: none; margin: 0; padding: 0; border: 0; }
@@ -536,7 +545,8 @@ button[aria-busy="true"] { cursor: progress; opacity: .8; }
 .monthly-card.is-unsaved { box-shadow: inset 4px 0 0 var(--warning); }
 .monthly-card[data-status="archived"] { background: var(--surface-2); box-shadow: inset 4px 0 0 var(--border-strong); }
 .monthly-card[data-status="archived"] input, .monthly-card[data-status="archived"] select { border-style: dashed; background: transparent; color: var(--muted); }
-.monthly-card[data-status="archived"] .monthly-status { display: inline-block; }
+/* "Archived · date" in the header already states the status, so the separate Archived badge is not repeated. */
+.monthly-card[data-status="archived"] .monthly-status { display: none; }
 .monthly-summary { display: none; }
 .monthly-suggestions { position: static; margin-top: var(--space-1); box-shadow: none; }
 .monthly-suggestions button { display: block; width: 100%; min-height: 40px; padding: 0 var(--space-2); border: 0; border-radius: 7px; background: transparent; color: var(--text); text-align: left; }

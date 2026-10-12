@@ -795,3 +795,37 @@ test('C2 scope: the export builder and money parser are untouched and still the 
   assert.match(ui, /import \{ parseMoneyAmount \} from '\.\.\/domain\/moneyAmount\.js';/); assert.doesNotMatch(ui, /exportService|numericAmount/);
   assert.doesNotMatch(ui, /Number\(String\(value \?\? ''\)\.replaceAll/, 'the lenient amount formatter is gone');
 });
+
+// ---- CP10-C2R: floating Add receipt and the in-flow receipt header --------------------------------------------------------------------------
+test('C2R: the receipt header is an in-flow line, not absolutely positioned, so Archived · date can never overlap a field label', async () => {
+  const css = (await read('../styles.css')).replace(/\r\n/g, '\n');
+  const rule = css.match(/\.monthly-card \.form-group-title \{[^}]*\}/g);
+  assert.ok(rule && rule.length >= 1);
+  for (const declaration of rule) assert.doesNotMatch(declaration, /position: absolute|max-width: 55%|top: 6px/, 'no fragile absolute offsets');
+  assert.match(rule[0], /display: flex; flex-wrap: wrap;[^}]*margin: 0 0 var\(--space-1\)/, 'a wrapping header line with its own height');
+  assert.match(css, /\.monthly-card\[data-status="archived"\] \.monthly-status \{ display: none; \}/, 'the Archived badge is not repeated next to "Archived · date"');
+  assert.doesNotMatch(css, /\.monthly-card\[data-status="archived"\] \.monthly-status \{ display: inline-block/);
+});
+
+test('C2R: Add receipt floats bottom-right on desktop and tablet using the same button, and stays in the bottom bar on phones and short viewports', async () => {
+  const css = (await read('../styles.css')).replace(/\r\n/g, '\n');
+  const block = css.slice(css.indexOf('/* Floating Add receipt'), css.indexOf('.monthly-unsaved-note {'));
+  assert.match(block, /@media \(min-width: 641px\) and \(min-height: 480px\) \{/);
+  assert.match(block, /\.monthly-filing-workspace \.monthly-add \{ position: fixed; right: var\(--space-5\); bottom: var\(--space-5\);[^}]*border: 2px solid var\(--primary\)[^}]*background: var\(--surface\); color: var\(--primary\)/);
+  assert.doesNotMatch(block, /#[0-9a-fA-F]{3,8}\b|!important/, 'theme tokens only (Light and Dark)');
+  assert.match(block, /scroll-padding-bottom: 96px/, 'a focused receipt is never hidden behind the floating button');
+  assert.equal(count(html, /id="monthlyFilingAdd"/g), 1, 'one Add control, no duplicate');
+  assert.ok(html.indexOf('id="monthlyFilingAdd"') < html.indexOf('id="monthlyFilingSave"'), 'DOM and Tab order unchanged: Add first in the Active actions');
+  const phone = css.slice(css.indexOf('@media (max-width: 640px) {\n  .receipts-bar'));
+  assert.doesNotMatch(phone, /\.monthly-add[^{]*\{[^}]*position: fixed/, 'phones keep the sticky bottom bar');
+  const active = html.slice(html.indexOf('id="monthlyFilingActiveActions"'), html.indexOf('id="monthlyFilingArchivedActions"'));
+  assert.match(active, /id="monthlyFilingAdd"/, 'it sits in the Active actions, which are hidden on the Archived tab');
+});
+
+test('C2R: Add still reuses or creates the blank receipt, focuses Store and keeps other unsaved edits (handler unchanged)', async () => {
+  const f = fixture({ records: [saved('a1', { store: 'Alpha' })] }); await f.ui.loadForUser(user);
+  await f.edit(f.cards()[0], 'invoice', 'EDITED'); await f.click(f.elements.add); await f.click(f.elements.add);
+  assert.equal(f.cards().length, 2, 'repeated Add reuses the one blank receipt'); assert.equal(f.field(f.cards()[0], 'invoice').value, 'EDITED');
+  assert.equal(f.focusLog.at(-1).node, f.field(f.cards()[1], 'store')); assert.equal(f.label(f.cards()[1]), 'New receipt');
+  await f.click(f.elements.archivedTab); assert.equal(f.elements.activeActions.hidden, true, 'the Active actions (and the floating Add) are hidden on Archived');
+});
