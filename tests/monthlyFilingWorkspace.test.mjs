@@ -807,10 +807,13 @@ test('C2R: the receipt header is an in-flow line, not absolutely positioned, so 
   assert.doesNotMatch(css, /\.monthly-card\[data-status="archived"\] \.monthly-status \{ display: inline-block/);
 });
 
-test('C2R: Add receipt floats bottom-right on desktop and tablet using the same button, and stays in the bottom bar on phones and short viewports', async () => {
+test('C2R: Add receipt floats bottom-right only on wide desktop (1280px+, tall viewports) using the same button; tablets, phones and short viewports keep it in the bar', async () => {
   const css = (await read('../styles.css')).replace(/\r\n/g, '\n');
   const block = css.slice(css.indexOf('/* Floating Add receipt'), css.indexOf('.monthly-unsaved-note {'));
-  assert.match(block, /@media \(min-width: 641px\) and \(min-height: 480px\) \{/);
+  assert.match(block, /@media \(min-width: 1280px\) and \(min-height: 480px\) \{/, 'wide and tall windows only (short viewports/zoom keep the bar)');
+  assert.equal(count(css, /\.monthly-add[^{]*\{[^}]*position: fixed/g), 1, 'exactly one floating rule, inside that query: tablets (641-1279px), phones and short viewports keep the static Add in the action bar');
+  assert.match(block, /\.monthly-filing-workspace:has\(#monthlyFilingActiveActions:not\(\[hidden\]\)\) \.monthly-filing-list, [^{]*\.monthly-more-actions \{ margin-right: 176px; \}/, 'a reserved right gutter (button width + gap) on the list and the More actions row, only while the Active actions (and so the button) are shown');
+  assert.match(block, /\.monthly-add \{ position: fixed; right: var\(--space-5\);[^}]*min-height: 48px/, 'the gutter must stay wider than the button (about 149px) plus its right inset');
   assert.match(block, /\.monthly-filing-workspace \.monthly-add \{ position: fixed; right: var\(--space-5\); bottom: var\(--space-5\);[^}]*border: 2px solid var\(--primary\)[^}]*background: var\(--surface\); color: var\(--primary\)/);
   assert.doesNotMatch(block, /#[0-9a-fA-F]{3,8}\b|!important/, 'theme tokens only (Light and Dark)');
   assert.match(block, /scroll-padding-bottom: 96px/, 'a focused receipt is never hidden behind the floating button');

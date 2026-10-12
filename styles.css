@@ -496,12 +496,14 @@ button[aria-busy="true"] { cursor: progress; opacity: .8; }
 .monthly-actions-bar { margin: 0 0 var(--space-3); padding: var(--space-2) var(--space-3); border: var(--border-width) solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
 .monthly-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .monthly-actions .action-bar-spacer { flex: 1 1 0; }
-/* Floating Add receipt (desktop and tablet): the same button and handler as before, fixed bottom-right while scrolling. It lives in the Active actions, so it disappears on the Archived tab.
-   Phones keep it in the sticky bottom bar; short viewports (landscape, 200%/400% zoom) keep it in the bar too. */
-@media (min-width: 641px) and (min-height: 480px) {
+/* Floating Add receipt (wide desktop only, 1280px and up: below that the gutter would leave fields under ~150px): the same button and handler as before, fixed bottom-right while scrolling. It lives in the Active actions, so it disappears on the Archived tab.
+   A dedicated right-hand gutter on the list (button width + gap) keeps it from ever covering a receipt field or action button.
+   Narrower windows, tablets, phones and short viewports (landscape, 200%/400% zoom) keep Add in the action bar. */
+@media (min-width: 1280px) and (min-height: 480px) {
   .monthly-filing-workspace .monthly-add { position: fixed; right: var(--space-5); bottom: var(--space-5); z-index: 11; min-height: 48px; padding: 0 var(--space-5); border: 2px solid var(--primary); border-radius: var(--radius-pill); background: var(--surface); color: var(--primary); font-weight: var(--weight-heavy); box-shadow: var(--shadow-md); }
   .monthly-filing-workspace .monthly-add:hover:not(:disabled) { background: var(--primary-soft); }
   .monthly-filing-workspace { padding-bottom: 80px; }
+  .monthly-filing-workspace:has(#monthlyFilingActiveActions:not([hidden])) .monthly-filing-list, .monthly-filing-workspace:has(#monthlyFilingActiveActions:not([hidden])) .monthly-more-actions { margin-right: 176px; }
   html:has(#monthlyFilingWorkspace:not([hidden])) { scroll-padding-bottom: 96px; }
 }
 .monthly-unsaved-note { display: inline-flex; align-items: center; gap: var(--space-2); margin-left: var(--space-2); color: var(--warning); font-size: var(--text-sm); font-weight: var(--weight-bold); }
