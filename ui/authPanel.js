@@ -4,6 +4,18 @@ export function createAuthPanel(elements, { onLogin, onRegister, onPasswordReset
     Object.entries(forms).forEach(([name, form]) => { if (form) form.hidden = name !== mode; });
     elements.authMessage.textContent = message;
   };
+  // Passwords are emptied only when the panel opens or closes, or the recovery form opens (never on input, on a failed attempt or on an unrelated update). Emails stay.
+  const passwordFields = () => [elements.loginPassword, elements.registerPassword, elements.registerConfirmPassword, elements.recoveryPassword, elements.recoveryConfirmPassword];
+  const clearSecrets = () => passwordFields().forEach(field => { if (field) field.value = ''; });
+  const visibleMode = () => Object.entries(forms).find(([, form]) => form && !form.hidden)?.[0];
+  // Opening a mode clears the passwords when the panel was closed (logout, expiry, start-up) or a different form was showing.
+  // Re-showing the form that is already open keeps what the user typed.
+  const open = (mode, message) => {
+    const unchanged = !elements.authView.hidden && visibleMode() === mode;
+    onShow(); elements.authView.hidden = false; elements.appView.hidden = true;
+    if (!unchanged) clearSecrets();
+    showMode(mode, message);
+  };
   const showError = error => { elements.authMessage.textContent = error.message || 'Authentication failed. Please try again.'; };
 
   elements.showRegister?.addEventListener('click', () => showMode('register'));
@@ -42,10 +54,10 @@ export function createAuthPanel(elements, { onLogin, onRegister, onPasswordReset
   });
 
   return {
-    show(message = '') { onShow(); elements.authView.hidden = false; elements.appView.hidden = true; showMode('login', message); },
-    showRecovery(message = '') { onShow(); elements.authView.hidden = false; elements.appView.hidden = true; showMode('recovery', message); },
-    showRecoveryUnavailable(message = 'This password reset link is invalid or expired. Request a new reset link to continue.') { onShow(); elements.authView.hidden = false; elements.appView.hidden = true; showMode('reset', message); },
-    hide() { elements.authView.hidden = true; elements.appView.hidden = false; },
+    show(message = '') { open('login', message); },
+    showRecovery(message = '') { open('recovery', message); },
+    showRecoveryUnavailable(message = 'This password reset link is invalid or expired. Request a new reset link to continue.') { open('reset', message); },
+    hide() { clearSecrets(); elements.authView.hidden = true; elements.appView.hidden = false; },
     setMessage(message) { elements.authMessage.textContent = message; }
   };
 }

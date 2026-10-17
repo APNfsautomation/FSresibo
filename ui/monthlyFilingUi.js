@@ -1,6 +1,7 @@
 import { installTablistKeyboard } from './tablistKeyboard.js';
 import { trackTextEntry } from './textEntryFocus.js';
 import { parseMoneyAmount } from '../domain/moneyAmount.js';
+import { philippineDateStamp } from '../domain/exportDate.js';
 import { deduplicateDirectoryCandidates, persistedStoreFingerprint, postSaveDirectoryDecision, resolveSharedContributionCandidate } from '../domain/sharedStoreProfiles.js';
 
 export const monthlyFilingEditableFields = Object.freeze(['store', 'address', 'tin', 'vat', 'amount', 'receiptDate', 'invoice']);
@@ -29,7 +30,7 @@ export const reconcileMonthlyFilingReload = (localRecords, reloadedRecords) => {
   ];
 };
 export const activeMonthlyFilingSnapshot = records => records.filter(record => record.dbId && record.status === 'active').map(record => ({ ...record }));
-export const monthlyFilingExportFilename = (date = new Date()) => `fsresibo-monthly-filing-${date.toISOString().slice(0, 10)}.xlsx`;
+export const monthlyFilingExportFilename = (date = new Date()) => `fsresibo-monthly-filing-${philippineDateStamp(date)}.xlsx`;
 export const synchronizeMonthlyFilingRow = (row, saved) => {
   row.dataset.monthlyId = saved.dbId;
   row.dataset.sharedStoreId = saved.sharedStoreId || '';

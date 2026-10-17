@@ -105,7 +105,8 @@ test('every write path of both services goes through the validated mapper, and i
 test('the workbook receives the normalized amount: a comma-formatted amount is never blank in the XLSX', () => {
   const rows = buildExpenseDetailedReportRows([{ receiptDate: '2026-10-01', store: 'Cafe', amount: '1250.50' }, { receiptDate: '', store: 'B', amount: 12500 }, { store: 'C', amount: 0.5 }]);
   assert.deepEqual(rows.slice(2).map(row => row[7]), [1250.5, 12500, 0.5]);
-  assert.equal(buildExpenseDetailedReportRows([{ amount: '1,250.50' }])[2][7], '', 'raw comma text is still blank in the builder — which is why the UI now passes normalized amounts');
+  assert.equal(buildExpenseDetailedReportRows([{ amount: '1,250.50' }])[2][7], 1250.5, 'the builder now uses the strict CP10-C0 parser, so correctly grouped commas are read exactly');
+  assert.throws(() => buildExpenseDetailedReportRows([{ amount: '12,34.50' }]), /Cannot export receipt amount: Invalid amount "12,34\.50"/, 'an invalid non-blank amount is rejected, never exported as blank or guessed');
 });
 
 // ---- Receipt Encoding / Optimization UI against a DOM fixture --------------------------------------------------------------------------
@@ -260,7 +261,8 @@ test('the financial engine, export builder and database schema are unchanged by 
   assert.match(engine, /export const MAXIMUM_EXCESS_CENTS = 5000;/);
   assert.match(engine, /export function toCents\(value\) \{ const number = Number\(String\(value\)\.replace\(\/\[\^0-9\.\]\/g, ''\)\); return Number\.isFinite\(number\) \? Math\.round\(number \* 100\) : 0; \}/);
   const exporter = await read('../services/exportService.js');
-  assert.match(exporter, /const numericAmount = value => \{\s*const amount = Number\(String\(value \|\| ''\)\.trim\(\)\);/);
+  assert.match(exporter, /export const numericAmount = value => \{\s*const parsed = parseMoneyAmount\(value\);/, 'CP10-C3: the builder reuses the strict parser instead of Number()');
+  assert.doesNotMatch(exporter, /Number\(String\(value/);
   const ui = await read('../ui/receiptUi.js');
   assert.ok(ui.includes('downloadSelectedReceipts(receipts)'), 'export call shape unchanged');
 });

@@ -639,12 +639,12 @@ test('C2-01/D-09: displayed numbers equal the workbook Item No., matched by data
   assert.match(f.elements.feedback.textContent, /^Exported and archived 4 Monthly Filing receipts \(Total: ₱2,020\.35\)\.$/, 'the reported total comes from the same exported snapshot');
 });
 
-test('D-09: a receipt without an amount adds nothing, is counted as "without amount", and the existing workbook writes it as a numeric 0 (documented, unchanged)', async () => {
+test('D-09 / EXPORT-UX-02: a receipt without an amount adds nothing, is counted as "without amount", and the workbook leaves its Amount cell empty (not 0)', async () => {
   const f = fixture({ records: [saved('a1', { store: 'Alpha', amount: '100' }), saved('a2', { store: 'Beta', amount: '' })] }); await f.ui.loadForUser(user);
   assert.deepEqual(totalLine(f), ['Active Total: ₱100.00', '2 receipts · 1 without amount']);
   await f.click(f.elements.exportActive);
   const rows = buildExpenseDetailedReportRows(f.calls.snapshots[0]);
-  assert.equal(rows[3][7], 0, 'existing behaviour of exportService.numericAmount: a blank amount becomes 0, not an empty cell');
+  assert.equal(rows[3][7], null, 'a missing amount is an empty cell; an explicit 0 would be numeric zero');
   assert.equal(sheetCents(rows), 10000); assert.match(f.elements.feedback.textContent, /\(Total: ₱100\.00\)/);
 });
 
