@@ -9,7 +9,7 @@ globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} }
 globalThis.Option = class { constructor(label, value) { this.label = label; this.value = value; } };
 
 export const settle = () => new Promise(resolve => setTimeout(resolve, 5));
-export async function receiptFixture({ loaded = [], confirm = async () => true } = {}) {
+export async function receiptFixture({ loaded = [], confirm = async () => true, modalFocus = null } = {}) {
   globalThis.window = { addEventListener() {}, removeEventListener() {}, setTimeout, clearTimeout };
   globalThis.matchMedia = () => ({ matches: false });
   globalThis.requestAnimationFrame = callback => { callback(); return 0; };
@@ -44,16 +44,18 @@ export async function receiptFixture({ loaded = [], confirm = async () => true }
   // An in-memory receipts table. Tests change `db` directly to simulate another session, and set `fails.*` to inject failures.
   const stamp = () => `2026-10-18T00:00:${String(++clock).padStart(2, '0')}Z`;
   const db = new Map(loaded.map(item => [item.dbId, { amount: '', receiptDate: '', vat: '', invoice: '', store: '', address: '', tin: '', status: 'available', ...item, updatedAt: item.updatedAt ?? stamp() }]));
-  const fails = { snapshot: null, consume: null, download: null, afterDownload: null, consumeResponseLost: null };
+  const fails = { snapshot: null, consume: null, download: null, afterDownload: null, consumeResponseLost: null, gate: null };
   const copy = row => ({ ...row });
   const storedAmount = raw => { const parsed = parseMoneyAmount(raw); return parsed.blank ? '' : parsed.valid ? parsed.amount : raw; };
   const receiptService = {
     loadReceipts: async () => [...db.values()].map(copy),
     loadReceiptsByIds: async ids => { calls.snapshot.push([...ids]); if (fails.snapshot) throw fails.snapshot; return ids.filter(id => db.has(id)).map(id => copy(db.get(id))); },
+    updateReceiptStatus: async (id, status) => { const row = { ...db.get(id), status, updatedAt: stamp() }; db.set(id, row); return copy(row); },
     createReceipt: async values => { calls.create.push({ ...values }); const row = { ...values, amount: storedAmount(values.amount), dbId: `new-${++sequence}`, status: 'available', updatedAt: stamp() }; db.set(row.dbId, row); return copy(row); },
     updateReceipt: async (id, values) => { calls.update.push([id, { ...values }]); const row = { ...db.get(id), ...values, amount: storedAmount(values.amount), dbId: id, status: 'available', updatedAt: stamp() }; db.set(id, row); return copy(row); },
     consumeReceipts: async ids => {
       calls.consume.push([...ids]);
+      if (fails.gate) await fails.gate;
       if (fails.consume) throw fails.consume;
       if (ids.some(id => db.get(id)?.status !== 'available')) throw new Error('One or more selected receipts are no longer available. Refresh and review the result before exporting again.');
       const updated = ids.map(id => { const row = { ...db.get(id), status: 'consumed', updatedAt: stamp() }; db.set(id, row); return copy(row); });
@@ -62,7 +64,7 @@ export async function receiptFixture({ loaded = [], confirm = async () => true }
     }
   };
   elements.exportConfirmModal.hidden = true; elements.editModal.hidden = true;
-  const ui = createReceiptUi({ elements, findBest, optimizationStrategies, toCents: value => Math.round(Number(String(value || 0).replace(/[^0-9.]/g, '')) * 100), scanPrintedDetails: async () => ({}), downloadSelectedReceipts: receipts => { if (fails.download) throw fails.download; calls.download.push(receipts.map(item => ({ ...item }))); fails.afterDownload?.(); }, receiptService, sharedStoreService: { listActiveSharedStores: async () => [] }, confirmAction: confirm });
+  const ui = createReceiptUi({ elements, findBest, optimizationStrategies, toCents: value => Math.round(Number(String(value || 0).replace(/[^0-9.]/g, '')) * 100), scanPrintedDetails: async () => ({}), downloadSelectedReceipts: receipts => { if (fails.download) throw fails.download; calls.download.push(receipts.map(item => ({ ...item }))); fails.afterDownload?.(); }, receiptService, sharedStoreService: { listActiveSharedStores: async () => [] }, confirmAction: confirm, modalFocus });
   ui.start(); await ui.loadForUser({ id: 'user-1' });
   const rows = () => list.children;
   const field = (row, name) => row.part(`.receipt-${name}`);

@@ -7,7 +7,8 @@ import { collapseKeptReceiptsOnShortWindows } from './optimizationPresentation.j
 import { trackTextEntry } from './textEntryFocus.js';
 import { parseMoneyAmount } from '../domain/moneyAmount.js';
 import { outsideRangeNotice, receiptHasUnsavedChanges, releasedHiddenNotice } from './encodingPresentation.js';
-import { changedWorkbookFields, classifyExportSnapshot, workbookFields } from '../domain/exportArrangement.js';
+import { changedWorkbookFields, classifyExportSnapshot, describeFieldChanges, moveId, partitionExportProblems, sameMembers, summarizeAmounts, workbookFields } from '../domain/exportArrangement.js';
+import { buildReviewRow, createExportReview } from './exportReview.js';
 import { createReceiptExportRunner, preflightExport, preflightMessage, snapshotProblemMessage, unsavedValuesNotice } from './receiptExport.js';
 
 const draftKey = 'receipt-match-draft-v2';
@@ -292,6 +293,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   // An unsaved draft has no id yet: it is kept (by its receipt number) so export can explain why it is blocked instead of silently dropping it.
   // `used` is what the optimizer calculated with (workbook fields), kept to detect that the result no longer applies.
   let selection = null;
+  // The temporary export order for the current selection: { selection, initial: [ids], order: [ids] }. Memory only; never stored anywhere.
+  let arrangement = null;
   let toolbarState = defaultOptimizationToolbarState();
   let encodingDisplayState = { compartment: 'all' };
   let searchDebounce;
@@ -347,7 +350,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     notice.textContent = text;
     notice.hidden = !text;
   };
-  const clearSelection = () => { selection = null; setUnsavedNotice(''); updateExportAction(); };
+  const clearSelection = () => { selection = null; arrangement = null; setUnsavedNotice(''); showExportBlockAction(null); updateExportAction(); };
   const selectionEntryMatchesRow = (entry, row) => entry.dbId ? row.dataset.receiptDbId === entry.dbId : row.dataset.receiptId === entry.receiptId;
   const selectionIncludesRow = row => Boolean(selection?.entries.some(entry => selectionEntryMatchesRow(entry, row)));
   const workspaceStorageKey = () => currentUser?.id ? `fsresibo-workspace-${currentUser.id}` : null;
@@ -586,7 +589,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     elements.difference.textContent = 'Enter a target and receipt amounts.';
     elements.keptReceipts.replaceChildren();
     elements.adminContent.textContent = 'Run a calculation to view the selection logic.';
-    setUnsavedNotice('');
+    setUnsavedNotice(''); showExportBlockAction(null);
     updateResultSummary();
   };
   const optimizationEntries = () => [...elements.list.children].map((row, index) => {
@@ -973,6 +976,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       }
       const chosen = best.items.map(index => receipts[index]);
       const difference = best.total - targetCents;
+      arrangement = null; showExportBlockAction(null);
       selection = { entries: chosen.map(receipt => ({ dbId: receipt.dbId || null, receiptId: receipt.receiptId, label: receipt.label, used: workbookFields(receipt) })) };
       setUnsavedNotice(unsavedValuesNotice({ selected: chosen.filter(receipt => unsavedLabels.includes(receipt.label)).map(receipt => receipt.label), considered: unsavedLabels }));
       elements.resultTitle.textContent = difference === 0 ? 'Exact match found' : strategy === optimizationStrategies.withoutExceeding ? 'Best match without exceeding' : 'Best available match';
@@ -1038,9 +1042,67 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     } finally { importPending = false; }
   };
   let exportPending = false;
+  // ---- Review & Arrange (CP10-C3E-2). The view only presents; the order lives in `arrangement`, the dialog's data in `exportSession`. ----
+  const showReviewState = () => { if (exportSession) elements.confirmExport.disabled = exportPending || (exportSession.needsAck && !exportSession.acknowledged); };
+  const unsavedFieldText = value => value === '' ? '(empty)' : `"${value}"`;
+  const changeNotes = (softProblems, reference, snapshotRows) => {
+    const byId = new Map(snapshotRows.map(row => [row.dbId, row]));
+    return new Map(softProblems.map(problem => {
+      const shown = problem.fields.filter(field => field !== 'updatedAt');
+      const detail = shown.length ? describeFieldChanges(reference.get(problem.dbId), byId.get(problem.dbId), shown).map(change => `${change.label}: ${unsavedFieldText(change.before)} to ${unsavedFieldText(change.after)}`).join('; ') : 'saved again in another session; the receipt values are unchanged';
+      return [problem.dbId, `Updated since selection — ${detail}.`];
+    }));
+  };
+  const renderReview = () => {
+    const session = exportSession;
+    if (!session || !arrangement) return;
+    const saved = new Map(session.baseline.rows.map(row => [row.dbId, row]));
+    const entries = new Map(session.entries.map(entry => [entry.dbId, entry]));
+    const sums = summarizeAmounts(arrangement.order.map(id => saved.get(id)));
+    const changed = session.notes.size;
+    reviewView.render({
+      rows: arrangement.order.map(id => buildReviewRow(entries.get(id), saved.get(id), session.notes.get(id), { format, formatDate })),
+      totalText: format(sums.validCents),
+      withoutAmount: sums.withoutAmount,
+      canReset: arrangement.order.some((id, index) => id !== arrangement.initial[index]),
+      acknowledgement: session.needsAck ? { text: `${changed} receipt${changed === 1 ? ' was' : 's were'} changed in the database after ${changed === 1 ? 'it was' : 'they were'} selected. The values below are the current saved values. Review the highlighted receipt${changed === 1 ? '' : 's'}, then confirm that you have reviewed ${changed === 1 ? 'it' : 'them'} to enable the export.`, checked: session.acknowledged } : null
+    });
+  };
+  const reviewView = createExportReview({
+    list: elements.exportReviewList,
+    announcer: elements.exportReviewAnnouncer,
+    summary: { count: elements.exportReviewCount, total: elements.exportReviewTotal, noAmountGroup: elements.exportReviewNoAmountGroup, noAmount: elements.exportReviewNoAmount },
+    acknowledgement: { group: elements.exportReviewAck, text: elements.exportReviewAckText, input: elements.exportReviewAckInput },
+    reset: elements.exportReviewReset,
+    onMove: (id, toIndex) => { if (arrangement) { arrangement.order = moveId(arrangement.order, id, toIndex); renderReview(); } },
+    onReset: () => { if (arrangement) { arrangement.order = [...arrangement.initial]; renderReview(); } },
+    onAcknowledge: checked => { if (exportSession) { exportSession.acknowledged = checked; showReviewState(); } }
+  });
+  // Unsaved edits, drafts and amounts typed but not saved are fixed in Encoding: say which receipts, and offer the shortcut.
+  const blockForEncoding = problems => {
+    const fixable = problems.filter(problem => ['unsaved', 'draft', 'resultStale', 'invalidAmount'].includes(problem.type));
+    showExportBlockAction(selection.entries.filter(entry => fixable.some(problem => problem.label === entry.label)).map(rowForSelectionEntry).filter(Boolean));
+    return setFeedback(elements.difference, preflightMessage(problems));
+  };
+  // "Go to Encoding": offered when unsaved edits (or drafts) block an export. It only navigates and focuses; nothing is saved or discarded.
+  let exportBlockRows = [];
+  const showExportBlockAction = rows => {
+    exportBlockRows = rows ?? [];
+    if (elements.exportGoToEncoding) elements.exportGoToEncoding.hidden = exportBlockRows.length === 0;
+  };
+  const goToEncoding = () => {
+    const row = exportBlockRows.find(candidate => candidate.isConnected !== false);
+    if (!row) return;
+    elements.encodingTab.click?.();
+    setWorkspace('encoding');
+    pinReceipt(row); refreshEncodingCards();
+    if (row.hidden) return setFeedback(elements.encodingFeedback, `Receipt ${row.dataset.receiptId || ''} is hidden by the current view. Choose Available or All in View receipts to see it.`, 'warning');
+    focusReceiptForEncoding(row);
+  };
   const closeExportConfirmation = ({ force = false } = {}) => {
     if (exportPending && !force) return;
     exportSession = null;
+    reviewView.clear();
     elements.exportConfirmModal.hidden = true;
     modalFocus?.close(elements.exportConfirmModal, { fallback: elements.calculate });
     elements.confirmExport.disabled = false;
@@ -1103,8 +1165,9 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   const openExportConfirmation = async () => {
     if (exportPending || exportReviewPending) return;
     if (!selection) return setFeedback(elements.difference, 'Run Find Best Match with saved Available receipts before exporting.');
+    showExportBlockAction(null);
     const local = preflightSelection();
-    if (!local.ok) return setFeedback(elements.difference, preflightMessage(local.problems));
+    if (!local.ok) return blockForEncoding(local.problems);
     const reviewed = selection;
     const entries = exportEntries();
     exportReviewPending = true;
@@ -1114,14 +1177,23 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       try { baseline = await exportRunner.loadBaseline(entries.map(entry => entry.dbId)); }
       catch (error) { return setFeedback(elements.difference, `Could not load the latest saved receipt values: ${errorText(error)}. Nothing was exported.`); }
       if (selection !== reviewed) return setFeedback(elements.difference, 'The selection changed while the receipts were being checked. Nothing was exported; choose Export Selected again.');
-      const verdict = classifyExportSnapshot({ entries, snapshotRows: baseline.rows, reference: new Map(storeSourceReceipts.map(receipt => [receipt.dbId, receipt])) });
-      if (!verdict.ok) return rejectStaleResult(baseline.rows, verdict.problems, 'review');
-      exportSession = { selection: reviewed, entries, baseline };
+      const reference = new Map(storeSourceReceipts.map(receipt => [receipt.dbId, receipt]));
+      const verdict = classifyExportSnapshot({ entries, snapshotRows: baseline.rows, reference });
+      // Missing, Consumed, invalid or an amount that differs from the optimizer's: never acknowledgeable, the result must be recalculated.
+      const { hard, soft } = partitionExportProblems(verdict.problems);
+      if (hard.length) return rejectStaleResult(baseline.rows, verdict.problems, 'review');
+      const notes = changeNotes(soft, reference, baseline.rows);
+      if (soft.length) { syncRowsFromSnapshot(baseline.rows, soft); refreshEncodingCards(); refreshOptimizationCards(); }
+      const ids = entries.map(entry => entry.dbId);
+      if (!arrangement || arrangement.selection !== reviewed || !sameMembers(arrangement.order, ids)) arrangement = { selection: reviewed, initial: ids, order: [...ids] };
+      exportSession = { selection: reviewed, entries, baseline, notes, needsAck: soft.length > 0, acknowledged: false };
       const alreadyPrepared = exportRunner.uncertainIds().some(id => entries.some(entry => entry.dbId === id));
       elements.exportConfirmMessage.textContent = `Export ${entries.length} selected receipt${entries.length === 1 ? '' : 's'}? After the export is prepared, these receipts will be marked as Consumed and excluded from future optimization.${alreadyPrepared ? ' A workbook for some of them was already prepared earlier and its status update could not be confirmed. The database now confirms they are still Available. Exporting again downloads another workbook.' : ''}`;
       elements.exportConfirmModal.hidden = false;
+      renderReview();
+      showReviewState();
       modalFocus?.open(elements.exportConfirmModal, { trigger: elements.exportSelected, fallback: elements.calculate, onEscape: closeExportConfirmation });
-      elements.confirmExport.focus();
+      (exportSession.needsAck ? elements.exportReviewAckInput : elements.confirmExport).focus();
     } finally {
       exportReviewPending = false;
       elements.exportSelected.removeAttribute('aria-busy');
@@ -1129,6 +1201,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   };
   const exportAndConsume = async () => {
     if (exportPending) return;
+    if (exportSession?.needsAck && !exportSession.acknowledged) return reviewView.announce('Review the updated values and tick the box before exporting.');
     exportPending = true;
     elements.confirmExport.disabled = true;
     elements.confirmExport.setAttribute('aria-busy', 'true');
@@ -1137,12 +1210,29 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     const session = exportSession;
     if (!session || !selection || session.selection !== selection) return stop('The selected result is no longer exportable. Run Find Best Match again.');
     const local = preflightSelection();
-    if (!local.ok) return stop(preflightMessage(local.problems));
-    const result = await exportRunner.run({ entries: session.entries, baseline: session.baseline });
+    if (!local.ok) { exportPending = false; closeExportConfirmation(); return blockForEncoding(local.problems); }
+    // The confirmed order decides the order of the receipts handed to the workbook; membership is the reviewed selection.
+    const byId = new Map(session.entries.map(entry => [entry.dbId, entry]));
+    const confirmedOrder = arrangement && arrangement.selection === session.selection && sameMembers(arrangement.order, session.entries.map(entry => entry.dbId)) ? arrangement.order : session.entries.map(entry => entry.dbId);
+    const result = await exportRunner.run({ entries: confirmedOrder.map(id => byId.get(id)), baseline: session.baseline });
     if (result.state === 'busy') return stop('An export is already in progress.');
     if (result.state === 'verification-required') return stop('Receipt status changed since this review. Choose Export Selected again so the receipts are verified with the database first. Nothing was exported.');
     if (result.state === 'snapshot-failed') return stop(`Could not verify the latest saved receipt values: ${errorText(result.error)}. Nothing was exported or marked Consumed.`);
-    if (result.state === 'blocked') { exportPending = false; closeExportConfirmation(); return rejectStaleResult(result.snapshotRows, result.problems, 'confirm'); }
+    if (result.state === 'blocked') {
+      const { hard, soft } = partitionExportProblems(result.problems);
+      if (hard.length) { exportPending = false; closeExportConfirmation(); return rejectStaleResult(result.snapshotRows, result.problems, 'confirm'); }
+      // Only other workbook fields changed since the reviewed snapshot: stay in the dialog, show the new values and ask for a fresh acknowledgement.
+      session.notes = changeNotes(soft, new Map(session.baseline.rows.map(row => [row.dbId, row])), result.snapshotRows);
+      syncRowsFromSnapshot(result.snapshotRows, soft); refreshEncodingCards(); refreshOptimizationCards();
+      session.baseline = { rows: result.snapshotRows, generation: session.baseline.generation };
+      session.needsAck = true; session.acknowledged = false;
+      exportPending = false;
+      elements.confirmExport.removeAttribute('aria-busy');
+      elements.confirmExport.textContent = 'Export & Mark Consumed';
+      renderReview(); showReviewState();
+      reviewView.announce('Receipt values changed while you were reviewing. Review the updated values, tick the box and confirm again. Nothing was exported.');
+      return elements.exportReviewAckInput.focus?.();
+    }
     if (result.state === 'generation-failed') return stop(`Could not prepare the XLSX export: ${errorText(result.error)}. No receipt was marked Consumed.`);
     // The outcome is unknown: the update may have failed, or been committed with only the answer lost.
     if (result.state === 'consume-failed') return stop(`The XLSX export was prepared, but the receipt status update could not be confirmed: ${errorText(result.error)}. The workbook may already have been downloaded, and some or all of these receipts may already be Consumed. Check each receipt's status before exporting again; the next export is verified against the database first.`);
@@ -1267,6 +1357,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     start() {
       renderEncodingAmountCompartmentOptions();
       elements.calculate.addEventListener('click', calculate);
+      reviewView.start();
+      elements.exportGoToEncoding?.addEventListener('click', goToEncoding);
       elements.exportSelected.addEventListener('click', openExportConfirmation);
       elements.confirmExport.addEventListener('click', exportAndConsume);
       elements.cancelExport.addEventListener('click', closeExportConfirmation);

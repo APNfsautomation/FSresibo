@@ -162,14 +162,17 @@ test('F: an amount that changed in the database after Find Best Match blocks exp
   assert.equal(f.field(f.rows()[1], 'amount').value, 250, 'the screen now shows the database value');
 });
 
-test('I: a changed workbook field other than the amount also blocks export and is named', async () => {
+// C3E-2 (intentional change from C3E-1, which blocked): other workbook fields changing on an Available receipt are shown and must be acknowledged.
+test('I: a changed workbook field other than the amount opens the review with the updated values and requires acknowledgement', async () => {
   const f = await receiptFixture({ loaded: three() });
   await calculate(f, '500');
   otherSession(f, 'r3', { invoice: 'NEW-INV', store: 'Renamed' });
   await exportClick(f);
-  assert.match(f.elements.difference.textContent, /Receipt 3 was changed after it was selected \(Store name, Invoice number and Last updated\)\./);
+  assert.equal(dialogOpen(f), true);
+  assert.equal(f.elements.exportReviewAck.hidden, false);
+  assert.equal(f.elements.confirmExport.disabled, true, 'export stays disabled until the changes are acknowledged');
   assert.deepEqual([f.calls.download.length, f.calls.consume.length], [0, 0]);
-  assert.equal(f.field(f.rows()[2], 'invoice').value, 'NEW-INV');
+  assert.equal(f.field(f.rows()[2], 'invoice').value, 'NEW-INV', 'the screen shows the database value');
 });
 
 test('G: correcting a selected receipt through the Edit dialog invalidates the stale result and says why', async () => {
@@ -217,18 +220,25 @@ test('H: a receipt deleted in another session cannot be exported', async () => {
   assert.deepEqual([f.calls.download.length, f.calls.consume.length], [0, 0]);
 });
 
-test('J: a change made while the confirmation is open blocks the final export, with nothing generated or consumed', async () => {
+// C3E-2 (intentional change from C3E-1, which closed the dialog): a non-amount change while the dialog is open keeps it open and asks again.
+test('J: a change made while the confirmation is open generates nothing, asks for a new acknowledgement, and the new values are what gets exported', async () => {
   const f = await receiptFixture({ loaded: three() });
   await calculate(f, '500'); await exportClick(f);
-  assert.equal(dialogOpen(f), true);
+  assert.equal(dialogOpen(f), true); assert.equal(f.elements.exportReviewAck.hidden, true);
   otherSession(f, 'r2', { store: 'Edited elsewhere' });
   await confirm(f);
   assert.equal(f.calls.snapshot.length, 2, 'Snapshot A and Snapshot B');
-  assert.match(f.elements.difference.textContent, /Receipt 2 was changed after it was selected \(Store name and Last updated\)\. No workbook was prepared and nothing was marked Consumed\./);
-  assert.equal(dialogOpen(f), false);
+  assert.equal(dialogOpen(f), true, 'the dialog stays open for review');
+  assert.equal(f.elements.exportReviewAck.hidden, false);
+  assert.equal(f.elements.confirmExport.disabled, true);
+  assert.match(f.elements.exportReviewAnnouncer.textContent, /Receipt values changed while you were reviewing/);
   assert.deepEqual([f.calls.download.length, f.calls.consume.length], [0, 0]);
   assert.equal(f.db.get('r2').status, 'available');
-  assert.equal(f.elements.confirmExport.disabled, false, 'the dialog is usable the next time');
+  f.elements.exportReviewAckInput.checked = true; await f.elements.exportReviewAckInput.emit('change');
+  assert.equal(f.elements.confirmExport.disabled, false);
+  await confirm(f);
+  assert.equal(f.calls.download[0].find(item => item.dbId === 'r2').store, 'Edited elsewhere', 'the reviewed (new) value is exported');
+  assert.deepEqual(f.calls.consume, [['r2', 'r3']]);
 });
 
 test('a receipt consumed while the confirmation is open cannot be exported either', async () => {

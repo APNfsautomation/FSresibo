@@ -56,3 +56,42 @@ export function exportDrift(exportedRows, returnedRows) {
     return fields.length ? [{ dbId: row.dbId, fields }] : [];
   });
 }
+
+// ---- Review & Arrange (CP10-C3E-2): pure helpers for the temporary export order and the review summary ----
+
+export const sameMembers = (first, second) => first.length === second.length && new Set(first).size === first.length && first.every(id => second.includes(id));
+
+// Moves one id to a position (clamped). Returns a new array; the member set never changes.
+export function moveId(order, id, toIndex) {
+  const from = order.indexOf(id);
+  if (from < 0) return [...order];
+  const target = Math.max(0, Math.min(order.length - 1, toIndex));
+  const next = order.filter(candidate => candidate !== id);
+  next.splice(target, 0, id);
+  return next;
+}
+export const moveBy = (order, id, delta) => moveId(order, id, order.indexOf(id) + delta);
+
+// Count, receipts with no amount, and the sum of the valid amounts in exact centavos. A missing amount is never counted as zero; an explicit 0 is a valid amount.
+export function summarizeAmounts(rows) {
+  let withoutAmount = 0; let validCents = 0;
+  for (const row of rows) {
+    const parsed = parseMoneyAmount(row.amount);
+    if (parsed.blank) withoutAmount += 1;
+    else if (parsed.valid) validCents += parsed.cents;
+  }
+  return { count: rows.length, withoutAmount, validCents };
+}
+
+// Problems that can never be acknowledged away: the receipt is gone or Consumed, its saved amount is invalid, or the amount differs from what the
+// optimizer used (so the result must be recalculated). Only other workbook fields changing on a still-Available receipt can be reviewed and acknowledged.
+export function partitionExportProblems(problems) {
+  const soft = problems.filter(problem => problem.type === 'changed' && !problem.fields.includes('amount'));
+  return { hard: problems.filter(problem => !soft.includes(problem)), soft };
+}
+
+// What changed, for display: [{ field, label, before, after }] using the same labels as the export messages.
+export function describeFieldChanges(before, after, fields) {
+  const show = (receipt, field) => exactText(receipt?.[field]);
+  return fields.map(field => ({ field, label: exportFieldLabels[field] ?? field, before: show(before, field), after: show(after, field) }));
+}

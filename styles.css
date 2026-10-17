@@ -271,6 +271,53 @@ button[aria-busy="true"] { cursor: progress; opacity: .8; }
 .export-confirm-card { max-width: 520px; }
 .confirmation-card { max-width: 500px; }
 .export-confirm-card > p:not(.eyebrow), .confirmation-card > p:not(.eyebrow) { margin: var(--space-3) 0 0; color: var(--muted); line-height: var(--leading-body); }
+/* Review & Arrange (export dialog): header, summary and actions stay in view; only the receipt list scrolls. */
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.export-review-card.modal-card { display: flex; flex-direction: column; width: min(760px, 100%); max-width: 760px; max-height: calc(100vh - 40px); max-height: calc(100dvh - 40px); overflow: hidden; }
+.export-review-summary { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5); margin: var(--space-3) 0 0; }
+.export-review-summary > div { min-width: 0; }
+.export-review-summary dt { color: var(--muted); font-size: var(--text-xs); font-weight: var(--weight-heavy); letter-spacing: .04em; text-transform: uppercase; }
+.export-review-summary dd { margin: 2px 0 0; color: var(--text); font-size: var(--text-lg); font-weight: var(--weight-heavy); font-variant-numeric: tabular-nums; }
+#exportReviewNoAmount { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--warning); }
+.export-confirm-card > p.export-review-hint { font-size: var(--text-sm); }
+.export-review-list { flex: 1 1 auto; min-height: 96px; margin: var(--space-3) 0 0; padding: 0; overflow-y: auto; overscroll-behavior: contain; list-style: none; border: var(--border-width) solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
+.export-review-row { display: grid; grid-template-columns: 34px 40px minmax(0, 1fr) auto auto; grid-template-areas: "position handle details amount moves"; align-items: center; gap: var(--space-2) var(--space-3); padding: var(--space-2) var(--space-3); border-bottom: var(--border-width) solid var(--border); }
+.export-review-row:last-child { border-bottom: 0; }
+.export-review-row.has-note { background: var(--warning-soft); box-shadow: inset 4px 0 0 var(--warning); }
+.export-review-position { grid-area: position; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--selected-bg); border: var(--border-width) solid var(--selected-border); color: var(--text); font-weight: var(--weight-heavy); font-variant-numeric: tabular-nums; }
+.export-review-handle { grid-area: handle; min-width: 40px; padding: 0; background: transparent; border-color: var(--border); color: var(--muted); font-size: 1.1rem; }
+.export-review-details { grid-area: details; display: grid; min-width: 0; gap: 2px; }
+.export-review-receipt { overflow-wrap: anywhere; }
+.export-review-meta { color: var(--muted); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.export-review-note { color: var(--text); font-size: var(--text-sm); font-weight: var(--weight-medium); overflow-wrap: anywhere; }
+.export-review-amount { grid-area: amount; justify-self: end; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.export-review-amount.is-missing { color: var(--warning); font-style: italic; font-weight: var(--weight-medium); }
+.export-review-moves { grid-area: moves; display: flex; gap: var(--space-1); }
+.export-review-move { min-width: var(--control-height); padding: 0; background: var(--surface-2); border-color: var(--border-strong); color: var(--text); }
+.export-review-move:disabled { opacity: .45; cursor: not-allowed; }
+.export-review-handle:focus-visible, .export-review-move:focus-visible, .export-review-ack-label input:focus-visible { outline: 3px solid var(--focus, var(--primary)); outline-offset: 2px; }
+.export-review-ack { margin-top: var(--space-3); padding: var(--space-3); border: var(--border-width) solid var(--warning-border); border-left: 4px solid var(--warning); border-radius: var(--radius-sm); background: var(--warning-soft); }
+.export-confirm-card .export-review-ack > p { margin: 0 0 var(--space-2); color: var(--text); }
+.export-review-ack-label { display: flex; align-items: center; gap: var(--space-2); font-weight: var(--weight-medium); }
+.export-review-ack-label input { width: 20px; min-height: 20px; height: 20px; flex: none; }
+.export-review-actions { flex: none; align-items: center; flex-wrap: wrap; }
+.export-review-actions .export-review-reset { order: 0; margin-right: auto; }
+.export-review-actions .primary { order: 1; }
+.export-review-actions #cancelExport { order: 2; }
+.unsaved-values-notice + .export-go-encoding { margin-top: var(--space-2); }
+@media (max-width: 640px) {
+  .export-review-modal { padding: 0; place-items: stretch; }
+  .export-review-card.modal-card { width: 100%; max-width: none; height: 100vh; height: 100dvh; max-height: none; overflow-y: auto; border-radius: 0; border-width: 0; padding: max(var(--space-4), env(safe-area-inset-top)) max(var(--space-3), env(safe-area-inset-right)) 0 max(var(--space-3), env(safe-area-inset-left)); }
+  /* On a phone the whole sheet scrolls so every receipt is reachable; the actions stay pinned to the bottom edge. */
+  .export-review-list { flex: none; overflow: visible; }
+  .export-review-row { grid-template-columns: 30px minmax(0, 1fr) auto; grid-template-areas: "position details amount" "handle moves moves"; align-items: start; }
+  .export-review-handle { justify-self: start; }
+  .export-review-moves { justify-self: end; }
+  .export-review-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); position: sticky; bottom: 0; margin-top: auto; padding: var(--space-3) 0 max(var(--space-3), env(safe-area-inset-bottom)); background: var(--surface); box-shadow: 0 -1px 0 var(--border); }
+  .export-review-actions .export-review-reset { grid-column: 1 / -1; margin-right: 0; }
+  .export-review-actions .primary { order: 1; }
+  .export-review-actions button { width: 100%; }
+}
 .confirmation-modal.is-danger .confirmation-card { border-color: color-mix(in srgb, var(--danger) 42%, var(--border)); }
 .confirmation-modal.is-danger #confirmationConfirm { background: var(--danger); color: var(--on-danger); }
 .confirmation-modal.is-danger #confirmationConfirm:hover { filter: brightness(.92); }

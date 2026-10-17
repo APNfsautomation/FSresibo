@@ -129,6 +129,7 @@
               <div id="resultAmount" class="result-amount">₱0.00</div>
               <p id="difference" class="difference">Enter a target and receipt amounts.</p>
               <p id="optimizationUnsavedNotice" class="unsaved-values-notice" role="status" hidden></p>
+              <button class="secondary export-go-encoding" id="exportGoToEncoding" type="button" hidden>Go to Encoding</button>
               <dl id="optimizationResultSummary" class="optimization-result-summary" hidden>
                 <div><dt>Target</dt><dd id="summaryTarget">—</dd></div>
                 <div><dt>Matched</dt><dd id="summaryMatched">—</dd></div>
@@ -277,9 +278,26 @@
       </article>
     </template>
     <template id="monthlyFilingReceiptTemplate"><article class="receipt-card monthly-card"><button class="monthly-summary" type="button" aria-expanded="true"><span class="monthly-summary-id">Receipt 1</span><span class="monthly-summary-store">Store not set</span><strong class="monthly-summary-amount">₱0.00</strong><span class="monthly-summary-date">No date</span><span class="monthly-summary-flags"></span><span class="monthly-summary-chevron" aria-hidden="true"><svg class="chevron-icon" viewBox="0 0 16 16" width="16" height="16" focusable="false" aria-hidden="true"><path d="M3.5 6.25 8 10.75l4.5-4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button><div class="receipt-content"><div class="receipt-form-group"><p class="form-group-title"><span class="monthly-receipt-id">Receipt 1</span> <span class="monthly-status" hidden></span> <span class="monthly-unsaved" hidden></span></p><div class="receipt-fields"><label class="wide store-name-field">Store<input class="monthly-store" placeholder="Store name" autocomplete="off" /><div class="store-suggestions monthly-suggestions" hidden></div></label><label class="wide">Address<input class="monthly-address" placeholder="Address" /></label><label>TIN<input class="monthly-tin" placeholder="TIN" /></label><label>VAT status<select class="monthly-vat"><option value="">Not set</option><option value="VAT">VAT</option><option value="Non-VAT">Non-VAT</option></select></label><label>Amount<input class="monthly-amount" inputmode="decimal" placeholder="0.00" /><span class="monthly-amount-error" hidden></span></label><label>Receipt date<input class="monthly-receiptDate" type="date" /></label><label>Invoice number<input class="monthly-invoice" placeholder="Invoice / OR number" /></label></div></div><div class="receipt-form-footer"><button class="delete-receipt monthly-delete" type="button">Delete receipt</button><button class="secondary monthly-return-active" type="button" hidden>Return to Active</button></div></div></article></template>
-    <section class="edit-modal" id="exportConfirmModal" role="dialog" aria-modal="true" aria-labelledby="exportConfirmTitle" hidden>
+    <section class="edit-modal export-review-modal" id="exportConfirmModal" role="dialog" aria-modal="true" aria-labelledby="exportConfirmTitle" aria-describedby="exportConfirmMessage" hidden>
       <div class="modal-backdrop" id="exportConfirmBackdrop"></div>
-      <div class="modal-card export-confirm-card"><p class="eyebrow">EXPORT SELECTED</p><h2 id="exportConfirmTitle">Export selected receipts?</h2><p id="exportConfirmMessage">After the export is prepared, these receipts will be marked as Consumed and excluded from future optimization.</p><div class="modal-actions"><button class="primary" id="confirmExport" type="button">Export &amp; Mark Consumed</button><button class="ghost" id="cancelExport" type="button">Cancel</button></div></div>
+      <div class="modal-card export-confirm-card export-review-card">
+        <p class="eyebrow">REVIEW &amp; ARRANGE</p>
+        <h2 id="exportConfirmTitle">Review &amp; arrange before export</h2>
+        <p id="exportConfirmMessage">After the export is prepared, these receipts will be marked as Consumed and excluded from future optimization.</p>
+        <dl class="export-review-summary" id="exportReviewSummary">
+          <div><dt>Selected receipts</dt><dd id="exportReviewCount">0</dd></div>
+          <div><dt>Total selected amount</dt><dd id="exportReviewTotal">₱0.00</dd></div>
+          <div id="exportReviewNoAmountGroup" hidden><dt>No amount</dt><dd id="exportReviewNoAmount"></dd></div>
+        </dl>
+        <p class="export-review-hint" id="exportReviewHint">Put the receipts in the order of your paper copies. Item No. in the workbook follows this order. Use the Move up and Move down buttons, or press the arrow keys on a receipt's handle (Home and End jump to the first and last position).</p>
+        <ol class="export-review-list" id="exportReviewList" aria-label="Receipts in export order"></ol>
+        <div class="export-review-ack" id="exportReviewAck" hidden>
+          <p id="exportReviewAckText"></p>
+          <label class="export-review-ack-label"><input type="checkbox" id="exportReviewAckInput" /> I have reviewed the updated values</label>
+        </div>
+        <p class="visually-hidden" id="exportReviewAnnouncer" role="status" aria-live="polite"></p>
+        <div class="modal-actions export-review-actions"><button class="ghost export-review-reset" id="exportReviewReset" type="button">Reset order</button><button class="primary" id="confirmExport" type="button">Export &amp; Mark Consumed</button><button class="ghost" id="cancelExport" type="button">Cancel</button></div>
+      </div>
     </section>
     <section class="edit-modal confirmation-modal" id="confirmationModal" role="dialog" aria-modal="true" aria-labelledby="confirmationTitle" aria-describedby="confirmationMessage" hidden>
       <div class="modal-backdrop" id="confirmationBackdrop"></div>
