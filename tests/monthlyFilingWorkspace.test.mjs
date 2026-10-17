@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { toDatabaseMonthlyFilingReceipt } from '../services/monthlyFilingService.js';
 import { createMonthlyFilingUi, createMonthlyFilingViewState, directoryOutcomeFeedback, monthlyFilingAmountText, monthlyFilingArchivedLabel, monthlyFilingDirtyLabel, monthlyFilingExportNumbers, monthlyFilingSignature, monthlyFilingSnapshotTotalCents, monthlyFilingSummaryName, monthlyFilingTotalText, summarizeActiveMonthlyFiling } from '../ui/monthlyFilingUi.js';
-import { buildExpenseDetailedReportRows } from '../services/exportService.js';
+import { buildExpenseDetailedReportRows, createExpenseDetailedReportWorkbook } from '../services/exportService.js';
 import { normalizeMoneyAmount } from '../domain/moneyAmount.js';
 
 // match/doesNotMatch report the pattern, not the whole stylesheet, when they fail.
@@ -163,7 +163,7 @@ test('summary text helpers: amounts, labels and accessible names (state is not c
 });
 
 // ---- D. the real Monthly Filing UI against a DOM fixture --------------------------------------------------------------------------
-function fixture({ records = [], confirm = async () => true, reduced = false, sharedStoreService = { listActiveSharedStores: async () => [] } } = {}) {
+function fixture({ records = [], confirm = async () => true, reduced = false, sharedStoreService = { listActiveSharedStores: async () => [] }, numericAmounts = false } = {}) {
   const focusLog = []; const scrollLog = []; const state = { activeElement: null };
   globalThis.matchMedia = query => ({ matches: query.includes('prefers-reduced-motion') ? reduced : false });
   globalThis.requestAnimationFrame = callback => { callback(); return 0; };
@@ -198,8 +198,8 @@ function fixture({ records = [], confirm = async () => true, reduced = false, sh
   let sequence = 0; const failures = { update: new Set(), createAt: new Set(), create: false, workbook: false, archive: false }; let createAttempts = 0;
   const service = {
     loadMonthlyFilingReceipts: async () => records.map(record => ({ ...record })),
-    createMonthlyFilingReceipt: async receipt => { calls.order.push('create'); createAttempts += 1; if (failures.create || failures.createAt.has(createAttempts)) throw new Error('create failed'); calls.create.push(receipt); return { ...receipt, amount: String(normalizeMoneyAmount(receipt.amount) ?? ''), dbId: `new-${++sequence}`, status: 'active' }; },
-    updateMonthlyFilingReceipt: async (id, receipt) => { calls.order.push('update'); if (failures.update.has(id)) throw new Error(`update ${id} failed`); calls.update.push([id, receipt]); return { ...receipt, amount: String(normalizeMoneyAmount(receipt.amount) ?? ''), dbId: id, status: 'active' }; },
+    createMonthlyFilingReceipt: async receipt => { calls.order.push('create'); createAttempts += 1; if (failures.create || failures.createAt.has(createAttempts)) throw new Error('create failed'); calls.create.push(receipt); return { ...receipt, amount: numericAmounts ? (normalizeMoneyAmount(receipt.amount) ?? '') : String(normalizeMoneyAmount(receipt.amount) ?? ''), dbId: `new-${++sequence}`, status: 'active' }; },
+    updateMonthlyFilingReceipt: async (id, receipt) => { calls.order.push('update'); if (failures.update.has(id)) throw new Error(`update ${id} failed`); calls.update.push([id, receipt]); return { ...receipt, amount: numericAmounts ? (normalizeMoneyAmount(receipt.amount) ?? '') : String(normalizeMoneyAmount(receipt.amount) ?? ''), dbId: id, status: 'active' }; },
     deleteMonthlyFilingReceipt: async id => { calls.remove.push(id); },
     archiveMonthlyFilingReceipts: async ids => { calls.order.push('archive'); if (failures.archive) throw new Error('archive failed'); calls.archive.push(ids); return ids.map(id => ({ ...records.find(record => record.dbId === id), dbId: id, status: 'archived' })); },
     returnMonthlyFilingReceiptToActive: async id => { calls.ret.push(id); return { ...records.find(record => record.dbId === id), dbId: id, status: 'active' }; },
@@ -831,4 +831,41 @@ test('C2R: Add still reuses or creates the blank receipt, focuses Store and keep
   assert.equal(f.cards().length, 2, 'repeated Add reuses the one blank receipt'); assert.equal(f.field(f.cards()[0], 'invoice').value, 'EDITED');
   assert.equal(f.focusLog.at(-1).node, f.field(f.cards()[1], 'store')); assert.equal(f.label(f.cards()[1]), 'New receipt');
   await f.click(f.elements.archivedTab); assert.equal(f.elements.activeActions.hidden, true, 'the Active actions (and the floating Add) are hidden on Archived');
+});
+
+// ---- CP10-C3R2: an explicit zero amount must survive render, save and export (C3-13) ---------------------------------------------------------
+// The real service returns the database numeric (0 is a number), so this fixture mode returns numbers like the database does.
+test('C3-13: an explicit 0.00 survives Save, render, repeated Save and export as numeric 0; a missing amount stays an empty cell', async () => {
+  const f = fixture({ records: [], numericAmounts: true }); await f.ui.loadForUser(user);
+  await f.click(f.elements.add); await f.edit(f.cards()[0], 'store', 'Zero Store'); await f.edit(f.cards()[0], 'amount', '0.00');
+  await f.click(f.elements.add); await f.edit(f.cards()[1], 'store', 'Missing Store');
+  await f.click(f.elements.add); await f.edit(f.cards()[2], 'store', 'Paid Store'); await f.edit(f.cards()[2], 'amount', '1250.50');
+  await f.click(f.elements.save);                                            // B. save (the database answers with the number 0)
+  assert.equal(f.calls.create[0].amount, '0.00');
+  const zeroField = f.field(f.cards()[0], 'amount');
+  assert.notEqual(String(zeroField.value), '', 'C/D. the rendered Amount field still shows the zero, it is not blanked');
+  assert.equal(Number(zeroField.value), 0); assert.equal(f.field(f.cards()[1], 'amount').value, '', 'a missing amount stays empty');
+  assert.equal(String(f.field(f.cards()[2], 'amount').value), '1250.5');
+  assert.deepEqual(totalLine(f), ['Active Total: ₱1,250.50', '3 receipts · 1 without amount'], 'the total counts the zero as a real amount, not as "without amount"');
+  await f.click(f.elements.save);                                            // repeated Save must not turn zero into null/blank
+  assert.equal(normalizeMoneyAmount(f.calls.update.find(([, receipt]) => receipt.store === 'Zero Store')[1].amount), 0, 'the second Save sends 0 (the database would store 0, not null)');
+  assert.equal(normalizeMoneyAmount(f.calls.update.find(([, receipt]) => receipt.store === 'Missing Store')[1].amount), null);
+  await f.click(f.elements.exportActive);                                    // E/F/G. export and inspect the workbook
+  const [snapshot] = f.calls.snapshots; const sheet = createExpenseDetailedReportWorkbook(snapshot).Sheets['Selected Receipts'];
+  assert.deepEqual(snapshot.map(record => record.store), ['Zero Store', 'Missing Store', 'Paid Store']);
+  assert.deepEqual([sheet.H3.t, sheet.H3.v, sheet.H3.z], ['n', 0, '#,##0.00'], 'the zero is numeric 0 with the money format');
+  assert.equal(sheet.H4, undefined, 'H. a genuinely missing amount is an empty cell');
+  assert.deepEqual([sheet.H5.t, sheet.H5.v, sheet.H5.z], ['n', 1250.5, '#,##0.00']);
+  assert.match(f.elements.feedback.textContent, /^Exported and archived 3 Monthly Filing receipts \(Total: ₱1,250\.50\)\./);
+  assert.equal(f.calls.archive.length, 1); assert.equal(f.elements.archivedTab.textContent, 'Archived (3)', 'archiving is unchanged');
+});
+
+test('C3-13: a zero loaded from the database (the number 0) is shown as 0 and exported as numeric 0 even when export re-reads the fields', async () => {
+  const f = fixture({ records: [saved('a1', { store: 'Zero', amount: 0 }), saved('a2', { store: 'Blank', amount: '' })], numericAmounts: true }); await f.ui.loadForUser(user);
+  assert.equal(String(f.field(f.cards()[0], 'amount').value), '0'); assert.equal(f.field(f.cards()[1], 'amount').value, '');
+  assert.equal(f.cards().length, 2); assert.deepEqual(totalLine(f), ['Active Total: ₱0.00', '2 receipts · 1 without amount']);
+  assert.equal(f.elements.unsavedNote.hidden, true, 'rendering a zero does not mark the receipt as edited');
+  await f.click(f.elements.exportActive);
+  const sheet = createExpenseDetailedReportWorkbook(f.calls.snapshots[0]).Sheets['Selected Receipts'];
+  assert.deepEqual([sheet.H3.t, sheet.H3.v, sheet.H3.z], ['n', 0, '#,##0.00']); assert.equal(sheet.H4, undefined);
 });

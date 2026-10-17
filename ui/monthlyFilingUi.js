@@ -266,7 +266,7 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
       row.querySelector('.monthly-summary').addEventListener('click', () => { const current = records[Number(row.dataset.recordIndex)]; if (!current) return; view.setExpanded(current, !view.isExpanded(current)); refreshRowPresentation(row); });
       row.dataset.recordIndex = String(recordIndex);
       const currentRecord = () => records[Number(row.dataset.recordIndex)] ?? record; row.dataset.monthlyId = record.dbId || ''; row.dataset.sharedStoreId = record.sharedStoreId || ''; row.dataset.status = record.status; row.dataset.persistedStoreFingerprint = record.persistedStoreFingerprint || '';
-      Object.entries(record).forEach(([key, value]) => { const field = row.querySelector(`.monthly-${key}`); if (field) field.value = value || ''; });
+      Object.entries(record).forEach(([key, value]) => { const field = row.querySelector(`.monthly-${key}`); if (field) field.value = value ?? ''; });
       const archived = monthlyFilingIsReadOnly(record);
       row.querySelector('.monthly-status').textContent = archived ? 'Archived' : 'Active'; row.querySelector('.monthly-status').hidden = !archived;
       row.querySelectorAll('input, select').forEach(field => { field.disabled = archived; });
