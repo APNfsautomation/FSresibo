@@ -155,3 +155,27 @@ test('EXPORT-UX-02: the exporter reuses the strict parser and both callers still
   assert.match(encoding, /invalidExportRow\(\)/); assert.match(monthly, /parseMoneyAmount\(entry\.record\.amount\)/);
   const money = await text('../domain/moneyAmount.js'); assert.match(money, /export const maximumMoneyCents = 999999999999;/, 'the parser is untouched');
 });
+
+// ---- C3-REVIEW-01: explicit sign-out always clears --------------------------------------------------------------------------------------------
+test('C3-REVIEW-01: an explicit sign-out clears all five password fields even when the login form is already showing', () => {
+  const f = authFixture();
+  f.panel.show();                                              // A. the login form is visible
+  f.elements.loginPassword.value = 'typed'; f.elements.registerPassword.value = 'r1'; f.elements.registerConfirmPassword.value = 'r2'; f.elements.recoveryPassword.value = 'c1'; f.elements.recoveryConfirmPassword.value = 'c2'; // B. passwords entered
+  assert.equal(f.elements.loginForm.hidden, false); assert.equal(f.elements.authView.hidden, false);
+  f.panel.show('', { clearPasswords: true });                  // C. explicit sign-out transition
+  assert.deepEqual(f.passwords(), ['', '', '', '', ''], 'D. every password is empty');
+  assert.equal(f.elements.loginEmail.value, 'user@example.test', 'the email is kept');
+});
+
+test('C3-REVIEW-01: default show() still keeps typing; a failed login keeps the password; recovery behaves as before; app.js passes the option only on SIGNED_OUT', async () => {
+  const f = authFixture(); f.panel.show(); f.elements.loginPassword.value = 'typing';
+  f.panel.show('Notice'); assert.equal(f.elements.loginPassword.value, 'typing', 'a benign repeated show() keeps typed input');
+  f.failNextLogin(); return f.submit(f.elements.loginForm).then(async () => {
+    assert.equal(f.elements.loginPassword.value, 'typing', 'failed login keeps the password');
+    const g = authFixture(); g.panel.showRecovery(); assert.deepEqual(g.passwords(), ['', '', '', '', '']); assert.equal(g.elements.recoveryForm.hidden, false);
+    g.elements.recoveryPassword.value = 'abc'; g.panel.showRecovery(); assert.equal(g.elements.recoveryPassword.value, 'abc', 'the open recovery form is not wiped');
+    const app = await text('../app.js');
+    assert.equal((app.match(/clearPasswords: true/g) ?? []).length, 1, 'only one call site forces the clear');
+    assert.match(app, /if \(event === 'SIGNED_OUT'\) \{[\s\S]*?authPanel\.show\(message, \{ clearPasswords: true \}\);/);
+  });
+});

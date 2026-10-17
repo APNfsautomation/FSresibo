@@ -123,7 +123,7 @@ async function handleAuthState(event, nextSession) {
     recoveryCompleted = false;
     recoveryMode = false;
     recoverySessionEstablished = false;
-    authPanel.show(message);
+    authPanel.show(message, { clearPasswords: true });
     return;
   }
   if (nextSession?.user) await showAuthenticatedUser(nextSession.user);

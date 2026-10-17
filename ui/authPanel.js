@@ -10,10 +10,10 @@ export function createAuthPanel(elements, { onLogin, onRegister, onPasswordReset
   const visibleMode = () => Object.entries(forms).find(([, form]) => form && !form.hidden)?.[0];
   // Opening a mode clears the passwords when the panel was closed (logout, expiry, start-up) or a different form was showing.
   // Re-showing the form that is already open keeps what the user typed.
-  const open = (mode, message) => {
+  const open = (mode, message, { clearPasswords = false } = {}) => {
     const unchanged = !elements.authView.hidden && visibleMode() === mode;
     onShow(); elements.authView.hidden = false; elements.appView.hidden = true;
-    if (!unchanged) clearSecrets();
+    if (!unchanged || clearPasswords) clearSecrets();
     showMode(mode, message);
   };
   const showError = error => { elements.authMessage.textContent = error.message || 'Authentication failed. Please try again.'; };
@@ -54,7 +54,8 @@ export function createAuthPanel(elements, { onLogin, onRegister, onPasswordReset
   });
 
   return {
-    show(message = '') { open('login', message); },
+    // { clearPasswords: true } is for an explicit sign-out: it empties the passwords even if the sign-in form is already showing.
+    show(message = '', options = {}) { open('login', message, options); },
     showRecovery(message = '') { open('recovery', message); },
     showRecoveryUnavailable(message = 'This password reset link is invalid or expired. Request a new reset link to continue.') { open('reset', message); },
     hide() { clearSecrets(); elements.authView.hidden = true; elements.appView.hidden = false; },
