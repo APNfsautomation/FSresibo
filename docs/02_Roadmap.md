@@ -84,6 +84,9 @@ Migration 004 is deployed. Hosted RPC/security/two-user/concurrency validation p
 
 Implementation complete; technical review and Product Owner browser acceptance pending. Version: `FSResibo v3.6.0-beta.1`. Milestone 3.6 is not yet accepted or merged; production rollout is not complete. See `06_M3.6_Browser_Acceptance.md` for the release acceptance checklist.
 
+## CP10-C3E follow-ups
+- C3E-2 UI follow-up: add the approved "Go to Encoding" action to the unsaved-changes export block (open Encoding and focus the first affected receipt). C3E-1 only names the receipts in the message.
+
 ## Future
 - Epic 4 — OCR Improvements
 - Further workflow assistance and optional integrations only when they remain consistent with the product charter

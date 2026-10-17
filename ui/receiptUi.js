@@ -7,7 +7,7 @@ import { collapseKeptReceiptsOnShortWindows } from './optimizationPresentation.j
 import { trackTextEntry } from './textEntryFocus.js';
 import { parseMoneyAmount } from '../domain/moneyAmount.js';
 import { outsideRangeNotice, receiptHasUnsavedChanges, releasedHiddenNotice } from './encodingPresentation.js';
-import { classifyExportSnapshot, workbookFields } from '../domain/exportArrangement.js';
+import { changedWorkbookFields, classifyExportSnapshot, workbookFields } from '../domain/exportArrangement.js';
 import { createReceiptExportRunner, preflightExport, preflightMessage, snapshotProblemMessage, unsavedValuesNotice } from './receiptExport.js';
 
 const draftKey = 'receipt-match-draft-v2';
@@ -483,6 +483,14 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     if (row.dataset.receiptDbId && !savedReceiptFor(row)) return false;
     return receiptHasUnsavedChanges(rowValues(row), savedReceiptFor(row));
   };
+  // Export-specific: the workbook writes text untrimmed, so a saved receipt counts as changed when ANY workbook field differs exactly
+  // (amounts by exact centavos). The Encoding indicator above keeps its own, trimmed comparison.
+  const rowHasUnsavedExportChanges = row => {
+    if (receiptStatus(row) === 'consumed') return false;
+    if (!row.dataset.receiptDbId) return rowIsUnsaved(row);
+    const saved = savedReceiptFor(row);
+    return saved ? changedWorkbookFields(saved, rowValues(row), { includeUpdatedAt: false }).length > 0 : false;
+  };
   const countUnsavedReceipts = () => [...elements.list.children].filter(rowIsUnsaved).length;
   const refreshUnsavedIndicator = () => {
     if (!elements.encodingUnsavedIndicator) return;
@@ -950,7 +958,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       const strategy = setActiveStrategy(getActiveStrategy());
       const best = findBest(receipts, targetCents, strategy);
       // Informational only: unsaved values may take part in the calculation, but they can never be exported.
-      const unsavedLabels = receipts.filter(receipt => rowIsUnsaved(rows[receipt.index])).map(receipt => receipt.label);
+      const unsavedLabels = receipts.filter(receipt => rowHasUnsavedExportChanges(rows[receipt.index])).map(receipt => receipt.label);
       if (!best) {
         clearSelection();
         setUnsavedNotice(unsavedValuesNotice({ considered: unsavedLabels }));
@@ -1061,7 +1069,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       savedSinceResult: Boolean(row?.dataset.receiptDbId),
       present: Boolean(row),
       status: row ? receiptStatus(row) : 'consumed',
-      unsaved: row ? rowIsUnsaved(row) : false,
+      unsaved: row ? rowHasUnsavedExportChanges(row) : false,
       amountProblem: row ? amountProblem(row) : ''
     };
   }));
@@ -1110,7 +1118,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       if (!verdict.ok) return rejectStaleResult(baseline.rows, verdict.problems, 'review');
       exportSession = { selection: reviewed, entries, baseline };
       const alreadyPrepared = exportRunner.uncertainIds().some(id => entries.some(entry => entry.dbId === id));
-      elements.exportConfirmMessage.textContent = `Export ${entries.length} selected receipt${entries.length === 1 ? '' : 's'}? After the export is prepared, these receipts will be marked as Consumed and excluded from future optimization.${alreadyPrepared ? ' A workbook for some of them was already prepared earlier, but their status could not be confirmed and they are still Available. Exporting again downloads another workbook.' : ''}`;
+      elements.exportConfirmMessage.textContent = `Export ${entries.length} selected receipt${entries.length === 1 ? '' : 's'}? After the export is prepared, these receipts will be marked as Consumed and excluded from future optimization.${alreadyPrepared ? ' A workbook for some of them was already prepared earlier and its status update could not be confirmed. The database now confirms they are still Available. Exporting again downloads another workbook.' : ''}`;
       elements.exportConfirmModal.hidden = false;
       modalFocus?.open(elements.exportConfirmModal, { trigger: elements.exportSelected, fallback: elements.calculate, onEscape: closeExportConfirmation });
       elements.confirmExport.focus();
@@ -1136,7 +1144,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     if (result.state === 'snapshot-failed') return stop(`Could not verify the latest saved receipt values: ${errorText(result.error)}. Nothing was exported or marked Consumed.`);
     if (result.state === 'blocked') { exportPending = false; closeExportConfirmation(); return rejectStaleResult(result.snapshotRows, result.problems, 'confirm'); }
     if (result.state === 'generation-failed') return stop(`Could not prepare the XLSX export: ${errorText(result.error)}. No receipt was marked Consumed.`);
-    if (result.state === 'consume-failed') return stop(`The XLSX export was prepared, but receipt status could not be updated: ${errorText(result.error)}. The workbook may have been downloaded, yet these receipts are still Available. Review the receipt status before exporting again; the next export is checked against the database first.`);
+    // The outcome is unknown: the update may have failed, or been committed with only the answer lost.
+    if (result.state === 'consume-failed') return stop(`The XLSX export was prepared, but the receipt status update could not be confirmed: ${errorText(result.error)}. The workbook may already have been downloaded, and some or all of these receipts may already be Consumed. Check each receipt's status before exporting again; the next export is verified against the database first.`);
     const consumed = result.consumed;
     consumed.forEach(saved => {
       const row = [...elements.list.children].find(candidate => candidate.dataset.receiptDbId === saved.dbId);

@@ -44,7 +44,7 @@ export async function receiptFixture({ loaded = [], confirm = async () => true }
   // An in-memory receipts table. Tests change `db` directly to simulate another session, and set `fails.*` to inject failures.
   const stamp = () => `2026-10-18T00:00:${String(++clock).padStart(2, '0')}Z`;
   const db = new Map(loaded.map(item => [item.dbId, { amount: '', receiptDate: '', vat: '', invoice: '', store: '', address: '', tin: '', status: 'available', ...item, updatedAt: item.updatedAt ?? stamp() }]));
-  const fails = { snapshot: null, consume: null, download: null, afterDownload: null };
+  const fails = { snapshot: null, consume: null, download: null, afterDownload: null, consumeResponseLost: null };
   const copy = row => ({ ...row });
   const storedAmount = raw => { const parsed = parseMoneyAmount(raw); return parsed.blank ? '' : parsed.valid ? parsed.amount : raw; };
   const receiptService = {
@@ -56,7 +56,9 @@ export async function receiptFixture({ loaded = [], confirm = async () => true }
       calls.consume.push([...ids]);
       if (fails.consume) throw fails.consume;
       if (ids.some(id => db.get(id)?.status !== 'available')) throw new Error('One or more selected receipts are no longer available. Refresh and review the result before exporting again.');
-      return ids.map(id => { const row = { ...db.get(id), status: 'consumed', updatedAt: stamp() }; db.set(id, row); return copy(row); });
+      const updated = ids.map(id => { const row = { ...db.get(id), status: 'consumed', updatedAt: stamp() }; db.set(id, row); return copy(row); });
+      if (fails.consumeResponseLost) throw fails.consumeResponseLost; // the update was committed, the answer never arrived
+      return updated;
     }
   };
   elements.exportConfirmModal.hidden = true; elements.editModal.hidden = true;

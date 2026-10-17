@@ -118,8 +118,8 @@ test('E, Q, R: a valid unchanged selection exports normally, becomes Consumed an
 
 test('K: the workbook receives saved database values, never the text typed on screen', async () => {
   const f = await receiptFixture({ loaded: [saved('r1', 1250.5, 'Store A'), saved('r2', 200, 'Store B')] });
-  // Trailing spaces and a grouped amount look "unchanged" on screen, but the database text is what must reach the workbook.
-  f.field(f.rows()[0], 'store').value = 'Store A  '; f.field(f.rows()[0], 'amount').value = '1,250.50';
+  // A grouped amount is the same money as the saved 1250.5, so it is not an edit; the workbook still gets the database value, normalized.
+  f.field(f.rows()[0], 'amount').value = '1,250.50';
   await calculate(f, '1450.50');
   await exportClick(f); await confirm(f);
   const [first, second] = f.calls.download[0];
@@ -270,11 +270,43 @@ test('N: a failed status update after the workbook explains the uncertainty and 
   f.fails.consume = new Error('network down');
   await confirm(f);
   assert.equal(f.calls.download.length, 1);
-  assert.match(f.elements.difference.textContent, /The XLSX export was prepared, but receipt status could not be updated: network down\./);
-  assert.match(f.elements.difference.textContent, /workbook may have been downloaded, yet these receipts are still Available/);
-  assert.match(f.elements.difference.textContent, /checked against the database first/);
-  assert.deepEqual(f.rows().map(row => row.dataset.receiptStatus), ['available', 'available', 'available']);
+  assert.match(f.elements.difference.textContent, /The XLSX export was prepared, but the receipt status update could not be confirmed: network down\./);
+  assert.match(f.elements.difference.textContent, /workbook may already have been downloaded, and some or all of these receipts may already be Consumed\. Check each receipt's status before exporting again/);
+  assert.match(f.elements.difference.textContent, /verified against the database first/);
+  assert.doesNotMatch(f.elements.difference.textContent, /still Available/, 'the outcome is not claimed to be known');
+  assert.deepEqual(f.rows().map(row => row.dataset.receiptStatus), ['available', 'available', 'available'], 'the screen is not changed without a confirmed result');
   assert.equal(f.elements.exportSelected.textContent, 'Export Selected (2)');
+});
+
+const uncertainMessage = async fails => {
+  const f = await receiptFixture({ loaded: three() });
+  await calculate(f, '500'); await exportClick(f);
+  Object.assign(f.fails, fails); await confirm(f);
+  return { f, message: f.elements.difference.textContent };
+};
+
+test('C: the failure message is the same, and accurate, whether the update never happened or was committed with the answer lost', async () => {
+  const before = await uncertainMessage({ consume: new Error('network down') });         // A: failed before the database update
+  const lost = await uncertainMessage({ consumeResponseLost: new Error('network down') }); // B: database updated, response failed
+  assert.deepEqual(['r2', 'r3'].map(id => before.f.db.get(id).status), ['available', 'available']);
+  assert.deepEqual(['r2', 'r3'].map(id => lost.f.db.get(id).status), ['consumed', 'consumed'], 'the database really was updated in scenario B');
+  assert.equal(before.message, lost.message, 'the screen cannot tell the two apart, so the message must not either');
+  assert.doesNotMatch(lost.message, /still Available/);
+  assert.match(lost.message, /may already be Consumed/);
+  assert.equal(lost.f.calls.download.length, 1);
+  assert.deepEqual(lost.f.rows().map(row => row.dataset.receiptStatus), ['available', 'available', 'available'], 'local state is not guessed');
+});
+
+test('D: after a lost response, fresh verification finds the receipts Consumed and blocks a second export', async () => {
+  const { f } = await uncertainMessage({ consumeResponseLost: new Error('timeout') });
+  f.fails.consumeResponseLost = null;
+  const readsBefore = f.calls.snapshot.length;
+  await exportClick(f);
+  assert.ok(f.calls.snapshot.length > readsBefore, 'the retry starts with a fresh database read');
+  assert.match(f.elements.difference.textContent, /Receipt 2 and Receipt 3 are no longer Available \(already Consumed in another session\)/);
+  assert.equal(dialogOpen(f), false);
+  assert.equal(f.calls.download.length, 1, 'no second workbook');
+  assert.deepEqual(f.rows().slice(1).map(row => row.dataset.receiptStatus), ['consumed', 'consumed'], 'the confirmed status is now shown');
 });
 
 test('O: after an uncertain export the retry re-reads the database, warns about the earlier workbook and only then exports', async () => {
@@ -286,7 +318,7 @@ test('O: after an uncertain export the retry re-reads the database, warns about 
   await exportClick(f);
   assert.ok(f.calls.snapshot.length > readsBefore, 'a fresh verification read');
   assert.equal(dialogOpen(f), true);
-  assert.match(f.elements.exportConfirmMessage.textContent, /already prepared earlier, but their status could not be confirmed and they are still Available\. Exporting again downloads another workbook\./);
+  assert.match(f.elements.exportConfirmMessage.textContent, /already prepared earlier and its status update could not be confirmed\. The database now confirms they are still Available\. Exporting again downloads another workbook\./);
   assert.equal(f.calls.download.length, 1, 'nothing new is generated until the user confirms');
   await confirm(f);
   assert.equal(f.calls.download.length, 2); assert.equal(f.db.get('r2').status, 'consumed');
@@ -333,4 +365,46 @@ test('pausing between steps does not leave the review marked busy', async () => 
   const f = await receiptFixture({ loaded: three() });
   await calculate(f, '500'); await exportClick(f); await pause(10);
   assert.equal(f.elements.exportSelected.getAttribute('aria-busy'), null);
+});
+
+// ---- exact text change detection (the workbook writes text untrimmed) ------------------------------------------------------------------
+const exactFixture = () => receiptFixture({ loaded: [saved('r1', 1250.5, 'Store A', { invoice: 'INV-1' }), saved('r2', 200, 'Store B')] });
+const attempt = async (edit) => {
+  const f = await exactFixture();
+  edit(f);
+  await calculate(f, '1450.50');
+  await exportClick(f);
+  return f;
+};
+const blocked = f => dialogOpen(f) === false && /Receipt 1 has unsaved changes\. Save them in Encoding/.test(f.elements.difference.textContent);
+
+test('exact text: identical saved text, and a grouped amount equal to the saved amount, pass', async () => {
+  const same = await attempt(f => { f.field(f.rows()[0], 'store').value = 'Store A'; f.field(f.rows()[0], 'invoice').value = 'INV-1'; });
+  assert.equal(dialogOpen(same), true);
+  const grouped = await attempt(f => { f.field(f.rows()[0], 'amount').value = '1,250.50'; });
+  assert.equal(dialogOpen(grouped), true, 'E: "1,250.50" is the same money as the saved 1250.5');
+});
+
+test('exact text: trailing-space and leading-space changes block export', async () => {
+  for (const value of ['Store A ', ' Store A', 'Store  A']) {
+    const f = await attempt(fixture => { fixture.field(fixture.rows()[0], 'store').value = value; });
+    assert.equal(blocked(f), true, `"${value}" is a change`);
+    assert.deepEqual([f.calls.snapshot.length, f.calls.download.length, f.calls.consume.length], [0, 0, 0]);
+  }
+});
+
+test('exact text: invoice and store text differences, and a real monetary change, block export', async () => {
+  assert.equal(blocked(await attempt(f => { f.field(f.rows()[0], 'invoice').value = 'INV-2'; })), true);
+  assert.equal(blocked(await attempt(f => { f.field(f.rows()[0], 'store').value = 'Store X'; })), true);
+  assert.equal(blocked(await attempt(f => { f.field(f.rows()[0], 'amount').value = '1,250.51'; })), true, 'F');
+});
+
+test('exact text: the blocked edit is never saved or discarded, and the Encoding indicator keeps its own trimmed rule', async () => {
+  const f = await attempt(fixture => { fixture.field(fixture.rows()[0], 'store').value = 'Store A '; });
+  assert.equal(blocked(f), true);
+  assert.equal(f.field(f.rows()[0], 'store').value, 'Store A ', 'the edit is still on screen');
+  assert.equal(f.db.get('r1').store, 'Store A', 'and the database still has the saved text');
+  assert.equal(f.calls.update.length + f.calls.create.length, 0);
+  assert.match(f.elements.optimizationUnsavedNotice.textContent, /selected result includes Receipt 1 with unsaved values/);
+  assert.equal(f.elements.encodingUnsavedIndicator.hidden, true, 'the Encoding unsaved indicator is unchanged: whitespace-only edits are not counted there');
 });
