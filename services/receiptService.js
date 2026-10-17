@@ -43,6 +43,17 @@ export async function loadReceipts() {
   return data.map(fromDatabaseReceipt);
 }
 
+// Read-only snapshot of specific receipts for export. Row-level security still limits the read to the signed-in user's own receipts;
+// an id that is not returned is missing (deleted, or never visible to this user).
+export async function loadReceiptsByIds(ids) {
+  const uniqueIds = [...new Set(ids)].filter(Boolean);
+  if (!uniqueIds.length) return [];
+  const client = await clientOrThrow();
+  const { data, error } = await client.from('receipts').select('*').in('id', uniqueIds);
+  if (error) throw error;
+  return data.map(fromDatabaseReceipt);
+}
+
 export async function createReceipt(receipt, userId) {
   const client = await clientOrThrow();
   const { data, error } = await client.from('receipts').insert(toDatabaseReceipt(receipt, userId)).select().single();

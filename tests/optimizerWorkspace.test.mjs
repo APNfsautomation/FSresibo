@@ -110,7 +110,7 @@ test('the redesigned markup stays wired to the existing calculation, export, fil
 
 test('the export lifecycle code is untouched by the layout work', async () => {
   const ui = await read('../ui/receiptUi.js');
-  for (const token of ['openExportConfirmation', 'closeExportConfirmation', 'exportPending', 'selectedReceiptIndexes', 'downloadSelectedReceipts']) assert.ok(ui.includes(token), `${token} still present`);
+  for (const token of ['openExportConfirmation', 'closeExportConfirmation', 'exportPending', 'preflightSelection', 'exportRunner', 'downloadSelectedReceipts']) assert.ok(ui.includes(token), `${token} still present`);
   const service = await read('../services/receiptService.js');
   assert.ok(service.includes(".update({ status: 'consumed' }).in('id', uniqueIds).eq('status', 'available')"), 'the consumed update still only touches Available receipts');
 });

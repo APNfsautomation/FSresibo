@@ -5,8 +5,7 @@ import { InvalidMoneyAmountError, maximumMoneyCents, normalizeMoneyAmount, parse
 import { toDatabaseReceipt } from '../services/receiptService.js';
 import { toDatabaseMonthlyFilingReceipt } from '../services/monthlyFilingService.js';
 import { buildExpenseDetailedReportRows } from '../services/exportService.js';
-import { findBest, optimizationStrategies } from '../services/optimizationService.js';
-import { createReceiptUi } from '../ui/receiptUi.js';
+import { receiptFixture as fixture, settle } from './helpers/receiptUiFixture.mjs';
 
 const read = path => readFile(new URL(path, import.meta.url), 'utf8');
 
@@ -109,59 +108,6 @@ test('the workbook receives the normalized amount: a comma-formatted amount is n
   assert.throws(() => buildExpenseDetailedReportRows([{ amount: '12,34.50' }]), /Cannot export receipt amount: Invalid amount "12,34\.50"/, 'an invalid non-blank amount is rejected, never exported as blank or guessed');
 });
 
-// ---- Receipt Encoding / Optimization UI against a DOM fixture --------------------------------------------------------------------------
-const storage = new Map();
-globalThis.sessionStorage = { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) };
-globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
-globalThis.Option = class { constructor(label, value) { this.label = label; this.value = value; } };
-
-const settle = () => new Promise(resolve => setTimeout(resolve, 5));
-async function fixture({ loaded = [], confirm = async () => true } = {}) {
-  globalThis.window = { addEventListener() {}, removeEventListener() {}, setTimeout, clearTimeout };
-  globalThis.matchMedia = () => ({ matches: false });
-  globalThis.requestAnimationFrame = callback => { callback(); return 0; };
-  const state = { activeElement: null }; const focusLog = [];
-  const node = (extra = {}) => {
-    const self = {
-      hidden: false, value: '', disabled: false, textContent: '', title: '', dataset: {}, children: [], files: [], open: false, listeners: {}, attrs: {},
-      classList: { classes: new Set(), add(name) { this.classes.add(name); }, remove(name) { this.classes.delete(name); }, toggle(name, on) { on ? this.classes.add(name) : this.classes.delete(name); }, contains(name) { return this.classes.has(name); } },
-      addEventListener(name, listener) { (self.listeners[name] ??= []).push(listener); },
-      emit(name, event = {}) { return Promise.all((self.listeners[name] ?? []).map(listener => listener({ currentTarget: self, target: self, preventDefault() {}, ...event }))); },
-      setAttribute(name, value) { self.attrs[name] = String(value); }, getAttribute: name => self.attrs[name] ?? null, removeAttribute(name) { delete self.attrs[name]; },
-      append(...nodes) { self.children.push(...nodes); }, replaceChildren(...nodes) { self.children = nodes; },
-      focus(options) { focusLog.push(self); state.activeElement = self; }, scrollIntoView() {}, closest: () => null, contains: () => false, querySelectorAll: () => [], querySelector: () => null,
-      ...extra
-    };
-    return self;
-  };
-  const fieldSelectors = ['.receipt-amount', '.receipt-receiptDate', '.receipt-vat', '.receipt-invoice', '.receipt-store', '.receipt-address', '.receipt-tin', '.receipt-photo'];
-  const makeRow = () => {
-    const parts = new Map();
-    const part = selector => { if (!parts.has(selector)) parts.set(selector, node({ value: '', files: [] })); return parts.get(selector); };
-    return node({ open: false, querySelector: part, querySelectorAll: selector => selector === 'input, select' ? fieldSelectors.map(part) : [], part });
-  };
-  globalThis.document = { createDocumentFragment: () => ({ append() {} }), createElement: () => node({ className: '' }), addEventListener() {}, get activeElement() { return state.activeElement; } };
-  const list = node({ append(row) { list.children.push(row); }, replaceChildren(...rows) { list.children = rows; } });
-  const overrides = {
-    list, template: { content: { firstElementChild: { cloneNode: () => makeRow() } } }, optimizationTemplate: { content: { firstElementChild: { cloneNode: () => makeRow() } } },
-    receiptStatusFilter: node({ value: 'available' }), optimizationSort: node({ value: 'default' }), optimizationStrategy: node({ value: optimizationStrategies.closest }), encodingAmountCompartment: node({ value: 'all' })
-  };
-  const elements = new Proxy(overrides, { get: (target, key) => key in target ? target[key] : (target[key] = node()) });
-  const calls = { create: [], update: [], consume: [], download: [] }; let sequence = 0;
-  const receiptService = {
-    loadReceipts: async () => loaded.map(item => ({ status: 'available', ...item })),
-    createReceipt: async values => { calls.create.push({ ...values }); return { ...values, dbId: `new-${++sequence}`, status: 'available', updatedAt: '' }; },
-    updateReceipt: async (id, values) => { calls.update.push([id, { ...values }]); return { ...values, dbId: id, status: 'available', updatedAt: '' }; },
-    consumeReceipts: async ids => { calls.consume.push(ids); return ids.map(id => ({ dbId: id, status: 'consumed', amount: '', store: '' })); }
-  };
-  const ui = createReceiptUi({ elements, findBest, optimizationStrategies, toCents: value => Math.round(Number(String(value || 0).replace(/[^0-9.]/g, '')) * 100), scanPrintedDetails: async () => ({}), downloadSelectedReceipts: receipts => calls.download.push(receipts.map(item => ({ ...item }))), receiptService, sharedStoreService: { listActiveSharedStores: async () => [] }, confirmAction: confirm });
-  ui.start(); await ui.loadForUser({ id: 'user-1' });
-  const rows = () => list.children;
-  const field = (row, name) => row.part(`.receipt-${name}`);
-  const type = (row, name, value) => { const input = field(row, name); input.value = value; return input.emit('input'); };
-  const click = async target => { await target.emit('click'); await settle(); };
-  return { elements, ui, rows, field, type, click, calls, focusLog };
-}
 
 test('Save with a malformed amount persists nothing, names the receipt, keeps the typed text and focuses the amount', async () => {
   const f = await fixture();
@@ -264,5 +210,5 @@ test('the financial engine, export builder and database schema are unchanged by 
   assert.match(exporter, /export const numericAmount = value => \{\s*const parsed = parseMoneyAmount\(value\);/, 'CP10-C3: the builder reuses the strict parser instead of Number()');
   assert.doesNotMatch(exporter, /Number\(String\(value/);
   const ui = await read('../ui/receiptUi.js');
-  assert.ok(ui.includes('downloadSelectedReceipts(receipts)'), 'export call shape unchanged');
+  assert.ok(ui.includes('generateWorkbook: rows => downloadSelectedReceipts(rows)'), 'the same exporter function receives the workbook rows (now database snapshot rows)');
 });

@@ -152,7 +152,8 @@ test('EXPORT-UX-02: an invalid non-blank amount rejects workbook generation inst
 test('EXPORT-UX-02: the exporter reuses the strict parser and both callers still validate before exporting', async () => {
   const exporter = await text('../services/exportService.js'); const encoding = await text('../ui/receiptUi.js'); const monthly = await text('../ui/monthlyFilingUi.js');
   assert.match(exporter, /import \{ parseMoneyAmount \} from '\.\.\/domain\/moneyAmount\.js';/); assert.doesNotMatch(exporter, /Number\(/);
-  assert.match(encoding, /invalidExportRow\(\)/); assert.match(monthly, /parseMoneyAmount\(entry\.record\.amount\)/);
+  // C3E-1: the old invalidExportRow() check became part of the export preflight, which still validates every selected amount.
+  assert.match(encoding, /preflightSelection\(\)/); assert.match(encoding, /amountProblem: row \? amountProblem\(row\) : ''/); assert.match(monthly, /parseMoneyAmount\(entry\.record\.amount\)/);
   const money = await text('../domain/moneyAmount.js'); assert.match(money, /export const maximumMoneyCents = 999999999999;/, 'the parser is untouched');
 });
 

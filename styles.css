@@ -253,6 +253,7 @@ button[aria-busy="true"] { cursor: progress; opacity: .8; }
 .monthly-status { margin-left: var(--space-2); }
 .selected-badge { padding: 4px 9px; border-radius: var(--radius-pill); background: var(--success); color: var(--on-success); font-size: var(--text-xs); font-weight: var(--weight-heavy); letter-spacing: .04em; text-transform: uppercase; }
 .workflow-feedback { min-height: 1.25rem; margin: 10px 0 0; color: var(--muted); font-size: .84rem; line-height: 1.4; }
+.unsaved-values-notice { margin: var(--space-2) 0 0; padding: var(--space-2) var(--space-3); border: var(--border-width) solid var(--warning-border); border-left: 4px solid var(--warning); border-radius: var(--radius-sm); background: var(--warning-soft); color: var(--text); font-size: .84rem; line-height: 1.4; }
 .ocr-status { min-height: 17px; margin: 10px 0 0; color: var(--muted); font-size: var(--text-sm); }
 .ocr-status.success { color: var(--success); }
 .ocr-status.warning { color: var(--warning); }
