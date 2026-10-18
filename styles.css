@@ -483,6 +483,11 @@ button[aria-busy="true"] { cursor: progress; opacity: .8; }
 }
 .result-panel { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--space-5); padding: var(--space-3) var(--space-4); border-left: 4px solid var(--primary); background: var(--surface); }
 .result-panel > .result-label, .result-panel > h2, .result-panel > .result-amount, .result-panel > .difference { grid-column: 1; }
+/* Warnings and their action span the whole panel (below the headline and the summary cards). Without an explicit placement they are auto-placed into the
+   auto-sized first column, whose width then follows the length of the warning and squeezes the five summary cards. */
+.result-panel > .unsaved-values-notice, .result-panel > .export-go-encoding { grid-column: 1 / -1; min-width: 0; max-width: 100%; }
+.result-panel > .unsaved-values-notice { overflow-wrap: anywhere; }
+.result-panel > .export-go-encoding { justify-self: start; }
 .result-label { margin: 0; color: var(--muted); font-size: var(--text-xs); font-weight: var(--weight-heavy); letter-spacing: .06em; text-transform: uppercase; }
 .result-panel h2 { margin: 0; font-size: var(--text-base); }
 .result-amount { margin: var(--space-1) 0; color: var(--primary); font-size: 2rem; font-weight: var(--weight-heavy); letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.15; }
