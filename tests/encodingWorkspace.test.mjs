@@ -33,9 +33,10 @@ test('Clear form, Add receipt and Save changes sit in one action bar above the l
   assert.ok(order.every(position => position > 0));
   assert.deepEqual([...order].sort((a, b) => a - b), order, 'Clear, spacer, unsaved indicator, Add, Save, then the status line');
   for (const id of ['clearAll', 'floatingAddReceipt', 'saveDraft', 'encodingFeedback']) assert.equal(count(staticHtml, new RegExp(`id="${id}"`, 'g')), 1, `#${id} is not duplicated`);
-  assert.match(bar, /<button class="primary action-save" id="saveDraft" type="button">Save changes<\/button>/);
+  // C3E-3K: both buttons now carry aria-keyshortcuts and a decorative (aria-hidden) shortcut hint; their labels are unchanged.
+  assert.match(bar, /<button class="primary action-save" id="saveDraft" type="button" aria-keyshortcuts="Control\+S">Save changes <kbd class="shortcut-hint" aria-hidden="true">Ctrl\+S<\/kbd><\/button>/);
   assert.match(bar, /<button class="ghost danger" id="clearAll" type="button">Clear form<\/button>/);
-  assert.match(bar, /id="floatingAddReceipt" type="button"><span aria-hidden="true">\+<\/span> Add receipt<\/button>/, 'the visible label is the accessible name');
+  assert.match(bar, /id="floatingAddReceipt" type="button" aria-keyshortcuts="Control\+Enter"><span aria-hidden="true">\+<\/span> Add receipt <kbd class="shortcut-hint" aria-hidden="true">Ctrl\+Enter<\/kbd><\/button>/, 'the visible label is still the accessible name; the hint is decorative');
   assert.match(bar, /id="encodingFeedback" role="status" aria-live="polite"/);
 });
 

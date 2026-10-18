@@ -764,6 +764,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     input.addEventListener('keydown', event => {
       if (event.key === 'Escape') { if (!list.hidden) { event.preventDefault(); closeSuggestions(); } return; }
       if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Enter') return;
+      // Ctrl+Enter is the Add Receipt shortcut: it must never accept a highlighted suggestion (plain Enter still does).
+      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) return;
       if (!suggestions.length) updateSuggestions();
       if (!suggestions.length) return;
       if (event.key === 'Enter') {
@@ -949,6 +951,19 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       await processPostSaveDirectoryCandidates(candidates);
     } catch (error) { refreshEncodingCards(); refreshOptimizationCards(); setFeedback(elements.encodingFeedback, `Could not save receipt changes: ${error.message}`, 'error'); }
     finally { savePending = false; elements.saveDraft.disabled = false; }
+  };
+  // Keyboard-first encoding (CP10-C3E-3K): Ctrl+Enter = Add receipt, Ctrl+S = Save changes, nothing else. The listener sits on the Receipt Encoding workspace
+  // only, so it never sees keys typed in other workspaces or in dialogs (those are outside this element), and it reuses the buttons' own handlers.
+  const handleEncodingShortcut = event => {
+    if (!event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return; // Ctrl is required and is the only modifier
+    const key = String(event.key).toLowerCase();
+    if (key !== 'enter' && key !== 's') return;
+    if (!currentUser || elements.encodingWorkspace.hidden || modalFocus?.isOpen?.()) return;
+    if (event.isComposing || event.keyCode === 229) return; // an input method is composing text
+    event.preventDefault(); // Ctrl+S must not open the browser's Save Page dialog; Ctrl+Enter has no useful default here
+    if (event.repeat) return; // holding the keys down does not repeat the action
+    if (key === 's') { if (!elements.saveDraft.disabled) void saveDraft(); return; }
+    addReceiptForEncoding();
   };
   const calculate = () => {
     const targetCents = toCents(elements.target.value);
@@ -1393,6 +1408,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       document.addEventListener('keydown', event => { if (modalFocus) return; if (event.key === 'Escape' && !elements.editModal.hidden) closeEditModal(); else if (event.key === 'Escape' && !elements.exportConfirmModal.hidden) escapeReview(); });
       collapseKeptReceiptsOnShortWindows(elements.keptReceipts);
       trackTextEntry(elements.encodingWorkspace);
+      elements.encodingWorkspace.addEventListener('keydown', handleEncodingShortcut);
       refreshReceiptIds();
       setActiveStrategy(getActiveStrategy(), { persist: false });
       refreshOptimizationCards();
