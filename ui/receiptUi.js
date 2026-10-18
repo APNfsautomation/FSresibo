@@ -1076,7 +1076,9 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     reset: elements.exportReviewReset,
     onMove: (id, toIndex) => { if (arrangement) { arrangement.order = moveId(arrangement.order, id, toIndex); renderReview(); } },
     onReset: () => { if (arrangement) { arrangement.order = [...arrangement.initial]; renderReview(); } },
-    onAcknowledge: checked => { if (exportSession) { exportSession.acknowledged = checked; showReviewState(); } }
+    onAcknowledge: checked => { if (exportSession) { exportSession.acknowledged = checked; showReviewState(); } },
+    // On a phone the action buttons are pinned over the bottom of the scrolling sheet: the drag's auto-scroll edge is where they start.
+    pointerOptions: { obstructions: () => [elements.confirmExport?.parentElement].filter(Boolean) }
   });
   // Unsaved edits, drafts and amounts typed but not saved are fixed in Encoding: say which receipts, and offer the shortcut.
   const blockForEncoding = problems => {
@@ -1099,6 +1101,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     if (row.hidden) return setFeedback(elements.encodingFeedback, `Receipt ${row.dataset.receiptId || ''} is hidden by the current view. Choose Available or All in View receipts to see it.`, 'warning');
     focusReceiptForEncoding(row);
   };
+  // Escape belongs to an active receipt drag first (it cancels the drag and keeps the dialog open); otherwise it closes the dialog as before.
+  const escapeReview = () => { if (reviewView.cancelDrag()) return; closeExportConfirmation(); };
   const closeExportConfirmation = ({ force = false } = {}) => {
     if (exportPending && !force) return;
     exportSession = null;
@@ -1192,7 +1196,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       elements.exportConfirmModal.hidden = false;
       renderReview();
       showReviewState();
-      modalFocus?.open(elements.exportConfirmModal, { trigger: elements.exportSelected, fallback: elements.calculate, onEscape: closeExportConfirmation });
+      modalFocus?.open(elements.exportConfirmModal, { trigger: elements.exportSelected, fallback: elements.calculate, onEscape: escapeReview });
       (exportSession.needsAck ? elements.exportReviewAckInput : elements.confirmExport).focus();
     } finally {
       exportReviewPending = false;
@@ -1386,7 +1390,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       elements.showAllAmounts?.addEventListener('click', showAllAmounts);
       elements.expandAllReceipts?.addEventListener('click', expandAllReceipts);
       elements.collapseAllReceipts?.addEventListener('click', collapseAllReceipts);
-      document.addEventListener('keydown', event => { if (modalFocus) return; if (event.key === 'Escape' && !elements.editModal.hidden) closeEditModal(); else if (event.key === 'Escape' && !elements.exportConfirmModal.hidden) closeExportConfirmation(); });
+      document.addEventListener('keydown', event => { if (modalFocus) return; if (event.key === 'Escape' && !elements.editModal.hidden) closeEditModal(); else if (event.key === 'Escape' && !elements.exportConfirmModal.hidden) escapeReview(); });
       collapseKeptReceiptsOnShortWindows(elements.keptReceipts);
       trackTextEntry(elements.encodingWorkspace);
       refreshReceiptIds();

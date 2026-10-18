@@ -3,9 +3,10 @@
 //
 // Every control calls the same onMove(id, toIndex): the Move Up / Move Down buttons, and ArrowUp / ArrowDown / Home / End on the reorder handle.
 // After a move the dialog is rebuilt, focus returns to the control that was used (or to its neighbour when it just became disabled at an edge),
-// and the move is announced in a polite live region. Pointer dragging is intentionally not part of this module yet.
+// and the move is announced in a polite live region. Pointer dragging (pointerReorder.js) starts only from the handle and ends in the same onMove.
 
 import { parseMoneyAmount } from '../domain/moneyAmount.js';
+import { createPointerReorder } from './pointerReorder.js';
 
 const ownDocument = () => globalThis.document;
 
@@ -20,7 +21,7 @@ export function buildReviewRow(entry, saved, note, { format, formatDate }) {
   };
 }
 
-export function createExportReview({ list, announcer, summary, acknowledgement, reset, hintId = 'exportReviewHint', onMove, onReset, onAcknowledge, createElement = tag => ownDocument().createElement(tag) }) {
+export function createExportReview({ list, announcer, summary, acknowledgement, reset, hintId = 'exportReviewHint', onMove, onReset, onAcknowledge, createElement = tag => ownDocument().createElement(tag), pointerOptions = {} }) {
   let model = { rows: [] };
   let focusAfter = null;
   let announcements = 0;
@@ -56,6 +57,21 @@ export function createExportReview({ list, announcer, summary, acknowledgement, 
     announce(`${label} moved to position ${target + 1} of ${model.rows.length}.`);
   };
 
+  const rowInfo = id => { const index = model.rows.findIndex(row => row.id === id); return { index, label: model.rows[index]?.label ?? '', count: model.rows.length }; };
+  const pointer = createPointerReorder({
+    list,
+    ...pointerOptions,
+    onStart: id => { const { index, label, count } = rowInfo(id); announce(`Picked up ${label}, position ${index + 1} of ${count}. Drag to a new position, or press Escape to cancel.`); },
+    // A drop is just another move request, so the order, the focus handling and the announcement are the ones the buttons and keys use.
+    onDrop: (id, toIndex) => {
+      const { index, label, count } = rowInfo(id);
+      if (toIndex === index) { announce(`${label} stays at position ${index + 1} of ${count}.`); focusHandle(id); return; }
+      requestMove(id, toIndex, 'handle');
+    },
+    onCancel: id => { const { index, label, count } = rowInfo(id); announce(`Move cancelled. ${label} is still at position ${index + 1} of ${count}.`); focusHandle(id); }
+  });
+  const focusHandle = id => [...(list.children ?? [])].find(item => item.dataset?.receiptId === id)?.reviewParts?.handle.focus?.({ preventScroll: true });
+
   const buildRow = (row, index, count) => {
     const item = make('li', `export-review-row${row.note ? ' has-note' : ''}${row.amountMissing ? ' has-no-amount' : ''}`);
     item.dataset.receiptId = row.id;
@@ -75,6 +91,7 @@ export function createExportReview({ list, announcer, summary, acknowledgement, 
       event.preventDefault?.();
       requestMove(row.id, target, 'handle');
     });
+    pointer.attach(handle, row.id);
     const details = make('div', 'export-review-details');
     details.append(make('strong', 'export-review-receipt', `${row.label} · ${row.store}`), make('span', 'export-review-meta', `${row.invoice} · ${row.date}`));
     if (row.note) details.append(make('span', 'export-review-note', row.note));
@@ -99,6 +116,7 @@ export function createExportReview({ list, announcer, summary, acknowledgement, 
 
   return {
     render(next) {
+      pointer.cancel({ silent: true }); // a rebuilt list cannot continue a drag
       model = next;
       const count = next.rows.length;
       const items = next.rows.map((row, index) => buildRow(row, index, count));
@@ -125,7 +143,11 @@ export function createExportReview({ list, announcer, summary, acknowledgement, 
       acknowledgement?.input?.addEventListener('change', event => onAcknowledge(Boolean((event.currentTarget ?? acknowledgement.input).checked)));
     },
     announce,
+    // Escape while dragging cancels the drag and keeps the dialog open; true when it did, so the caller does not also close the dialog.
+    cancelDrag: () => pointer.cancel(),
+    isDragging: () => pointer.isActive(),
     clear() {
+      pointer.cancel({ silent: true });
       model = { rows: [] };
       focusAfter = null;
       list?.replaceChildren();

@@ -16,8 +16,8 @@ export async function receiptFixture({ loaded = [], confirm = async () => true, 
   const state = { activeElement: null }; const focusLog = [];
   const node = (extra = {}) => {
     const self = {
-      hidden: false, value: '', disabled: false, textContent: '', title: '', dataset: {}, children: [], files: [], open: false, listeners: {}, attrs: {},
-      classList: { classes: new Set(), add(name) { this.classes.add(name); }, remove(name) { this.classes.delete(name); }, toggle(name, on) { on ? this.classes.add(name) : this.classes.delete(name); }, contains(name) { return this.classes.has(name); } },
+      hidden: false, value: '', disabled: false, textContent: '', title: '', dataset: {}, style: {}, children: [], files: [], open: false, listeners: {}, attrs: {},
+      classList: { classes: new Set(), add(name) { this.classes.add(name); }, remove(...names) { names.forEach(name => this.classes.delete(name)); }, toggle(name, on) { on ? this.classes.add(name) : this.classes.delete(name); }, contains(name) { return this.classes.has(name); } },
       addEventListener(name, listener) { (self.listeners[name] ??= []).push(listener); },
       emit(name, event = {}) { return Promise.all((self.listeners[name] ?? []).map(listener => listener({ currentTarget: self, target: self, preventDefault() {}, ...event }))); },
       setAttribute(name, value) { self.attrs[name] = String(value); }, getAttribute: name => self.attrs[name] ?? null, removeAttribute(name) { delete self.attrs[name]; },
