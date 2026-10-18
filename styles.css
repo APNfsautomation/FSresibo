@@ -280,12 +280,11 @@ button[aria-busy="true"] { cursor: progress; opacity: .8; }
 .export-review-summary dd { margin: 2px 0 0; color: var(--text); font-size: var(--text-lg); font-weight: var(--weight-heavy); font-variant-numeric: tabular-nums; }
 #exportReviewNoAmount { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--warning); }
 .export-confirm-card > p.export-review-hint { font-size: var(--text-sm); }
-.export-review-list { flex: 1 1 auto; min-height: 96px; margin: var(--space-3) 0 0; padding: 0; overflow-y: auto; overscroll-behavior: contain; list-style: none; border: var(--border-width) solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
-.export-review-row { display: grid; grid-template-columns: 34px 40px minmax(0, 1fr) auto auto; grid-template-areas: "position handle details amount moves"; align-items: center; gap: var(--space-2) var(--space-3); padding: var(--space-2) var(--space-3); border-bottom: var(--border-width) solid var(--border); }
+.export-review-list { flex: 1 1 auto; min-height: 96px; margin: var(--space-3) 0 0; padding: 0; overflow-y: auto; overscroll-behavior: contain; position: relative; list-style: none; border: var(--border-width) solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
+.export-review-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto auto; grid-template-areas: "position details amount moves"; align-items: center; gap: var(--space-2) var(--space-3); padding: var(--space-2) var(--space-3); border-bottom: var(--border-width) solid var(--border); position: relative; cursor: grab; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .export-review-row:last-child { border-bottom: 0; }
 .export-review-row.has-note { background: var(--warning-soft); box-shadow: inset 4px 0 0 var(--warning); }
 .export-review-position { grid-area: position; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--selected-bg); border: var(--border-width) solid var(--selected-border); color: var(--text); font-weight: var(--weight-heavy); font-variant-numeric: tabular-nums; }
-.export-review-handle { grid-area: handle; min-width: 40px; padding: 0; background: transparent; border-color: var(--border); color: var(--muted); font-size: 1.1rem; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .export-review-details { grid-area: details; display: grid; min-width: 0; gap: 2px; }
 .export-review-receipt { overflow-wrap: anywhere; }
 .export-review-meta { color: var(--muted); font-size: var(--text-sm); overflow-wrap: anywhere; }
@@ -293,17 +292,16 @@ button[aria-busy="true"] { cursor: progress; opacity: .8; }
 .export-review-amount { grid-area: amount; justify-self: end; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .export-review-amount.is-missing { color: var(--warning); font-style: italic; font-weight: var(--weight-medium); }
 .export-review-moves { grid-area: moves; display: flex; gap: var(--space-1); }
-.export-review-move { min-width: var(--control-height); padding: 0; background: var(--surface-2); border-color: var(--border-strong); color: var(--text); }
+.export-review-move { min-width: var(--control-height); padding: 0; background: var(--surface-2); border-color: var(--border-strong); color: var(--text); cursor: pointer; }
 .export-review-move:disabled { opacity: .45; cursor: not-allowed; }
-/* Pointer dragging (C3E-3). Only the handle takes over touch gestures (touch-action: none); the rest of each row, the list and the sheet keep scrolling normally. */
-.export-review-list.is-dragging, .export-review-list.is-dragging * { cursor: grabbing; user-select: none; -webkit-user-select: none; scroll-behavior: auto; }
-.export-review-row { position: relative; }
-.export-review-row.is-dragging { z-index: 3; opacity: .9; background: var(--surface); box-shadow: var(--shadow-lg); outline: 2px solid var(--primary); outline-offset: -2px; }
-.export-review-row.is-drop-before { box-shadow: inset 0 4px 0 var(--primary); }
-.export-review-row.is-drop-after { box-shadow: inset 0 -4px 0 var(--primary); }
-.export-review-row.has-note.is-drop-before { box-shadow: inset 4px 0 0 var(--warning), inset 0 4px 0 var(--primary); }
-.export-review-row.has-note.is-drop-after { box-shadow: inset 4px 0 0 var(--warning), inset 0 -4px 0 var(--primary); }
-.export-review-handle:focus-visible, .export-review-move:focus-visible, .export-review-ack-label input:focus-visible { outline: 3px solid var(--focus, var(--primary)); outline-offset: 2px; }
+/* Dragging a receipt (C3E-3R). The whole row is the drag surface; it keeps the default touch-action, so a normal swipe still scrolls the list (touch drags need a long press). */
+.export-review-list.is-dragging, .export-review-list.is-dragging * { cursor: grabbing; scroll-behavior: auto; }
+.export-review-list.is-dragging .export-review-row:not(.is-dragging) { transition: transform 150ms ease; }
+.export-review-row.is-dragging { z-index: 3; opacity: .94; background: var(--surface); box-shadow: var(--shadow-lg); outline: 2px solid var(--primary); outline-offset: -2px; transition: none; will-change: transform; }
+/* The insertion slot: a dashed, full-row placeholder drawn where the receipt will land. Its position comes from the script (--drag-slot-top / --drag-slot-height). */
+.export-review-list.is-dragging::after { content: ""; position: absolute; left: 4px; right: 4px; top: var(--drag-slot-top, 0); height: var(--drag-slot-height, 0); box-sizing: border-box; border: 2px dashed var(--primary); border-radius: var(--radius-sm); background: var(--selected-bg); pointer-events: none; z-index: 1; }
+.export-review-row:focus-visible { outline: 3px solid var(--focus, var(--primary)); outline-offset: -3px; }
+.export-review-move:focus-visible, .export-review-ack-label input:focus-visible { outline: 3px solid var(--focus, var(--primary)); outline-offset: 2px; }
 .export-review-ack { margin-top: var(--space-3); padding: var(--space-3); border: var(--border-width) solid var(--warning-border); border-left: 4px solid var(--warning); border-radius: var(--radius-sm); background: var(--warning-soft); }
 .export-confirm-card .export-review-ack > p { margin: 0 0 var(--space-2); color: var(--text); }
 .export-review-ack-label { display: flex; align-items: center; gap: var(--space-2); font-weight: var(--weight-medium); }
@@ -318,8 +316,7 @@ button[aria-busy="true"] { cursor: progress; opacity: .8; }
   .export-review-card.modal-card { width: 100%; max-width: none; height: 100vh; height: 100dvh; max-height: none; overflow-y: auto; border-radius: 0; border-width: 0; padding: max(var(--space-4), env(safe-area-inset-top)) max(var(--space-3), env(safe-area-inset-right)) 0 max(var(--space-3), env(safe-area-inset-left)); }
   /* On a phone the whole sheet scrolls so every receipt is reachable; the actions stay pinned to the bottom edge. */
   .export-review-list { flex: none; overflow: visible; }
-  .export-review-row { grid-template-columns: 30px minmax(0, 1fr) auto; grid-template-areas: "position details amount" "handle moves moves"; align-items: start; }
-  .export-review-handle { justify-self: start; }
+  .export-review-row { grid-template-columns: 30px minmax(0, 1fr) auto; grid-template-areas: "position details amount" ". moves moves"; align-items: start; }
   .export-review-moves { justify-self: end; }
   .export-review-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); position: sticky; bottom: 0; margin-top: auto; padding: var(--space-3) 0 max(var(--space-3), env(safe-area-inset-bottom)); background: var(--surface); box-shadow: 0 -1px 0 var(--border); }
   .export-review-actions .export-review-reset { grid-column: 1 / -1; margin-right: 0; }

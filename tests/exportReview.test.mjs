@@ -131,3 +131,31 @@ test('the view holds no export, storage or database logic and no pointer-drag co
   assert.doesNotMatch(source, /localStorage|sessionStorage|supabase|fetch\(|consumeReceipts|downloadSelectedReceipts|loadReceipts/);
   assert.doesNotMatch(source, /pointerdown|pointermove|dragstart|draggable|setPointerCapture/);
 });
+
+test('keyboard: the whole row is the focusable target (tabindex 0, named and described), keys work on the row only, and the buttons keep their own meaning', () => {
+  const { els, state } = viewFixture(sample);
+  const first = els.list.children[0];
+  assert.equal(first.getAttribute('tabindex'), '0');
+  assert.equal(first.getAttribute('aria-label'), 'Reorder Receipt 1, position 1 of 3');
+  assert.equal(first.getAttribute('aria-describedby'), 'exportReviewHint');
+  assert.equal(first.reviewParts.handle, first, 'the keyboard target is the row itself');
+  assert.equal(first.reviewParts.row, first);
+  assert.equal(first.children.length, 4, 'position, details, amount and the two buttons: no separate handle control');
+  const buttons = [first.reviewParts.up, first.reviewParts.down];
+  assert.deepEqual(buttons.map(button => button.getAttribute('aria-label')), ['Move Receipt 1 up', 'Move Receipt 1 down']);
+  assert.equal(buttons.every(button => button.getAttribute('type') === 'button'), true);
+  for (const key of ['ArrowDown', 'End']) first.emit('keydown', { key, target: first.reviewParts.up }); // pressed while a button is focused
+  assert.deepEqual(state.moves, [], 'keys pressed on a button are not treated as row moves');
+  first.emit('keydown', { key: 'ArrowDown', target: first }); assert.deepEqual(state.moves, [['r1', 1]]);
+});
+
+test('keyboard: ArrowUp/ArrowDown/Home/End on the row, the live announcement, and focus on the same row afterwards', () => {
+  const { els, state, dom } = viewFixture(sample);
+  const row = id => els.list.children.find(item => item.dataset.receiptId === id);
+  row('r3').emit('keydown', { key: 'Home', target: row('r3') });
+  assert.deepEqual(state.moves.at(-1), ['r3', 0]); assert.match(els.announcer.textContent, /^Receipt 3 moved to position 1 of 3\./);
+  assert.equal(dom.focusLog.at(-1), row('r3'), 'focus returns to the moved row');
+  row('r3').emit('keydown', { key: 'ArrowDown', target: row('r3') }); assert.deepEqual(state.moves.at(-1), ['r3', 1]);
+  row('r3').emit('keydown', { key: 'End', target: row('r3') }); assert.deepEqual(state.moves.at(-1), ['r3', 2]);
+  row('r3').emit('keydown', { key: 'ArrowUp', target: row('r3'), shiftKey: true }); assert.equal(state.moves.length, 3, 'modified keys are ignored');
+});

@@ -27,10 +27,10 @@ test('A: the review opens in the optimizer export order with positions, numbers,
   assert.deepEqual(order(f), ['r1', 'r2', 'r3', 'r4']);
   assert.deepEqual(items(f).map(item => item.reviewParts.position.textContent), ['1', '2', '3', '4']);
   const first = items(f)[0];
-  assert.equal(first.children[2].children[0].textContent, 'Receipt 1 · Store A');
-  assert.match(first.children[2].children[1].textContent, /^Invoice INV-1 · Aug 1, 2026$/);
+  assert.equal(first.children[1].children[0].textContent, 'Receipt 1 · Store A');
+  assert.match(first.children[1].children[1].textContent, /^Invoice INV-1 · Aug 1, 2026$/);
   assert.equal(first.reviewParts.amount.textContent.replace(/\s/g, ''), '₱100.00');
-  assert.equal(items(f)[2].children[2].children[1].textContent, 'No invoice number · Date not set');
+  assert.equal(items(f)[2].children[1].children[1].textContent, 'No invoice number · Date not set');
   assert.equal(f.elements.exportReviewCount.textContent, '4');
   assert.equal(f.elements.exportReviewTotal.textContent.replace(/\s/g, ''), '₱1,000.00');
   assert.equal(f.elements.exportReviewNoAmountGroup.hidden, true);
@@ -216,10 +216,10 @@ test('S: other field changes are shown, named, and need an explicit acknowledgem
   await exportClick(f);
   assert.equal(dialogOpen(f), true);
   const row = items(f).find(item => item.dataset.receiptId === 'r2');
-  assert.equal(row.children[2].children[0].textContent, 'Receipt 2 · Renamed B', 'the current saved value is shown');
-  const note = row.children[2].children[2].textContent;
+  assert.equal(row.children[1].children[0].textContent, 'Receipt 2 · Renamed B', 'the current saved value is shown');
+  const note = row.children[1].children[2].textContent;
   assert.match(note, /^Updated since selection — Store name: "Store B" to "Renamed B"; Invoice number: "INV-2" to "INV-9"\.$/);
-  assert.equal(items(f).filter(item => item.children[2].children.length === 3).length, 1, 'only the affected receipt is flagged');
+  assert.equal(items(f).filter(item => item.children[1].children.length === 3).length, 1, 'only the affected receipt is flagged');
   assert.match(f.elements.exportReviewAckText.textContent, /1 receipt was changed in the database after it was selected/);
   assert.equal(f.elements.confirmExport.disabled, true);
   assert.equal(f.focusLog.at(-1), f.elements.exportReviewAckInput, 'focus starts on the acknowledgement');
@@ -386,7 +386,7 @@ test('Y: only existing design tokens are used (light and dark themes follow them
   const rules = css.slice(css.indexOf('/* Review & Arrange'), css.indexOf('.unsaved-values-notice + .export-go-encoding'));
   assert.ok(rules.length > 500);
   assert.doesNotMatch(rules, /#[0-9a-fA-F]{3,8}\b|rgb\(|rgba\(|hsl\(/, 'no literal colours');
-  for (const token of [...rules.matchAll(/var\((--[a-z0-9-]+)/g)].map(match => match[1])) assert.ok(css.includes(`${token}:`) || token === '--focus', `${token} is defined`);
+  for (const token of [...rules.matchAll(/var\((--[a-z0-9-]+)/g)].map(match => match[1])) assert.ok(css.includes(`${token}:`) || token === '--focus' || token.startsWith('--drag-slot-'), `${token} is defined (the --drag-slot-* values are set by the drag script)`);
 });
 
 test('Go to Encoding is hidden by default and sits with the optimizer feedback', () => {

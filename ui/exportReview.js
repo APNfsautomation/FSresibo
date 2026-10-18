@@ -1,9 +1,10 @@
 // Presentation of the Review & Arrange dialog (CP10-C3E-2): the numbered receipt list, the reorder controls, the summary and the acknowledgement.
 // It holds no export, selection or database logic. The caller owns the order (an array of receipt ids) and passes a model to render().
 //
-// Every control calls the same onMove(id, toIndex): the Move Up / Move Down buttons, and ArrowUp / ArrowDown / Home / End on the reorder handle.
+// Every control calls the same onMove(id, toIndex): the Move Up / Move Down buttons, ArrowUp / ArrowDown / Home / End on a focused receipt row, and dragging a row.
 // After a move the dialog is rebuilt, focus returns to the control that was used (or to its neighbour when it just became disabled at an edge),
-// and the move is announced in a polite live region. Pointer dragging (pointerReorder.js) starts only from the handle and ends in the same onMove.
+// and the move is announced in a polite live region. Pointer dragging (pointerReorder.js) can start anywhere on a row except its buttons, shows a live preview,
+// and ends in the same onMove; a drop then settles the receipt into its new place with a short transform animation (skipped for reduced motion).
 
 import { parseMoneyAmount } from '../domain/moneyAmount.js';
 import { createPointerReorder } from './pointerReorder.js';
@@ -63,13 +64,28 @@ export function createExportReview({ list, announcer, summary, acknowledgement, 
     ...pointerOptions,
     onStart: id => { const { index, label, count } = rowInfo(id); announce(`Picked up ${label}, position ${index + 1} of ${count}. Drag to a new position, or press Escape to cancel.`); },
     // A drop is just another move request, so the order, the focus handling and the announcement are the ones the buttons and keys use.
-    onDrop: (id, toIndex) => {
+    onDrop: (id, toIndex, { fromTop } = {}) => {
       const { index, label, count } = rowInfo(id);
       if (toIndex === index) { announce(`${label} stays at position ${index + 1} of ${count}.`); focusHandle(id); return; }
       requestMove(id, toIndex, 'handle');
+      settle(id, fromTop);
     },
     onCancel: id => { const { index, label, count } = rowInfo(id); announce(`Move cancelled. ${label} is still at position ${index + 1} of ${count}.`); focusHandle(id); }
   });
+  // FLIP: the list has just been rebuilt in the final order, so move the dropped row back to where it was lifted to and let it slide into place.
+  const prefersReducedMotion = () => globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
+  const settle = (id, fromTop) => {
+    const row = [...(list.children ?? [])].find(item => item.dataset?.receiptId === id);
+    if (!row?.style || !Number.isFinite(fromTop) || prefersReducedMotion() || typeof row.getBoundingClientRect !== 'function') return;
+    const delta = fromTop - row.getBoundingClientRect().top;
+    if (Math.abs(delta) < 2) return;
+    row.style.transition = 'none';
+    row.style.transform = `translateY(${Math.round(delta)}px)`;
+    row.getBoundingClientRect(); // commit the starting position before the transition
+    row.style.transition = 'transform 160ms ease-out';
+    row.style.transform = '';
+    globalThis.setTimeout?.(() => { if (row.style) row.style.transition = ''; }, 220);
+  };
   const focusHandle = id => [...(list.children ?? [])].find(item => item.dataset?.receiptId === id)?.reviewParts?.handle.focus?.({ preventScroll: true });
 
   const buildRow = (row, index, count) => {
@@ -77,29 +93,33 @@ export function createExportReview({ list, announcer, summary, acknowledgement, 
     item.dataset.receiptId = row.id;
     const position = make('span', 'export-review-position', String(index + 1));
     position.setAttribute('aria-hidden', 'true');
-    const handle = button('export-review-handle', `Reorder ${row.label}, position ${index + 1} of ${count}`, '⠿');
-    handle.setAttribute('aria-describedby', hintId);
+    // The row itself is the keyboard target and the drag surface. It is a list item with a name and a description, not a widget role, so the two buttons inside it
+    // are not nested interactive controls.
+    item.setAttribute('tabindex', '0');
+    item.setAttribute('aria-label', `Reorder ${row.label}, position ${index + 1} of ${count}`);
+    item.setAttribute('aria-describedby', hintId);
     const up = button('export-review-move export-review-up', `Move ${row.label} up`, '▲');
     const down = button('export-review-move export-review-down', `Move ${row.label} down`, '▼');
     up.disabled = index === 0;
     down.disabled = index === count - 1;
     up.addEventListener('click', () => requestMove(row.id, index - 1, 'up'));
     down.addEventListener('click', () => requestMove(row.id, index + 1, 'down'));
-    handle.addEventListener('keydown', event => {
+    item.addEventListener('keydown', event => {
+      if (event.target && event.target !== item) return; // keys pressed on the buttons keep their own meaning
       const target = { ArrowUp: index - 1, ArrowDown: index + 1, Home: 0, End: count - 1 }[event.key];
       if (target === undefined || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
       event.preventDefault?.();
       requestMove(row.id, target, 'handle');
     });
-    pointer.attach(handle, row.id);
+    pointer.attach(item, row.id);
     const details = make('div', 'export-review-details');
     details.append(make('strong', 'export-review-receipt', `${row.label} · ${row.store}`), make('span', 'export-review-meta', `${row.invoice} · ${row.date}`));
     if (row.note) details.append(make('span', 'export-review-note', row.note));
     const amount = make('strong', `export-review-amount${row.amountMissing ? ' is-missing' : ''}`, row.amountText);
     const moves = make('div', 'export-review-moves');
     moves.append(up, down);
-    item.append(position, handle, details, amount, moves);
-    item.reviewParts = { handle, up, down, position, amount };
+    item.append(position, details, amount, moves);
+    item.reviewParts = { handle: item, row: item, up, down, position, amount }; // `handle` is kept as the name of the keyboard target
     return item;
   };
 
