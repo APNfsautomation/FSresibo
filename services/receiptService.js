@@ -15,7 +15,9 @@ export function toDatabaseReceipt(receipt, userId) {
   };
 }
 
-function fromDatabaseReceipt(receipt) {
+// The status is passed through exactly as the database holds it: Available and Consumed are the only lifecycle states the app acts on, and anything else
+// (an unexpected, empty or missing value) must stay recognisable as "not Available" so it can never be selected or exported. The UI normalizes it for display only.
+export function fromDatabaseReceipt(receipt) {
   return {
     dbId: receipt.id,
     amount: receipt.amount ?? '',
@@ -26,7 +28,7 @@ function fromDatabaseReceipt(receipt) {
     address: receipt.address ?? '',
     tin: receipt.tin ?? '',
     updatedAt: receipt.updated_at ?? '',
-    status: receipt.status === 'consumed' ? 'consumed' : 'available'
+    status: receipt.status ?? ''
   };
 }
 

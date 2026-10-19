@@ -1292,7 +1292,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       const row = [...elements.list.children].find(candidate => candidate.dataset.receiptDbId === saved.dbId);
       if (row) {
         ['amount', 'receiptDate', 'vat', 'invoice', 'store', 'address', 'tin'].forEach(key => { row.querySelector(`.receipt-${key}`).value = saved[key] ?? ''; });
-        row.dataset.receiptStatus = saved.status;
+        row.dataset.receiptStatus = normalizeReceiptStatus(saved.status); // display state only; the saved record keeps the exact database status
         row.dataset.receiptUpdatedAt = saved.updatedAt || '';
         row.dataset.persistedStoreFingerprint = persistedStoreFingerprint(saved);
         applyReceiptStatusState(row);

@@ -2,6 +2,7 @@
 import { createReceiptUi } from '../../ui/receiptUi.js';
 import { findBest, optimizationStrategies } from '../../services/optimizationService.js';
 import { parseMoneyAmount } from '../../domain/moneyAmount.js';
+import { fromDatabaseReceipt } from '../../services/receiptService.js';
 
 export const storage = new Map();
 globalThis.sessionStorage = { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) };
@@ -9,7 +10,9 @@ globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} }
 globalThis.Option = class { constructor(label, value) { this.label = label; this.value = value; } };
 
 export const settle = () => new Promise(resolve => setTimeout(resolve, 5));
-export async function receiptFixture({ loaded = [], confirm = async () => true, modalFocus = null } = {}) {
+// viaServiceMapping: every read goes through the REAL receipt service mapper (database row shape in, application receipt out), so a status the service
+// rewrites or drops is visible to the UI exactly as in production. The default keeps handing the UI ready-made receipts.
+export async function receiptFixture({ loaded = [], confirm = async () => true, modalFocus = null, viaServiceMapping = false } = {}) {
   storage.clear(); // toolbar filters are kept in session storage per user: every fixture starts from a clean browser session
   globalThis.window = { addEventListener() {}, removeEventListener() {}, setTimeout, clearTimeout };
   globalThis.matchMedia = () => ({ matches: false });
@@ -46,7 +49,8 @@ export async function receiptFixture({ loaded = [], confirm = async () => true, 
   const stamp = () => `2026-10-18T00:00:${String(++clock).padStart(2, '0')}Z`;
   const db = new Map(loaded.map(item => [item.dbId, { amount: '', receiptDate: '', vat: '', invoice: '', store: '', address: '', tin: '', status: 'available', ...item, updatedAt: item.updatedAt ?? stamp() }]));
   const fails = { snapshot: null, snapshotGate: null, consume: null, download: null, afterDownload: null, consumeResponseLost: null, gate: null, save: null };
-  const copy = row => ({ ...row });
+  const databaseShape = row => { const raw = { id: row.dbId, amount: row.amount === '' ? null : row.amount, receipt_date: row.receiptDate, vat_status: row.vat, invoice_number: row.invoice, store_name: row.store, address: row.address, tin: row.tin, updated_at: row.updatedAt }; if ('status' in row) raw.status = row.status; return raw; };
+  const copy = row => viaServiceMapping ? fromDatabaseReceipt(databaseShape(row)) : { ...row };
   const storedAmount = raw => { const parsed = parseMoneyAmount(raw); return parsed.blank ? '' : parsed.valid ? parsed.amount : raw; };
   const receiptService = {
     loadReceipts: async () => [...db.values()].map(copy),
