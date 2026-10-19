@@ -45,12 +45,12 @@ export async function receiptFixture({ loaded = [], confirm = async () => true, 
   // An in-memory receipts table. Tests change `db` directly to simulate another session, and set `fails.*` to inject failures.
   const stamp = () => `2026-10-18T00:00:${String(++clock).padStart(2, '0')}Z`;
   const db = new Map(loaded.map(item => [item.dbId, { amount: '', receiptDate: '', vat: '', invoice: '', store: '', address: '', tin: '', status: 'available', ...item, updatedAt: item.updatedAt ?? stamp() }]));
-  const fails = { snapshot: null, consume: null, download: null, afterDownload: null, consumeResponseLost: null, gate: null, save: null };
+  const fails = { snapshot: null, snapshotGate: null, consume: null, download: null, afterDownload: null, consumeResponseLost: null, gate: null, save: null };
   const copy = row => ({ ...row });
   const storedAmount = raw => { const parsed = parseMoneyAmount(raw); return parsed.blank ? '' : parsed.valid ? parsed.amount : raw; };
   const receiptService = {
     loadReceipts: async () => [...db.values()].map(copy),
-    loadReceiptsByIds: async ids => { calls.snapshot.push([...ids]); if (fails.snapshot) throw fails.snapshot; return ids.filter(id => db.has(id)).map(id => copy(db.get(id))); },
+    loadReceiptsByIds: async ids => { calls.snapshot.push([...ids]); if (fails.snapshotGate) await fails.snapshotGate; if (fails.snapshot) throw fails.snapshot; return ids.filter(id => db.has(id)).map(id => copy(db.get(id))); },
     updateReceiptStatus: async (id, status) => { const row = { ...db.get(id), status, updatedAt: stamp() }; db.set(id, row); return copy(row); },
     createReceipt: async values => { calls.create.push({ ...values }); if (fails.save) throw fails.save; const row = { ...values, amount: storedAmount(values.amount), dbId: `new-${++sequence}`, status: 'available', updatedAt: stamp() }; db.set(row.dbId, row); return copy(row); },
     updateReceipt: async (id, values) => { calls.update.push([id, { ...values }]); if (fails.save) throw fails.save; const row = { ...db.get(id), ...values, amount: storedAmount(values.amount), dbId: id, status: 'available', updatedAt: stamp() }; db.set(id, row); return copy(row); },

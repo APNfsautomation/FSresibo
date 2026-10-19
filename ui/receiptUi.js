@@ -305,7 +305,13 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   let manualSourceCache = null; // rebuilt whenever the ids change, so its identity stands for "this exact manual selection"
   // Receipts a snapshot has proven are gone from the database. Their local rows may still say Available (unsaved fields are never discarded), so they must not be pickable again. Memory only, per session.
   const knownMissingIds = new Set();
-  const manualEligibilityOf = (dbId, status) => dbId && knownMissingIds.has(dbId) ? 'missing' : manualEligibility({ dbId, status });
+  // Eligibility is judged on the SAVED receipt (the local cache of what the database holds), never on the row's display status: that one is normalized to
+  // Available/Consumed, so an unknown or empty saved status would otherwise look Available. Exactly 'available' is eligible.
+  const manualEligibilityOf = (dbId, savedById = savedReceiptsById()) => {
+    if (dbId && knownMissingIds.has(dbId)) return 'missing';
+    const saved = dbId ? savedById.get(dbId) : null;
+    return manualEligibility({ dbId: saved ? saved.dbId : null, status: saved?.status });
+  };
   const setManualIds = ids => { manualIds = ids; manualSourceCache = null; arrangements.manual = null; };
   let toolbarState = defaultOptimizationToolbarState();
   let encodingDisplayState = { compartment: 'all' };
@@ -642,10 +648,11 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   const savedReceiptsById = () => new Map(storeSourceReceipts.map(receipt => [receipt.dbId, receipt]));
   const setManualFeedback = (text = '', severity = '') => setFeedback(elements.manualFeedback, text, severity);
   // Export messages go to the panel of the active mode: the recommendation panel for Best Match, the manual panel for Manual Selection.
-  const setExportFeedback = (text = '', severity = '') => exportMode === 'manual' ? setManualFeedback(text, severity) : setFeedback(elements.difference, text, severity);
+  // `mode` is the export session's own mode: a late answer must report to the mode that started the export, not to whichever mode is active by then.
+  const setExportFeedback = (text = '', severity = '', mode = exportMode) => mode === 'manual' ? setManualFeedback(text, severity) : setFeedback(elements.difference, text, severity);
   let lastVisibleEntries = [];
   let pendingPickFocus = null;
-  const shownEligibleIds = () => lastVisibleEntries.filter(entry => manualEligibilityOf(entry.row.dataset.receiptDbId, entry.receipt.status) === 'ok').map(entry => entry.row.dataset.receiptDbId);
+  const shownEligibleIds = () => { const savedById = savedReceiptsById(); return lastVisibleEntries.filter(entry => manualEligibilityOf(entry.row.dataset.receiptDbId, savedById) === 'ok').map(entry => entry.row.dataset.receiptDbId); };
   const renderManualSummary = () => {
     if (!elements.manualSelectedCount) return;
     const summary = summarizeManual(manualIds, savedReceiptsById()); // exact integer centavos; the amounts are the SAVED ones, which is what an export would contain
@@ -660,6 +667,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     elements.manualSelectShown.textContent = `Select shown (${shownEligibleIds().length})`;
   };
   const toggleManualReceipt = (dbId, label, pick) => {
+    // A stale or forged change event can never add a receipt that is not eligible now; deselecting is always allowed.
+    if (!manualIds.includes(dbId) && manualEligibilityOf(dbId) !== 'ok') { if (pick) pick.checked = false; setManualFeedback(`${label} cannot be selected: it is not a saved, Available receipt.`, 'warning'); return refreshOptimizationCards(); }
     const result = toggleManual(manualIds, dbId);
     if (result.rejected === 'limit') { if (pick) pick.checked = false; return setManualFeedback(manualLimitMessage(), 'warning'); }
     setManualIds(result.ids);
@@ -703,7 +712,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   };
   const refreshOptimizationCards = () => {
     // Receipts that were deleted, Consumed elsewhere or removed from the list can no longer stay selected; say so instead of dropping them silently.
-    const pruned = pruneManual(manualIds, id => { const row = rowByDbId(id); return Boolean(row) && !knownMissingIds.has(id) && receiptStatus(row) === 'available'; });
+    const savedById = savedReceiptsById();
+    const pruned = pruneManual(manualIds, id => Boolean(rowByDbId(id)) && manualEligibilityOf(id, savedById) === 'ok');
     if (pruned.removed.length) {
       setManualIds(pruned.ids);
       setManualFeedback(`${pruned.removed.length} selected receipt${pruned.removed.length === 1 ? ' is' : 's are'} no longer in the list or Available and ${pruned.removed.length === 1 ? 'was' : 'were'} removed from the selection.`, 'warning');
@@ -743,7 +753,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       pick.hidden = !manualMode;
       if (manualMode) {
         const dbId = entry.row.dataset.receiptDbId;
-        const eligibility = manualEligibilityOf(dbId, entry.receipt.status);
+        const eligibility = manualEligibilityOf(dbId, savedById);
         const label = `Receipt ${entry.receiptId}`;
         pick.checked = selected;
         pick.disabled = eligibility !== 'ok';
@@ -1292,9 +1302,9 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     });
   };
   // The optimizer result no longer matches the database: refresh what changed, drop the result and say exactly what to do.
-  const rejectStaleResult = (snapshotRows, problems, stage) => {
+  const rejectStaleResult = (snapshotRows, problems, stage, mode = exportMode) => {
     problems.filter(problem => problem.type === 'missing' && problem.dbId).forEach(problem => knownMissingIds.add(problem.dbId));
-    if (exportMode === 'manual') return rejectManualSelection(snapshotRows, problems, stage);
+    if (mode === 'manual') return rejectManualSelection(snapshotRows, problems, stage);
     syncRowsFromSnapshot(snapshotRows, problems);
     clearSelection();
     refreshEncodingCards();
@@ -1328,13 +1338,13 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     try {
       let baseline;
       try { baseline = await exportRunner.loadBaseline(entries.map(entry => entry.dbId)); }
-      catch (error) { return setExportFeedback(`Could not load the latest saved receipt values: ${errorText(error)}. Nothing was exported.`); }
-      if (exportMode !== mode || exportSource() !== reviewed) return setExportFeedback('The selection changed while the receipts were being checked. Nothing was exported; choose Export Selected again.');
+      catch (error) { return setExportFeedback(`Could not load the latest saved receipt values: ${errorText(error)}. Nothing was exported.`, '', mode); }
+      if (exportMode !== mode || exportSource() !== reviewed) return setExportFeedback('The selection changed while the receipts were being checked. Nothing was exported; choose Export Selected again.', '', mode);
       const reference = new Map(storeSourceReceipts.map(receipt => [receipt.dbId, receipt]));
       const verdict = classifyExportSnapshot({ entries, snapshotRows: baseline.rows, reference });
       // Missing, Consumed, invalid or an amount that differs from the optimizer's: never acknowledgeable, the result must be recalculated.
       const { hard, soft } = partitionExportProblems(verdict.problems);
-      if (hard.length) return rejectStaleResult(baseline.rows, verdict.problems, 'review');
+      if (hard.length) return rejectStaleResult(baseline.rows, verdict.problems, 'review', mode);
       const notes = changeNotes(soft, reference, baseline.rows);
       if (soft.length) { syncRowsFromSnapshot(baseline.rows, soft); refreshEncodingCards(); refreshOptimizationCards(); }
       const ids = entries.map(entry => entry.dbId);
@@ -1360,10 +1370,10 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     elements.confirmExport.disabled = true;
     elements.confirmExport.setAttribute('aria-busy', 'true');
     elements.confirmExport.textContent = 'Preparing export…';
-    const stop = message => { exportPending = false; closeExportConfirmation(); return setExportFeedback(message); };
+    const stop = message => { exportPending = false; closeExportConfirmation(); return setExportFeedback(message, '', session?.mode ?? exportMode); };
     const session = exportSession;
     const source = exportSource();
-    if (!session || !source || session.selection !== source || session.mode !== exportMode) return stop(exportMode === 'manual' ? 'The selection changed. Nothing was exported; choose Export Selected again.' : 'The selected result is no longer exportable. Run Find Best Match again.');
+    if (!session || !source || session.selection !== source || session.mode !== exportMode) return stop((session?.mode ?? exportMode) === 'manual' ? 'The selection changed. Nothing was exported; choose Export Selected again.' : 'The selected result is no longer exportable. Run Find Best Match again.');
     const local = preflightSelection();
     if (!local.ok) { exportPending = false; closeExportConfirmation(); return blockForEncoding(local.problems); }
     // The confirmed order decides the order of the receipts handed to the workbook; membership is the reviewed selection.
@@ -1376,7 +1386,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     if (result.state === 'snapshot-failed') return stop(`Could not verify the latest saved receipt values: ${errorText(result.error)}. Nothing was exported or marked Consumed.`);
     if (result.state === 'blocked') {
       const { hard, soft } = partitionExportProblems(result.problems);
-      if (hard.length) { exportPending = false; closeExportConfirmation(); return rejectStaleResult(result.snapshotRows, result.problems, 'confirm'); }
+      if (hard.length) { exportPending = false; closeExportConfirmation(); return rejectStaleResult(result.snapshotRows, result.problems, 'confirm', session.mode); }
       // Only other workbook fields changed since the reviewed snapshot: stay in the dialog, show the new values and ask for a fresh acknowledgement.
       session.notes = changeNotes(soft, new Map(session.baseline.rows.map(row => [row.dbId, row])), result.snapshotRows);
       syncRowsFromSnapshot(result.snapshotRows, soft); refreshEncodingCards(); refreshOptimizationCards();
