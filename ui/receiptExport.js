@@ -24,31 +24,36 @@ export function preflightExport(items) {
   return { ok: problems.length === 0, problems };
 }
 
-export function preflightMessage(problems) {
+// `mode` is 'best-match' or 'manual': a manual selection is never told to run Find Best Match; it is told to fix the receipt and export again.
+export function preflightMessage(problems, { mode = 'best-match' } = {}) {
+  const manual = mode === 'manual';
   const lines = [];
-  for (const label of labelsOf(problems, 'draft')) lines.push(`${label} has not been saved. Save it before exporting and run Find Best Match again.`);
+  for (const label of labelsOf(problems, 'draft')) lines.push(manual ? `${label} has not been saved. Save it in Encoding before exporting.` : `${label} has not been saved. Save it before exporting and run Find Best Match again.`);
   for (const label of labelsOf(problems, 'resultStale')) lines.push(`${label} was saved after Find Best Match ran. Run Find Best Match again so the result uses its saved values.`);
   const unsaved = labelsOf(problems, 'unsaved');
-  if (unsaved.length) lines.push(`${names(unsaved)} ${unsaved.length === 1 ? 'has' : 'have'} unsaved changes. Save them in Encoding, then run Find Best Match again before exporting.`);
+  if (unsaved.length) lines.push(`${names(unsaved)} ${unsaved.length === 1 ? 'has' : 'have'} unsaved changes. Save them in Encoding, then ${manual ? 'choose Export Selected again' : 'run Find Best Match again before exporting'}.`);
   for (const problem of problems.filter(candidate => candidate.type === 'invalidAmount')) lines.push(`${problem.label}: ${problem.detail} Correct it before exporting.`);
   const unavailable = labelsOf(problems, 'unavailable');
-  if (unavailable.length) lines.push(`${names(unavailable)} ${unavailable.length === 1 ? 'is' : 'are'} no longer Available. Run Find Best Match again.`);
+  if (unavailable.length) lines.push(`${names(unavailable)} ${unavailable.length === 1 ? 'is' : 'are'} no longer Available. ${manual ? `Deselect ${unavailable.length === 1 ? 'it' : 'them'} and choose Export Selected again.` : 'Run Find Best Match again.'}`);
   return `${lines.join(' ')} Nothing was exported.`;
 }
 
 // Problems found by comparing the database against what the user selected (or against the snapshot they reviewed).
-export function snapshotProblemMessage(problems, { stage = 'review' } = {}) {
+export function snapshotProblemMessage(problems, { stage = 'review', mode = 'best-match' } = {}) {
+  const manual = mode === 'manual';
   const lines = [];
+  const removed = items => manual ? ` and ${items.length === 1 ? 'was' : 'were'} removed from your selection` : '';
   const missing = labelsOf(problems, 'missing');
-  if (missing.length) lines.push(`${names(missing)} no longer ${missing.length === 1 ? 'exists' : 'exist'} in your saved receipts.`);
+  if (missing.length) lines.push(`${names(missing)} no longer ${missing.length === 1 ? 'exists' : 'exist'} in your saved receipts${removed(missing)}.`);
   const unavailable = labelsOf(problems, 'unavailable');
-  if (unavailable.length) lines.push(`${names(unavailable)} ${unavailable.length === 1 ? 'is' : 'are'} no longer Available (already Consumed in another session).`);
+  if (unavailable.length) lines.push(`${names(unavailable)} ${unavailable.length === 1 ? 'is' : 'are'} no longer Available (already Consumed in another session)${removed(unavailable)}.`);
   const invalid = labelsOf(problems, 'invalidAmount');
   if (invalid.length) lines.push(`${names(invalid)} ${invalid.length === 1 ? 'has' : 'have'} an invalid saved amount.`);
   const stale = labelsOf(problems, 'optimizerChanged');
   if (stale.length) lines.push(`The saved amount of ${names(stale)} no longer matches the amount Find Best Match used, so this result is out of date.`);
   for (const problem of problems.filter(candidate => candidate.type === 'changed')) lines.push(`${problem.label} was changed after it was selected (${fieldNames(problem.fields)}).`);
-  const closing = stage === 'confirm' ? 'No workbook was prepared and nothing was marked Consumed. Run Find Best Match again.' : 'Nothing was exported. Run Find Best Match again.';
+  const next = manual ? 'The affected receipts now show their current saved values. Review your selection and choose Export Selected again.' : 'Run Find Best Match again.';
+  const closing = stage === 'confirm' ? `No workbook was prepared and nothing was marked Consumed. ${next}` : `Nothing was exported. ${next}`;
   return `${lines.join(' ')} ${closing}`;
 }
 

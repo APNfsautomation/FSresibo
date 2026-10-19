@@ -10,6 +10,7 @@ globalThis.Option = class { constructor(label, value) { this.label = label; this
 
 export const settle = () => new Promise(resolve => setTimeout(resolve, 5));
 export async function receiptFixture({ loaded = [], confirm = async () => true, modalFocus = null } = {}) {
+  storage.clear(); // toolbar filters are kept in session storage per user: every fixture starts from a clean browser session
   globalThis.window = { addEventListener() {}, removeEventListener() {}, setTimeout, clearTimeout };
   globalThis.matchMedia = () => ({ matches: false });
   globalThis.requestAnimationFrame = callback => { callback(); return 0; };

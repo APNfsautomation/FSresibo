@@ -109,6 +109,13 @@
 
       <section class="workspace-view optimization-workspace" id="optimizationWorkspace" role="tabpanel" aria-labelledby="optimizationTab" hidden>
         <div class="workspace-heading"><h1>My Receipt Optimization</h1></div>
+        <fieldset class="export-mode">
+          <legend class="visually-hidden">Receipt selection method</legend>
+          <div class="export-mode-options">
+            <label><input type="radio" name="exportMode" id="exportModeBestMatch" value="best-match" checked /><span>Best Match</span></label>
+            <label><input type="radio" name="exportMode" id="exportModeManual" value="manual" /><span>Manual Selection</span></label>
+          </div>
+        </fieldset>
         <div class="optimization-layout">
           <section class="optimization-controls" aria-label="Optimization controls">
             <div class="target-card" aria-labelledby="target-label">
@@ -140,6 +147,22 @@
               <details class="kept-details" open><summary>Receipts to pull</summary><div id="keptReceipts" class="kept-receipts"></div></details>
               <details class="admin"><summary>Calculation details</summary><div id="adminContent" class="admin-content">Run a calculation to view the selection logic.</div></details>
             </aside>
+            <section class="panel manual-panel" id="manualPanel" aria-label="Manual selection" hidden>
+              <p class="manual-help">Check the receipts to export, in the order you want them listed (you can rearrange them before exporting). Choose up to 100 saved, Available receipts.</p>
+              <dl class="manual-summary" id="manualSummary">
+                <div><dt>Selected</dt><dd id="manualSelectedCount">0 of 100</dd></div>
+                <div><dt>Total amount</dt><dd id="manualSelectedTotal">₱0.00</dd></div>
+                <div id="manualNoAmountGroup" hidden><dt>No amount</dt><dd id="manualNoAmount"></dd></div>
+                <div id="manualHiddenGroup" hidden><dt>Hidden by filters</dt><dd id="manualHidden"></dd></div>
+              </dl>
+              <div class="manual-actions">
+                <button class="secondary" id="manualSelectShown" type="button">Select shown</button>
+                <button class="ghost" id="manualClearSelection" type="button" disabled>Clear selection</button>
+                <button class="primary" id="manualExportSelected" type="button" disabled>Export Selected (0)</button>
+                <button class="secondary export-go-encoding" id="manualGoToEncoding" type="button" hidden>Go to Encoding</button>
+              </div>
+              <p class="workflow-feedback" id="manualFeedback" role="status" aria-live="polite"></p>
+            </section>
           </section>
           <section class="panel optimization-receipts-panel" aria-label="Encoded receipts">
             <div class="panel-heading receipt-browser-heading"><div><h2>Encoded receipts</h2><p>Search, filter, and review your available receipts.</p></div></div>
@@ -271,6 +294,7 @@
 
     <template id="optimizationReceiptTemplate">
       <article class="optimization-receipt-card">
+        <input class="manual-select" type="checkbox" hidden />
         <div class="compact-receipt-details"><strong class="compact-store">Store not set</strong><span class="compact-date">Date not set</span><span class="compact-status" hidden>Consumed</span></div>
         <strong class="compact-amount">₱0.00</strong>
         <span class="selected-badge" hidden>Selected</span>
