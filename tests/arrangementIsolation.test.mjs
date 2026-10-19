@@ -122,3 +122,58 @@ test('R01: arrangements are separate in-memory slots per mode and are never stor
   assert.match(source, /arrangements\['best-match'\] = null; selection = null;/);
   assert.doesNotMatch(source, /(?:localStorage|sessionStorage)[^\n]*arrangements/);
 });
+
+// ---- C3E4-R02: a receipt a snapshot proved missing cannot be picked again ----------------------------------------------------------------------
+const feedbackText = f => f.elements.manualFeedback.textContent;
+const selected = f => f.cards().filter(item => item.classList.contains('is-selected')).map(item => item.part('.compact-store').textContent);
+const deletedScenario = async () => {
+  const f = await receiptFixture({ loaded: six() });
+  await setMode(f, 'manual'); await picks(f, 'Store A', 'Store B', 'Store C');
+  f.db.delete('r2');
+  await reviewManual(f);
+  return f;
+};
+
+test('R02: a receipt deleted elsewhere blocks the export, leaves the selection, and nothing is exported or Consumed', async () => {
+  const f = await deletedScenario();
+  assert.equal(f.elements.exportConfirmModal.hidden, true);
+  assert.match(feedbackText(f), /^Receipt 2 no longer exists in your saved receipts and was removed from your selection\. Nothing was exported\./);
+  assert.doesNotMatch(feedbackText(f), /current saved values/, 'a deleted receipt has no saved values to show');
+  assert.match(feedbackText(f), /Review your selection and choose Export Selected again\.$/);
+  assert.deepEqual(selected(f), ['Store A', 'Store C'], 'unrelated selections remain');
+  assert.deepEqual([f.calls.download.length, f.calls.consume.length], [0, 0]);
+  assert.deepEqual(['r1', 'r3'].map(id => f.db.get(id).status), ['available', 'available']);
+});
+
+test('R02: the missing receipt\'s checkbox is disabled, labelled, and Select shown skips it', async () => {
+  const f = await deletedScenario();
+  const gone = card(f, 'Store B').part('.manual-select');
+  assert.equal(gone.disabled, true); assert.match(gone.getAttribute('aria-label'), /Receipt 2 no longer exists in your saved receipts and cannot be selected/);
+  await gone.emit('change'); assert.deepEqual(selected(f), ['Store A', 'Store C'], 'a forced change event cannot reselect it');
+  assert.match(f.elements.manualSelectShown.textContent, /Select shown \(5\)/, 'A, C, D, E and F: never the missing Store B');
+  await f.click(f.elements.manualSelectShown);
+  assert.deepEqual(selected(f), ['Store A', 'Store C', 'Store D', 'Store E', 'Store F']);
+  assert.equal(f.elements.manualSelectedCount.textContent, '5 of 100');
+});
+
+test('R02: the local row keeps its unsaved fields and is not marked Consumed', async () => {
+  const f = await receiptFixture({ loaded: six() });
+  await setMode(f, 'manual'); await picks(f, 'Store A', 'Store B');
+  f.db.delete('r2');
+  await reviewManual(f);
+  const row = f.rows().find(item => item.dataset.receiptDbId === 'r2');
+  assert.ok(row, 'the row is not deleted automatically');
+  assert.equal(row.dataset.receiptStatus, 'available');
+});
+
+test('R02: logout and a user change reset the known-missing state; nothing is stored', async () => {
+  const f = await deletedScenario();
+  f.ui.clearForLogout();
+  f.db.set('r2', { ...saved('r2', 200, 'Store B', { receiptDate: '2026-08-02' }), status: 'available', updatedAt: f.stamp() });
+  await f.ui.loadForUser({ id: 'user-2' }); await setMode(f, 'manual');
+  assert.equal(card(f, 'Store B').part('.manual-select').disabled, false, 'selectable again for a new session');
+  await pick(f, 'Store B'); assert.deepEqual(selected(f), ['Store B']);
+  const source = (await readFile(new URL('../ui/receiptUi.js', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
+  assert.doesNotMatch(source, /(?:localStorage|sessionStorage)[^\n]*knownMissing/);
+  assert.equal(source.split('knownMissingIds.clear()').length - 1, 2, 'cleared on user load and on logout');
+});

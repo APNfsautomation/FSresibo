@@ -52,7 +52,8 @@ export function snapshotProblemMessage(problems, { stage = 'review', mode = 'bes
   const stale = labelsOf(problems, 'optimizerChanged');
   if (stale.length) lines.push(`The saved amount of ${names(stale)} no longer matches the amount Find Best Match used, so this result is out of date.`);
   for (const problem of problems.filter(candidate => candidate.type === 'changed')) lines.push(`${problem.label} was changed after it was selected (${fieldNames(problem.fields)}).`);
-  const next = manual ? 'The affected receipts now show their current saved values. Review your selection and choose Export Selected again.' : 'Run Find Best Match again.';
+  const onlyMissing = problems.every(problem => problem.type === 'missing'); // a deleted receipt has no saved values to show
+  const next = manual ? `${onlyMissing ? '' : 'The affected receipts now show their current saved values. '}Review your selection and choose Export Selected again.` : 'Run Find Best Match again.';
   const closing = stage === 'confirm' ? `No workbook was prepared and nothing was marked Consumed. ${next}` : `Nothing was exported. ${next}`;
   return `${lines.join(' ')} ${closing}`;
 }

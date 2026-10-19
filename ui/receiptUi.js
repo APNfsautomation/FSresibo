@@ -303,6 +303,9 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   let exportMode = 'best-match';
   let manualIds = [];
   let manualSourceCache = null; // rebuilt whenever the ids change, so its identity stands for "this exact manual selection"
+  // Receipts a snapshot has proven are gone from the database. Their local rows may still say Available (unsaved fields are never discarded), so they must not be pickable again. Memory only, per session.
+  const knownMissingIds = new Set();
+  const manualEligibilityOf = (dbId, status) => dbId && knownMissingIds.has(dbId) ? 'missing' : manualEligibility({ dbId, status });
   const setManualIds = ids => { manualIds = ids; manualSourceCache = null; arrangements.manual = null; };
   let toolbarState = defaultOptimizationToolbarState();
   let encodingDisplayState = { compartment: 'all' };
@@ -642,7 +645,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   const setExportFeedback = (text = '', severity = '') => exportMode === 'manual' ? setManualFeedback(text, severity) : setFeedback(elements.difference, text, severity);
   let lastVisibleEntries = [];
   let pendingPickFocus = null;
-  const shownEligibleIds = () => lastVisibleEntries.filter(entry => manualEligibility({ dbId: entry.row.dataset.receiptDbId, status: entry.receipt.status }) === 'ok').map(entry => entry.row.dataset.receiptDbId);
+  const shownEligibleIds = () => lastVisibleEntries.filter(entry => manualEligibilityOf(entry.row.dataset.receiptDbId, entry.receipt.status) === 'ok').map(entry => entry.row.dataset.receiptDbId);
   const renderManualSummary = () => {
     if (!elements.manualSelectedCount) return;
     const summary = summarizeManual(manualIds, savedReceiptsById()); // exact integer centavos; the amounts are the SAVED ones, which is what an export would contain
@@ -700,7 +703,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   };
   const refreshOptimizationCards = () => {
     // Receipts that were deleted, Consumed elsewhere or removed from the list can no longer stay selected; say so instead of dropping them silently.
-    const pruned = pruneManual(manualIds, id => { const row = rowByDbId(id); return Boolean(row) && receiptStatus(row) === 'available'; });
+    const pruned = pruneManual(manualIds, id => { const row = rowByDbId(id); return Boolean(row) && !knownMissingIds.has(id) && receiptStatus(row) === 'available'; });
     if (pruned.removed.length) {
       setManualIds(pruned.ids);
       setManualFeedback(`${pruned.removed.length} selected receipt${pruned.removed.length === 1 ? ' is' : 's are'} no longer in the list or Available and ${pruned.removed.length === 1 ? 'was' : 'were'} removed from the selection.`, 'warning');
@@ -740,11 +743,11 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       pick.hidden = !manualMode;
       if (manualMode) {
         const dbId = entry.row.dataset.receiptDbId;
-        const eligibility = manualEligibility({ dbId, status: entry.receipt.status });
+        const eligibility = manualEligibilityOf(dbId, entry.receipt.status);
         const label = `Receipt ${entry.receiptId}`;
         pick.checked = selected;
         pick.disabled = eligibility !== 'ok';
-        pick.setAttribute('aria-label', eligibility === 'ok' ? `Select ${label}, ${entry.receipt.store.trim() || 'Store not set'}` : eligibility === 'consumed' ? `${label} is Consumed and cannot be selected` : eligibility === 'unavailable' ? `${label} is not Available and cannot be selected` : `${label} is not saved yet. Save it before selecting it`);
+        pick.setAttribute('aria-label', eligibility === 'ok' ? `Select ${label}, ${entry.receipt.store.trim() || 'Store not set'}` : eligibility === 'consumed' ? `${label} is Consumed and cannot be selected` : eligibility === 'missing' ? `${label} no longer exists in your saved receipts and cannot be selected` : eligibility === 'unavailable' ? `${label} is not Available and cannot be selected` : `${label} is not saved yet. Save it before selecting it`);
         if (eligibility === 'ok') { pick.addEventListener('change', () => toggleManualReceipt(dbId, label, pick)); picks.set(dbId, pick); }
       }
       card.classList.toggle('is-selected', selected);
@@ -1290,6 +1293,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   };
   // The optimizer result no longer matches the database: refresh what changed, drop the result and say exactly what to do.
   const rejectStaleResult = (snapshotRows, problems, stage) => {
+    problems.filter(problem => problem.type === 'missing' && problem.dbId).forEach(problem => knownMissingIds.add(problem.dbId));
     if (exportMode === 'manual') return rejectManualSelection(snapshotRows, problems, stage);
     syncRowsFromSnapshot(snapshotRows, problems);
     clearSelection();
@@ -1497,7 +1501,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       await reloadSharedStores();
       elements.list.replaceChildren();
       exportRunner = newExportRunner(); exportSession = null;
-      exportMode = 'best-match'; setManualIds([]); setManualFeedback(''); applyExportModeView(); // a different user starts with nothing selected
+      exportMode = 'best-match'; knownMissingIds.clear(); setManualIds([]); setManualFeedback(''); applyExportModeView(); // a different user starts with nothing selected
       clearSelection();
       receipts.forEach(receipt => addReceipt(receipt, { refresh: false }));
       refreshReceiptIds();
@@ -1520,7 +1524,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     },
     setWorkspace,
     setModuleVisible,
-    clearForLogout() { currentUser = undefined; sharedStoreProfiles = []; toolbarState = defaultOptimizationToolbarState(); encodingDisplayState = { compartment: 'all' }; storeSourceReceipts = []; rebuildStoreProfiles(); syncToolbarControls(); elements.encodingAmountCompartment.value = 'all'; setActiveStrategy(optimizationStrategies.closest, { persist: false }); elements.list.replaceChildren(); elements.target.value = ''; exportRunner = newExportRunner(); exportMode = 'best-match'; setManualIds([]); setManualFeedback(''); applyExportModeView(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); closeEditModal(); closeExportConfirmation({ force: true }); },
+    clearForLogout() { currentUser = undefined; sharedStoreProfiles = []; toolbarState = defaultOptimizationToolbarState(); encodingDisplayState = { compartment: 'all' }; storeSourceReceipts = []; rebuildStoreProfiles(); syncToolbarControls(); elements.encodingAmountCompartment.value = 'all'; setActiveStrategy(optimizationStrategies.closest, { persist: false }); elements.list.replaceChildren(); elements.target.value = ''; exportRunner = newExportRunner(); exportMode = 'best-match'; knownMissingIds.clear(); setManualIds([]); setManualFeedback(''); applyExportModeView(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); closeEditModal(); closeExportConfirmation({ force: true }); },
     importLegacyDraft,
     start() {
       renderEncodingAmountCompartmentOptions();
