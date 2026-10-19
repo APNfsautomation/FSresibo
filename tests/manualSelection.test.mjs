@@ -14,6 +14,14 @@ test('only saved Available receipts are selectable; drafts and Consumed receipts
   assert.deepEqual([{ dbId: 'a', status: 'available' }, { dbId: 'b', status: 'consumed' }, { status: 'available' }].map(isManuallySelectable), [true, false, false]);
 });
 
+test('an unknown or missing status is not selectable: only exactly Available is', () => {
+  for (const status of ['unknown', 'Available', 'AVAILABLE', '', null, undefined, 0]) assert.equal(manualEligibility({ dbId: 'a', status }), 'unavailable', String(status));
+  assert.equal(manualEligibility({ dbId: 'a' }), 'unavailable', 'missing status');
+  assert.equal(manualEligibility({ dbId: '', status: 'available' }), 'unsaved');
+  assert.equal(manualEligibility(), 'unsaved');
+  assert.equal(isManuallySelectable({ dbId: 'a', status: 'pending' }), false);
+});
+
 test('picking appends to the end, in click order, by stable id, without duplicates', () => {
   let selected = [];
   for (const id of ['D', 'B', 'A', 'C']) selected = addManual(selected, id).ids;

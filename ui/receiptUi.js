@@ -295,13 +295,15 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   // `used` is what the optimizer calculated with (workbook fields), kept to detect that the result no longer applies.
   let selection = null;
   // The temporary export order for the current selection: { selection, initial: [ids], order: [ids] }. Memory only; never stored anywhere.
-  let arrangement = null;
+  // One temporary export arrangement per mode, in memory only: a mode's review never replaces the other's.
+  const arrangements = { 'best-match': null, manual: null };
+  const activeArrangement = () => arrangements[exportSession?.mode ?? exportMode];
   // Export mode (CP10-C3E-4). Best Match keeps its own result (`selection` above); Manual Selection keeps an ordered list of saved receipt ids in click order.
   // The two never share state: switching modes changes only which one is shown and exported. Memory only; reset on logout, reload and user change.
   let exportMode = 'best-match';
   let manualIds = [];
   let manualSourceCache = null; // rebuilt whenever the ids change, so its identity stands for "this exact manual selection"
-  const setManualIds = ids => { manualIds = ids; manualSourceCache = null; };
+  const setManualIds = ids => { manualIds = ids; manualSourceCache = null; arrangements.manual = null; };
   let toolbarState = defaultOptimizationToolbarState();
   let encodingDisplayState = { compartment: 'all' };
   let searchDebounce;
@@ -358,7 +360,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     notice.hidden = !text;
   };
   // Clearing the Best Match result never touches the manual selection (or its arrangement).
-  const clearSelection = () => { if (arrangement?.selection === selection) arrangement = null; selection = null; setUnsavedNotice(''); showExportBlockAction(null); updateExportAction(); };
+  const clearSelection = () => { arrangements['best-match'] = null; selection = null; setUnsavedNotice(''); showExportBlockAction(null); updateExportAction(); };
   const selectionEntryMatchesRow = (entry, row) => entry.dbId ? row.dataset.receiptDbId === entry.dbId : row.dataset.receiptId === entry.receiptId;
   const bestIncludesRow = row => Boolean(selection?.entries.some(entry => selectionEntryMatchesRow(entry, row)));
   const manualPosition = row => row.dataset.receiptDbId ? manualIds.indexOf(row.dataset.receiptDbId) + 1 : 0;
@@ -742,7 +744,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
         const label = `Receipt ${entry.receiptId}`;
         pick.checked = selected;
         pick.disabled = eligibility !== 'ok';
-        pick.setAttribute('aria-label', eligibility === 'ok' ? `Select ${label}, ${entry.receipt.store.trim() || 'Store not set'}` : eligibility === 'consumed' ? `${label} is Consumed and cannot be selected` : `${label} is not saved yet. Save it before selecting it`);
+        pick.setAttribute('aria-label', eligibility === 'ok' ? `Select ${label}, ${entry.receipt.store.trim() || 'Store not set'}` : eligibility === 'consumed' ? `${label} is Consumed and cannot be selected` : eligibility === 'unavailable' ? `${label} is not Available and cannot be selected` : `${label} is not saved yet. Save it before selecting it`);
         if (eligibility === 'ok') { pick.addEventListener('change', () => toggleManualReceipt(dbId, label, pick)); picks.set(dbId, pick); }
       }
       card.classList.toggle('is-selected', selected);
@@ -1103,7 +1105,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       }
       const chosen = best.items.map(index => receipts[index]);
       const difference = best.total - targetCents;
-      arrangement = null; showExportBlockAction(null);
+      arrangements['best-match'] = null; showExportBlockAction(null);
       selection = { mode: 'best-match', entries: chosen.map(receipt => ({ dbId: receipt.dbId || null, receiptId: receipt.receiptId, label: receipt.label, used: workbookFields(receipt) })) };
       setUnsavedNotice(unsavedValuesNotice({ selected: chosen.filter(receipt => unsavedLabels.includes(receipt.label)).map(receipt => receipt.label), considered: unsavedLabels }));
       elements.resultTitle.textContent = difference === 0 ? 'Exact match found' : strategy === optimizationStrategies.withoutExceeding ? 'Best match without exceeding' : 'Best available match';
@@ -1182,6 +1184,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   };
   const renderReview = () => {
     const session = exportSession;
+    const arrangement = activeArrangement();
     if (!session || !arrangement) return;
     const saved = new Map(session.baseline.rows.map(row => [row.dbId, row]));
     const entries = new Map(session.entries.map(entry => [entry.dbId, entry]));
@@ -1201,8 +1204,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     summary: { count: elements.exportReviewCount, total: elements.exportReviewTotal, noAmountGroup: elements.exportReviewNoAmountGroup, noAmount: elements.exportReviewNoAmount },
     acknowledgement: { group: elements.exportReviewAck, text: elements.exportReviewAckText, input: elements.exportReviewAckInput },
     reset: elements.exportReviewReset,
-    onMove: (id, toIndex) => { if (arrangement) { arrangement.order = moveId(arrangement.order, id, toIndex); renderReview(); } },
-    onReset: () => { if (arrangement) { arrangement.order = [...arrangement.initial]; renderReview(); } },
+    onMove: (id, toIndex) => { const arrangement = activeArrangement(); if (arrangement) { arrangement.order = moveId(arrangement.order, id, toIndex); renderReview(); } },
+    onReset: () => { const arrangement = activeArrangement(); if (arrangement) { arrangement.order = [...arrangement.initial]; renderReview(); } },
     onAcknowledge: checked => { if (exportSession) { exportSession.acknowledged = checked; showReviewState(); } },
     // On a phone the action buttons are pinned over the bottom of the scrolling sheet: the drag's auto-scroll edge is where they start.
     pointerOptions: { obstructions: () => [elements.confirmExport?.parentElement].filter(Boolean) }
@@ -1331,7 +1334,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       const notes = changeNotes(soft, reference, baseline.rows);
       if (soft.length) { syncRowsFromSnapshot(baseline.rows, soft); refreshEncodingCards(); refreshOptimizationCards(); }
       const ids = entries.map(entry => entry.dbId);
-      if (!arrangement || arrangement.selection !== reviewed || !sameMembers(arrangement.order, ids)) arrangement = { selection: reviewed, initial: ids, order: [...ids] };
+      const kept = arrangements[mode];
+      if (!kept || kept.selection !== reviewed || !sameMembers(kept.order, ids)) arrangements[mode] = { selection: reviewed, initial: ids, order: [...ids] };
       exportSession = { selection: reviewed, mode, entries, baseline, notes, needsAck: soft.length > 0, acknowledged: false };
       const alreadyPrepared = exportRunner.uncertainIds().some(id => entries.some(entry => entry.dbId === id));
       elements.exportConfirmMessage.textContent = `Export ${entries.length} selected receipt${entries.length === 1 ? '' : 's'}? After the export is prepared, these receipts will be marked as Consumed and excluded from future optimization.${alreadyPrepared ? ' A workbook for some of them was already prepared earlier and its status update could not be confirmed. The database now confirms they are still Available. Exporting again downloads another workbook.' : ''}`;
@@ -1360,6 +1364,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     if (!local.ok) { exportPending = false; closeExportConfirmation(); return blockForEncoding(local.problems); }
     // The confirmed order decides the order of the receipts handed to the workbook; membership is the reviewed selection.
     const byId = new Map(session.entries.map(entry => [entry.dbId, entry]));
+    const arrangement = arrangements[session.mode];
     const confirmedOrder = arrangement && arrangement.selection === session.selection && sameMembers(arrangement.order, session.entries.map(entry => entry.dbId)) ? arrangement.order : session.entries.map(entry => entry.dbId);
     const result = await exportRunner.run({ entries: confirmedOrder.map(id => byId.get(id)), baseline: session.baseline });
     if (result.state === 'busy') return stop('An export is already in progress.');
@@ -1397,7 +1402,6 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       // Exactly the confirmed receipts are Consumed; the manual selection and its arrangement are finished. A Best Match result that contained any of them is stale now.
       const exported = new Set(consumed.map(saved => saved.dbId));
       const staleBest = Boolean(selection?.entries.some(entry => entry.dbId && exported.has(entry.dbId)));
-      if (arrangement?.selection === session.selection) arrangement = null;
       setManualIds([]);
       if (staleBest) clearSelection();
       refreshReceiptIds();

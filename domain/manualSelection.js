@@ -5,8 +5,9 @@ import { summarizeAmounts } from './exportArrangement.js';
 
 export const maximumManualSelection = 100;
 
-// A receipt can be picked when it is a saved receipt (it has a database id) and is Available. Unsaved drafts and Consumed receipts cannot.
-export const manualEligibility = ({ dbId, status }) => !dbId ? 'unsaved' : status === 'consumed' ? 'consumed' : 'ok';
+// A receipt can be picked only when it is a saved receipt (it has a database id) AND its status is exactly 'available'. Unsaved drafts, Consumed receipts and
+// any unknown or missing status cannot ('unavailable').
+export const manualEligibility = ({ dbId, status } = {}) => !dbId ? 'unsaved' : status === 'available' ? 'ok' : status === 'consumed' ? 'consumed' : 'unavailable';
 export const isManuallySelectable = receipt => manualEligibility(receipt) === 'ok';
 
 export const manualLimitMessage = (maximum = maximumManualSelection) => `You can select up to ${maximum} receipts for one export. Deselect a receipt before adding another.`;
