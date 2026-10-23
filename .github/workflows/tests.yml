@@ -1,0 +1,23 @@
+name: Tests
+
+# Runs the existing Node test suite for pull requests that target the UAT branch.
+# The project has no package.json and no dependencies to install.
+on:
+  pull_request:
+    branches:
+      - claude/ui-ux-refinement
+
+permissions:
+  contents: read
+
+jobs:
+  node-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Run tests
+        run: node --test tests/*.test.mjs
