@@ -1,7 +1,7 @@
 // CP10-C3E-4: the pure rules for Manual Selection.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { addManual, bulkLimitMessage, hiddenSelectedCount, isManuallySelectable, manualEligibility, manualLimitMessage, maximumManualSelection, pruneManual, removeManual, selectShown, summarizeManual, toggleManual } from '../domain/manualSelection.js';
+import { addManual, fillShown, fillShownMessage, hiddenSelectedCount, isManuallySelectable, manualEligibility, manualLimitMessage, maximumManualSelection, pruneManual, removeManual, selectionFullMessage, summarizeManual, toggleManual } from '../domain/manualSelection.js';
 import { maximumMoneyCents } from '../domain/moneyAmount.js';
 
 const ids = n => Array.from({ length: n }, (_, i) => `id${i + 1}`);
@@ -47,20 +47,30 @@ test('the 100-receipt limit: the 100th is accepted, the 101st is rejected with n
 });
 
 test('Select Shown appends only the shown receipts that are not yet selected, in shown order, and keeps hidden selections', () => {
-  const result = selectShown(['H1', 'B'], ['A', 'B', 'C', 'A']);
+  const result = fillShown(['H1', 'B'], ['A', 'B', 'C', 'A']);
   assert.deepEqual(result.ids, ['H1', 'B', 'A', 'C']); assert.deepEqual(result.added, ['A', 'C']);
-  assert.deepEqual(selectShown(['A'], ['A']).added, [], 'nothing new: unchanged');
-  assert.deepEqual(selectShown([], []).ids, []);
+  assert.deepEqual(fillShown(['A'], ['A']).added, [], 'nothing new: unchanged');
+  assert.deepEqual(fillShown([], []).ids, []);
 });
 
-test('Select Shown is all or nothing at the limit', () => {
-  const selected = ids(90); const shown = ids(30).map(i => `s${i}`); // 30 new receipts: 90 + 30 > 100
-  const result = selectShown(selected, shown);
-  assert.deepEqual(result.ids, selected, 'no partial selection'); assert.deepEqual(result.added, []);
-  assert.deepEqual(result.rejected, { needed: 30, selected: 90, available: 10, maximum: 100 });
-  assert.match(bulkLimitMessage(result.rejected), /30 shown receipts that are not selected yet would pass the limit of 100 \(90 already selected, room for 10 more\)\. Nothing was selected/);
-  assert.equal(selectShown(selected, shown.slice(0, 10)).ids.length, 100, 'exactly filling the limit is allowed');
-  assert.match(bulkLimitMessage({ needed: 1, selected: 100, available: 0, maximum: 100 }), /the 1 shown receipt that is not selected yet/);
+test('Select Shown fills only the remaining capacity, in shown order, and never reorders what is selected', () => {
+  const shown = Array.from({ length: 400 }, (_, i) => `s${i + 1}`);
+  const none = fillShown([], shown); assert.deepEqual(none.added, shown.slice(0, 100)); assert.equal(none.notAdded, 300); assert.equal(none.nowFull, true);
+  const selected = ['h1', 'h2', ...ids(23)]; // 25 selected, two of them hidden (not shown)
+  const part = fillShown(selected, shown);
+  assert.deepEqual(part.ids.slice(0, 25), selected, 'earlier selections keep their positions'); assert.deepEqual(part.added, shown.slice(0, 75)); assert.equal(part.ids.length, 100);
+  const next = fillShown(ids(75), ['id3', ...shown]); assert.deepEqual(next.added, shown.slice(0, 25), 'already selected ids are skipped, not counted');
+  const full = fillShown(ids(100), shown); assert.deepEqual(full.added, []); assert.equal(full.wasFull, true); assert.equal(full.ids.length, 100);
+  const few = fillShown(ids(10), ['x', 'y']); assert.deepEqual(few.added, ['x', 'y']); assert.equal(few.nowFull, false); assert.equal(few.notAdded, 0);
+});
+
+test('Select Shown messages report how many were added and when the capacity was reached', () => {
+  const shown = Array.from({ length: 30 }, (_, i) => `s${i}`);
+  assert.match(fillShownMessage(fillShown(ids(90), shown)), /^10 receipts added in the order shown\. The selection is now full at 100 of 100; 20 more shown receipts were not added\.$/);
+  assert.match(fillShownMessage(fillShown(ids(98), shown)), /^2 receipts added in the order shown\. The selection is now full at 100 of 100; 28 more shown receipts were not added\.$/);
+  assert.match(fillShownMessage(fillShown(ids(5), ['a'])), /^1 receipt added in the order shown\. 6 of 100 selected\.$/);
+  assert.equal(fillShownMessage(fillShown(ids(100), shown)), selectionFullMessage());
+  assert.equal(fillShownMessage(fillShown(['a'], ['a'])), 'Every selectable receipt shown is already selected.');
 });
 
 test('pruning reports what it removed and keeps the order of everything else', () => {
