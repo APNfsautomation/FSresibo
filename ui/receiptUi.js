@@ -678,7 +678,12 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     elements.manualHiddenGroup.hidden = hidden === 0;
     elements.manualHidden.textContent = hidden ? String(hidden) : '';
     elements.manualClearSelection.disabled = manualIds.length === 0;
-    elements.manualSelectShown.textContent = `Select shown (${shownEligibleIds().length})`;
+    // The label says what a click will do: how many receipts it adds (never more than the room left), or that the selection is full.
+    const shownIds = shownEligibleIds(); const fresh = shownIds.filter(id => !manualIds.includes(id)).length; const room = Math.max(0, maximumManualSelection - manualIds.length);
+    const button = elements.manualSelectShown;
+    if (fresh && !room) { button.textContent = 'Select shown (full)'; button.setAttribute?.('aria-label', `Select shown: the selection is full (${maximumManualSelection} of ${maximumManualSelection}). Deselect a receipt to make room.`); }
+    else if (fresh > room) { button.textContent = `Select shown (adds ${room} of ${fresh})`; button.setAttribute?.('aria-label', `Select shown: adds the first ${room} of ${fresh} shown receipts in the current order, up to the limit of ${maximumManualSelection}`); }
+    else { button.textContent = `Select shown (${fresh})`; button.setAttribute?.('aria-label', `Select shown: adds ${fresh} shown receipt${fresh === 1 ? '' : 's'}`); }
   };
   const toggleManualReceipt = (dbId, label, pick) => {
     // A stale or forged change event can never add a receipt that is not eligible now; deselecting is always allowed.
@@ -866,6 +871,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       row.querySelector('.receipt-tin').value = values.tin;
       row.querySelector('.receipt-vat').value = values.vat;
       refreshSummary(row);
+      refreshAvailableSummary(); // programmatic values emit no input event: refresh the unsaved flag and count here
       clearSelection();
       refreshOptimizationCards();
       closeSuggestions();
@@ -929,7 +935,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     row.dataset.receiptStatus = normalizeReceiptStatus(values.status);
     if (values.dbId) row.dataset.persistedStoreFingerprint = persistedStoreFingerprint(values);
     for (const [key, value] of Object.entries(values)) { const field = row.querySelector(`.receipt-${key}`); if (field) field.value = value; }
-    row.querySelector('.receipt-photo').addEventListener('change', event => { const file = event.currentTarget.files[0]; if (file) scanPrintedDetails(file, row, refreshSummary); });
+    row.querySelector('.receipt-photo').addEventListener('change', event => { const file = event.currentTarget.files[0]; if (file) scanPrintedDetails(file, row, target => { refreshSummary(target); refreshAvailableSummary(); }); }); // the scan fills fields after it returns: refresh the unsaved flag and count then
     row.querySelector('.delete-receipt').addEventListener('click', createReceiptDeleteHandler({
       row,
       triggerFallback: elements.floatingAdd,

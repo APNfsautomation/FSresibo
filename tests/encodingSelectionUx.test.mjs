@@ -239,3 +239,115 @@ test('A1/C4: the unsaved flag is text in the card summary, themed with the warni
   assert.match(css, /\.encoding-list \.receipt-card\.is-unsaved, \.encoding-list \.receipt-card\.is-unsaved\[open\] \{ box-shadow: inset 4px 0 0 var\(--warning\); \}/);
   assert.match(css, /\.monthly-card\.is-unsaved \{ box-shadow: inset 4px 0 0 var\(--warning\); \}/);
 });
+
+// ---- Review round 1 (R1): programmatic edits refresh the unsaved flag and count ---------------------------------------------------------------
+// A minimal document for the store suggestion list, which builds real option elements.
+const fakeNode = () => { const n = { children: [], listeners: {}, attrs: {}, classList: { toggle() {}, add() {}, remove() {} }, textContent: '', append(...items) { n.children.push(...items); }, addEventListener(name, fn) { (n.listeners[name] ??= []).push(fn); }, setAttribute(k, v) { n.attrs[k] = String(v); } }; return n; };
+const withFakeDocument = async run => { const before = globalThis.document; globalThis.document = { createDocumentFragment: fakeNode, createElement: fakeNode }; try { return await run(); } finally { globalThis.document = before; } };
+const optionText = option => [option.children[0]?.textContent, option.children[1]?.textContent].join(' ');
+const chooseSuggestion = async (row, detail) => {
+  const store = row.part('.receipt-store'); await store.emit('focus');
+  const options = row.part('.store-suggestions').children.flatMap(item => item.children ?? []);
+  const option = options.find(candidate => optionText(candidate).includes(detail));
+  assert.ok(option, `a suggestion containing "${detail}" is listed`);
+  await Promise.all(option.listeners.mousedown.map(fn => fn({ preventDefault() {} })));
+};
+
+test('R1a: choosing a Company/history store suggestion that introduces, then reverts, unsaved changes keeps the flag and count in step', async () => {
+  await withFakeDocument(async () => {
+    const f = await receiptFixture({ loaded: [
+      saved('a', 100, 'Mercury Drug', { address: 'Makati', tin: '333', vat: 'VAT' }),
+      saved('b', 200, 'Mercury Drug', { address: 'Ortigas', tin: '444', vat: 'Non-VAT' })
+    ] });
+    const row = f.rows()[0];
+    assert.equal(kindOf(row), ''); assert.equal(f.elements.encodingUnsavedIndicator.hidden, true);
+    await chooseSuggestion(row, 'Ortigas');
+    assert.equal(f.field(row, 'address').value, 'Ortigas');
+    assert.equal(kindOf(row), 'Unsaved changes', 'the suggestion changed the receipt: flagged without any input event');
+    assert.equal(counter(f), '1 unsaved receipt'); assert.equal(f.elements.encodingUnsavedIndicator.hidden, false);
+    await chooseSuggestion(row, 'Makati');
+    assert.equal(f.field(row, 'address').value, 'Makati');
+    assert.equal(kindOf(row), '', 'back to the saved values: the flag clears'); assert.equal(counter(f), ''); assert.equal(f.elements.encodingUnsavedIndicator.hidden, true);
+  });
+});
+
+test('R1a: the flag after a suggestion agrees with the export preflight', async () => {
+  await withFakeDocument(async () => {
+    const f = await receiptFixture({ loaded: [
+      saved('a', 100, 'Mercury Drug', { address: 'Makati', tin: '333', vat: 'VAT' }),
+      saved('b', 200, 'Mercury Drug', { address: 'Ortigas', tin: '444', vat: 'Non-VAT' })
+    ] });
+    f.elements.exportModeManual.checked = true; await f.elements.exportModeManual.emit('change');
+    await f.cards()[0].part('.manual-select').emit('change');
+    await chooseSuggestion(f.rows()[0], 'Ortigas');
+    assert.equal(kindOf(f.rows()[0]), 'Unsaved changes');
+    await f.click(f.elements.manualExportSelected);
+    assert.match(f.elements.manualFeedback.textContent, /Receipt 1 has unsaved changes/, 'the export is blocked for the same receipt the card flags');
+    assert.deepEqual([f.calls.download.length, f.calls.consume.length], [0, 0]);
+    await chooseSuggestion(f.rows()[0], 'Makati');
+    assert.equal(kindOf(f.rows()[0]), '');
+    await f.click(f.elements.manualExportSelected);
+    assert.equal(f.elements.exportConfirmModal.hidden, false, 'with no flag the review opens');
+  });
+});
+
+// The real OCR service fills the fields after the scan returns and then calls the refresh callback it was given.
+const ocrScan = values => async (file, row, refreshSummary) => { await Promise.resolve(); for (const [key, value] of Object.entries(values)) row.part(`.receipt-${key}`).value = value; refreshSummary(row); };
+const scanPhoto = async row => { const photo = row.part('.receipt-photo'); photo.files = [{ name: 'receipt.jpg' }]; await photo.emit('change'); await settle(); };
+
+test('R1b: an OCR scan that fills a clean saved receipt flags it and updates the count once the scan completes', async () => {
+  const f = await receiptFixture({ loaded: [saved('a', 100, 'Alpha'), saved('b', 200, 'Beta')], scan: ocrScan({ store: 'Scanned Store', address: '1 Scan Street', tin: '123456789000', invoice: 'SI-77', vat: 'VAT' }) });
+  assert.equal(kindOf(f.rows()[0]), ''); assert.equal(counter(f), '');
+  await scanPhoto(f.rows()[0]);
+  assert.equal(f.field(f.rows()[0], 'store').value, 'Scanned Store');
+  assert.equal(kindOf(f.rows()[0]), 'Unsaved changes'); assert.equal(kindOf(f.rows()[1]), '');
+  assert.equal(counter(f), '1 unsaved receipt'); assert.equal(f.elements.encodingUnsavedIndicator.hidden, false);
+  assert.match(name(f.rows()[0]), /unsaved changes/);
+});
+
+test('R1b: an OCR scan that fills a new blank receipt marks it "New, unsaved", and a scan that changes nothing leaves it clean', async () => {
+  const f = await receiptFixture({ loaded: [saved('a', 100, 'Alpha')], scan: ocrScan({ store: 'From Photo' }) });
+  await f.click(f.elements.floatingAdd); const fresh = f.rows().at(-1);
+  assert.equal(kindOf(fresh), ''); await scanPhoto(fresh);
+  assert.equal(kindOf(fresh), 'New, unsaved'); assert.equal(counter(f), '1 unsaved receipt');
+  const same = await receiptFixture({ loaded: [saved('a', 100, 'Alpha')], scan: ocrScan({ store: 'Alpha' }) });
+  await scanPhoto(same.rows()[0]); assert.equal(kindOf(same.rows()[0]), ''); assert.equal(counter(same), '');
+});
+
+test('R1b: the flag after an OCR scan agrees with the export preflight', async () => {
+  const f = await receiptFixture({ loaded: [saved('a', 100, 'Alpha'), saved('b', 200, 'Beta')], scan: ocrScan({ invoice: 'SI-9' }) });
+  f.elements.exportModeManual.checked = true; await f.elements.exportModeManual.emit('change');
+  await f.cards().find(item => item.part('.compact-store').textContent === 'Alpha').part('.manual-select').emit('change');
+  await scanPhoto(f.rows()[0]);
+  assert.equal(kindOf(f.rows()[0]), 'Unsaved changes');
+  await f.click(f.elements.manualExportSelected);
+  assert.match(f.elements.manualFeedback.textContent, /Receipt 1 has unsaved changes/);
+  assert.deepEqual([f.calls.download.length, f.calls.consume.length], [0, 0]);
+  await f.click(f.elements.saveDraft);
+  assert.equal(kindOf(f.rows()[0]), ''); assert.equal(counter(f), '', 'saving the scanned values clears the flag and the count');
+});
+
+// ---- Review round 1 (R2): the Select shown label says what it will add -------------------------------------------------------------------------
+const shownLabel = f => f.elements.manualSelectShown.textContent;
+const shownAria = f => f.elements.manualSelectShown.getAttribute('aria-label');
+
+test('R2: the Select shown label shows how many it will add, capped by the room left, and says "full" at the limit', async () => {
+  const f = await manualFixture(many(400));
+  assert.equal(shownLabel(f), 'Select shown (adds 100 of 400)', '400 eligible shown, nothing selected: it will add only 100');
+  assert.match(shownAria(f), /adds the first 100 of 400 shown receipts in the current order, up to the limit of 100/);
+  for (let i = 1; i <= 25; i += 1) await box(f, `Store ${String(i).padStart(3, '0')}`).emit('change');
+  assert.equal(shownLabel(f), 'Select shown (adds 75 of 375)', '25 selected: 375 are still unselected, room for 75');
+  await shown(f); assert.equal(count(f), '100 of 100');
+  assert.equal(shownLabel(f), 'Select shown (full)'); assert.match(shownAria(f), /the selection is full \(100 of 100\)\. Deselect a receipt to make room/);
+  await box(f, 'Store 001').emit('change');
+  assert.equal(shownLabel(f), 'Select shown (adds 1 of 301)', 'one slot is open again');
+});
+
+test('R2: when everything shown fits, the label is the plain number it will add (already selected receipts are not counted)', async () => {
+  const f = await manualFixture(many(30));
+  assert.equal(shownLabel(f), 'Select shown (30)'); assert.equal(shownAria(f), 'Select shown: adds 30 shown receipts');
+  for (let i = 1; i <= 10; i += 1) await box(f, `Store ${String(i).padStart(3, '0')}`).emit('change');
+  assert.equal(shownLabel(f), 'Select shown (20)'); await shown(f);
+  assert.equal(shownLabel(f), 'Select shown (0)'); assert.equal(count(f), '30 of 100');
+  const one = await manualFixture(many(1)); assert.equal(shownAria(one), 'Select shown: adds 1 shown receipt');
+});
