@@ -134,7 +134,7 @@ test('B: Select shown selects the eligible receipts in view, keeps hidden select
   await setFilter(f, 'optimizationStartDate', '2026-08-03'); await setFilter(f, 'optimizationEndDate', '2026-08-04'); // shows Store C and Store D
   assert.equal(f.elements.manualSelectShown.textContent, 'Select shown (2)');
   await f.click(f.elements.manualSelectShown);
-  assert.match(feedback(f), /^2 receipts added to the selection\. 3 of 100 selected\.$/);
+  assert.match(feedback(f), /^2 receipts added in the order shown\. 3 of 100 selected\.$/);
   await setFilter(f, 'optimizationStartDate', ''); await setFilter(f, 'optimizationEndDate', '');
   await review(f); assert.deepEqual(storesInReview(f), ['Store F', 'Store C', 'Store D'], 'the earlier selection kept its place; the shown ones follow in the order shown');
   await f.click(f.elements.cancelExport);
@@ -143,14 +143,15 @@ test('B: Select shown selects the eligible receipts in view, keeps hidden select
   await review(f); assert.equal(new Set(order(f)).size, 6);
 });
 
-test('B: Select shown that would pass the limit selects nothing at all and explains why', async () => {
+test('B: Select shown fills the remaining capacity up to 100 instead of rejecting, and says so', async () => {
   const loaded = Array.from({ length: 110 }, (_, i) => saved(`r${i + 1}`, i + 1, `S${String(i + 1).padStart(3, '0')}`));
   const f = await manualFixture({ loaded });
   await f.click(f.elements.manualSelectShown);
-  assert.match(feedback(f), /^Selecting the 110 shown receipts that are not selected yet would pass the limit of 100 \(0 already selected, room for 100 more\)\. Nothing was selected; narrow the filters or deselect some receipts first\.$/);
-  assert.equal(summary(f).count, '0 of 100');
-  await setFilter(f, 'optimizationMaxAmount', '100'); await f.click(f.elements.manualSelectShown);
-  assert.equal(summary(f).count, '100 of 100', 'with the filter narrowed it fits exactly');
+  assert.equal(summary(f).count, '100 of 100');
+  assert.match(feedback(f), /^100 receipts added in the order shown\. The selection is now full at 100 of 100; 10 more shown receipts were not added\.$/);
+  await f.click(f.elements.manualSelectShown);
+  assert.match(feedback(f), /^The selection is full \(100 of 100\)\. Deselect a receipt to make room before adding more\.$/);
+  assert.equal(summary(f).count, '100 of 100');
 });
 
 test('B: Clear selection clears the manual selection only (no dialog for a small selection)', async () => {

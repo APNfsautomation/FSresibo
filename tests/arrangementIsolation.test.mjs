@@ -150,7 +150,7 @@ test('R02: the missing receipt\'s checkbox is disabled, labelled, and Select sho
   const gone = card(f, 'Store B').part('.manual-select');
   assert.equal(gone.disabled, true); assert.match(gone.getAttribute('aria-label'), /Receipt 2 no longer exists in your saved receipts and cannot be selected/);
   await gone.emit('change'); assert.deepEqual(selected(f), ['Store A', 'Store C'], 'a forced change event cannot reselect it');
-  assert.match(f.elements.manualSelectShown.textContent, /Select shown \(5\)/, 'A, C, D, E and F: never the missing Store B');
+  assert.match(f.elements.manualSelectShown.textContent, /Select shown \(3\)/, 'D, E and F are still to add (A and C are selected); the missing Store B is never counted');
   await f.click(f.elements.manualSelectShown);
   assert.deepEqual(selected(f), ['Store A', 'Store C', 'Store D', 'Store E', 'Store F']);
   assert.equal(f.elements.manualSelectedCount.textContent, '5 of 100');

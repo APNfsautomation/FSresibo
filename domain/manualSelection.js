@@ -27,17 +27,27 @@ export function toggleManual(ids, id, maximum = maximumManualSelection) {
   return { ...addManual(ids, id, maximum), action: 'added' };
 }
 
-// Select Shown: appends the shown receipts that are not already selected, in the order shown. All or nothing: if the result would pass the limit, nothing at all is
-// added (no partial selection), and the reply says how many were needed.
-export function selectShown(ids, shownIds, maximum = maximumManualSelection) {
+// Select Shown: walks the shown receipts IN THE ORDER GIVEN (the visible sort order), skips ids that are already selected (and duplicates), and appends new ids
+// until the selection reaches the maximum. Existing selections, hidden ones included, keep their positions. Never exceeds the maximum.
+export function fillShown(ids, shownIds, maximum = maximumManualSelection) {
   const fresh = [...new Set(shownIds)].filter(id => !ids.includes(id));
-  if (!fresh.length) return { ids, added: [], rejected: null };
-  if (ids.length + fresh.length > maximum) return { ids, added: [], rejected: { needed: fresh.length, selected: ids.length, available: Math.max(0, maximum - ids.length), maximum } };
-  return { ids: [...ids, ...fresh], added: fresh, rejected: null };
+  const room = Math.max(0, maximum - ids.length);
+  const added = fresh.slice(0, room);
+  const next = added.length ? [...ids, ...added] : ids;
+  return { ids: next, added, notAdded: fresh.length - added.length, alreadySelected: new Set(shownIds).size - fresh.length, wasFull: room === 0, nowFull: next.length >= maximum };
 }
 
-export const bulkLimitMessage = ({ needed, selected, available, maximum }) =>
-  `Selecting the ${needed} shown receipt${needed === 1 ? '' : 's'} that ${needed === 1 ? 'is' : 'are'} not selected yet would pass the limit of ${maximum} (${selected} already selected, room for ${available} more). Nothing was selected; narrow the filters or deselect some receipts first.`;
+export const selectionFullMessage = (maximum = maximumManualSelection) => `The selection is full (${maximum} of ${maximum}). Deselect a receipt to make room before adding more.`;
+
+export function fillShownMessage(result, maximum = maximumManualSelection) {
+  const { added, notAdded, wasFull, ids } = result;
+  if (wasFull && notAdded) return selectionFullMessage(maximum);
+  if (!added.length) return 'Every selectable receipt shown is already selected.';
+  const plural = added.length === 1 ? '' : 's';
+  const head = `${added.length} receipt${plural} added in the order shown.`;
+  if (notAdded) return `${head} The selection is now full at ${maximum} of ${maximum}; ${notAdded} more shown receipt${notAdded === 1 ? ' was' : 's were'} not added.`;
+  return `${head} ${ids.length} of ${maximum} selected.`;
+}
 
 // Drops ids that are no longer eligible (deleted, Consumed, or missing locally). Returns what was removed so it can be reported, never silently.
 export function pruneManual(ids, isEligible) {

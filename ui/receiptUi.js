@@ -9,7 +9,7 @@ import { parseMoneyAmount } from '../domain/moneyAmount.js';
 import { outsideRangeNotice, receiptHasUnsavedChanges, releasedHiddenNotice } from './encodingPresentation.js';
 import { changedWorkbookFields, classifyExportSnapshot, describeFieldChanges, moveId, partitionExportProblems, sameMembers, summarizeAmounts, workbookFields } from '../domain/exportArrangement.js';
 import { buildReviewRow, createExportReview } from './exportReview.js';
-import { bulkLimitMessage, hiddenSelectedCount, manualEligibility, manualLimitMessage, maximumManualSelection, pruneManual, selectShown, summarizeManual, toggleManual } from '../domain/manualSelection.js';
+import { fillShown, fillShownMessage, hiddenSelectedCount, manualEligibility, manualLimitMessage, maximumManualSelection, pruneManual, summarizeManual, toggleManual } from '../domain/manualSelection.js';
 import { createReceiptExportRunner, preflightExport, preflightMessage, snapshotProblemMessage, unsavedValuesNotice } from './receiptExport.js';
 
 const draftKey = 'receipt-match-draft-v2';
@@ -471,7 +471,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       amountCents: amountValue ? toCents(amountValue) : null,
       status: normalizeReceiptStatus(row.dataset.receiptStatus),
       open: row.open,
-      outsideRange: row.classList.contains('is-outside-range')
+      outsideRange: row.classList.contains('is-outside-range'),
+      unsavedLabel: unsavedLabels[row.dataset.unsavedKind] ?? ''
     }));
   };
   const receiptStatus = row => normalizeReceiptStatus(row.dataset.receiptStatus);
@@ -528,10 +529,23 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     const saved = savedReceiptFor(row);
     return saved ? changedWorkbookFields(saved, rowValues(row), { includeUpdatedAt: false }).length > 0 : false;
   };
-  const countUnsavedReceipts = () => [...elements.list.children].filter(rowIsUnsaved).length;
+  // One definition of "unsaved" for the card flag, the global count and the export preflight: the Encoding comparison (trimmed, exact centavos) OR the export comparison
+  // (every workbook field exactly). A receipt the export would refuse for unsaved edits therefore always shows the flag. Consumed receipts are never unsaved.
+  const unsavedLabels = { new: 'New, unsaved', changes: 'Unsaved changes' };
+  const unsavedKind = row => (rowIsUnsaved(row) || rowHasUnsavedExportChanges(row)) ? (row.dataset.receiptDbId ? 'changes' : 'new') : '';
+  const applyUnsavedKind = (row, kind) => {
+    if ((row.dataset.unsavedKind || '') === kind) return;
+    if (kind) row.dataset.unsavedKind = kind; else delete row.dataset.unsavedKind;
+    row.classList.toggle('is-unsaved', Boolean(kind));
+    const flag = row.querySelector('.receipt-unsaved-flag');
+    if (flag) { flag.textContent = unsavedLabels[kind] ?? ''; flag.hidden = !kind; }
+    refreshSummaryAccessibleName(row);
+  };
+  const countUnsavedReceipts = () => [...elements.list.children].filter(row => unsavedKind(row)).length;
   const refreshUnsavedIndicator = () => {
+    let count = 0;
+    [...elements.list.children].forEach(row => { const kind = unsavedKind(row); applyUnsavedKind(row, kind); if (kind) count += 1; });
     if (!elements.encodingUnsavedIndicator) return;
-    const count = countUnsavedReceipts();
     const text = count ? `${count} unsaved receipt${count === 1 ? '' : 's'}` : '';
     if (elements.encodingUnsavedText.textContent !== text) elements.encodingUnsavedText.textContent = text;
     elements.encodingUnsavedIndicator.hidden = count === 0;
@@ -664,7 +678,12 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     elements.manualHiddenGroup.hidden = hidden === 0;
     elements.manualHidden.textContent = hidden ? String(hidden) : '';
     elements.manualClearSelection.disabled = manualIds.length === 0;
-    elements.manualSelectShown.textContent = `Select shown (${shownEligibleIds().length})`;
+    // The label says what a click will do: how many receipts it adds (never more than the room left), or that the selection is full.
+    const shownIds = shownEligibleIds(); const fresh = shownIds.filter(id => !manualIds.includes(id)).length; const room = Math.max(0, maximumManualSelection - manualIds.length);
+    const button = elements.manualSelectShown;
+    if (fresh && !room) { button.textContent = 'Select shown (full)'; button.setAttribute?.('aria-label', `Select shown: the selection is full (${maximumManualSelection} of ${maximumManualSelection}). Deselect a receipt to make room.`); }
+    else if (fresh > room) { button.textContent = `Select shown (adds ${room} of ${fresh})`; button.setAttribute?.('aria-label', `Select shown: adds the first ${room} of ${fresh} shown receipts in the current order, up to the limit of ${maximumManualSelection}`); }
+    else { button.textContent = `Select shown (${fresh})`; button.setAttribute?.('aria-label', `Select shown: adds ${fresh} shown receipt${fresh === 1 ? '' : 's'}`); }
   };
   const toggleManualReceipt = (dbId, label, pick) => {
     // A stale or forged change event can never add a receipt that is not eligible now; deselecting is always allowed.
@@ -679,11 +698,11 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   const selectShownReceipts = () => {
     const ids = shownEligibleIds();
     if (!ids.length) return setManualFeedback('No selectable receipts are shown. Consumed receipts and unsaved drafts cannot be selected.', 'warning');
-    const result = selectShown(manualIds, ids);
-    if (result.rejected) return setManualFeedback(bulkLimitMessage(result.rejected), 'warning');
-    if (!result.added.length) return setManualFeedback('Every selectable receipt shown is already selected.', 'info');
+    // Fills the remaining capacity from the shown receipts, in the visible sort order; never past the limit and never reordering what is already selected.
+    const result = fillShown(manualIds, ids, maximumManualSelection);
+    if (!result.added.length) return setManualFeedback(fillShownMessage(result, maximumManualSelection), result.wasFull && result.notAdded ? 'warning' : 'info');
     setManualIds(result.ids);
-    setManualFeedback(`${result.added.length} receipt${result.added.length === 1 ? '' : 's'} added to the selection. ${manualIds.length} of ${maximumManualSelection} selected.`, 'success');
+    setManualFeedback(fillShownMessage(result, maximumManualSelection), result.notAdded ? 'warning' : 'success');
     refreshOptimizationCards();
   };
   const clearManualSelection = async event => {
@@ -756,8 +775,10 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
         const eligibility = manualEligibilityOf(dbId, savedById);
         const label = `Receipt ${entry.receiptId}`;
         pick.checked = selected;
-        pick.disabled = eligibility !== 'ok';
-        pick.setAttribute('aria-label', eligibility === 'ok' ? `Select ${label}, ${entry.receipt.store.trim() || 'Store not set'}` : eligibility === 'consumed' ? `${label} is Consumed and cannot be selected` : eligibility === 'missing' ? `${label} no longer exists in your saved receipts and cannot be selected` : eligibility === 'unavailable' ? `${label} is not Available and cannot be selected` : `${label} is not saved yet. Save it before selecting it`);
+        // At the limit, receipts that are not selected cannot be added (selected ones stay enabled so they can be deselected and re-open a slot).
+        const atCapacity = eligibility === 'ok' && !selected && manualIds.length >= maximumManualSelection;
+        pick.disabled = eligibility !== 'ok' || atCapacity;
+        pick.setAttribute('aria-label', atCapacity ? `${label} cannot be selected: the limit of ${maximumManualSelection} receipts is reached. Deselect a receipt first` : eligibility === 'ok' ? `Select ${label}, ${entry.receipt.store.trim() || 'Store not set'}` : eligibility === 'consumed' ? `${label} is Consumed and cannot be selected` : eligibility === 'missing' ? `${label} no longer exists in your saved receipts and cannot be selected` : eligibility === 'unavailable' ? `${label} is not Available and cannot be selected` : `${label} is not saved yet. Save it before selecting it`);
         if (eligibility === 'ok') { pick.addEventListener('change', () => toggleManualReceipt(dbId, label, pick)); picks.set(dbId, pick); }
       }
       card.classList.toggle('is-selected', selected);
@@ -850,6 +871,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       row.querySelector('.receipt-tin').value = values.tin;
       row.querySelector('.receipt-vat').value = values.vat;
       refreshSummary(row);
+      refreshAvailableSummary(); // programmatic values emit no input event: refresh the unsaved flag and count here
       clearSelection();
       refreshOptimizationCards();
       closeSuggestions();
@@ -913,7 +935,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     row.dataset.receiptStatus = normalizeReceiptStatus(values.status);
     if (values.dbId) row.dataset.persistedStoreFingerprint = persistedStoreFingerprint(values);
     for (const [key, value] of Object.entries(values)) { const field = row.querySelector(`.receipt-${key}`); if (field) field.value = value; }
-    row.querySelector('.receipt-photo').addEventListener('change', event => { const file = event.currentTarget.files[0]; if (file) scanPrintedDetails(file, row, refreshSummary); });
+    row.querySelector('.receipt-photo').addEventListener('change', event => { const file = event.currentTarget.files[0]; if (file) scanPrintedDetails(file, row, target => { refreshSummary(target); refreshAvailableSummary(); }); }); // the scan fills fields after it returns: refresh the unsaved flag and count then
     row.querySelector('.delete-receipt').addEventListener('click', createReceiptDeleteHandler({
       row,
       triggerFallback: elements.floatingAdd,
@@ -1574,6 +1596,9 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       elements.showAllAmounts?.addEventListener('click', showAllAmounts);
       elements.expandAllReceipts?.addEventListener('click', expandAllReceipts);
       elements.collapseAllReceipts?.addEventListener('click', collapseAllReceipts);
+      // The same two handlers are reachable from the sticky action bar, so long sessions never need a scroll back to the list header.
+      elements.barExpandAllReceipts?.addEventListener('click', expandAllReceipts);
+      elements.barCollapseAllReceipts?.addEventListener('click', collapseAllReceipts);
       document.addEventListener('keydown', event => { if (modalFocus) return; if (event.key === 'Escape' && !elements.editModal.hidden) closeEditModal(); else if (event.key === 'Escape' && !elements.exportConfirmModal.hidden) escapeReview(); });
       collapseKeptReceiptsOnShortWindows(elements.keptReceipts);
       trackTextEntry(elements.encodingWorkspace);
