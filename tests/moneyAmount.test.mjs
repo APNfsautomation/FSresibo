@@ -210,5 +210,6 @@ test('the financial engine, export builder and database schema are unchanged by 
   assert.match(exporter, /export const numericAmount = value => \{\s*const parsed = parseMoneyAmount\(value\);/, 'CP10-C3: the builder reuses the strict parser instead of Number()');
   assert.doesNotMatch(exporter, /Number\(String\(value/);
   const ui = await read('../ui/receiptUi.js');
-  assert.ok(ui.includes('generateWorkbook: rows => downloadSelectedReceipts(rows)'), 'the same exporter function receives the workbook rows (now database snapshot rows)');
+  // Issue #27: the runner step is now guarded by its session, but still hands the database snapshot rows to the same exporter function.
+  assert.ok(ui.includes('generateWorkbook: rows => { if (!live()) throw ended(); return downloadSelectedReceipts(rows); }'), 'the same exporter function receives the workbook rows (now database snapshot rows)');
 });

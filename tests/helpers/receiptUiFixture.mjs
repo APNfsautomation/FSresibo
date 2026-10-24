@@ -12,7 +12,7 @@ globalThis.Option = class { constructor(label, value) { this.label = label; this
 export const settle = () => new Promise(resolve => setTimeout(resolve, 5));
 // viaServiceMapping: every read goes through the REAL receipt service mapper (database row shape in, application receipt out), so a status the service
 // rewrites or drops is visible to the UI exactly as in production. The default keeps handing the UI ready-made receipts.
-export async function receiptFixture({ loaded = [], confirm = async () => true, modalFocus = null, viaServiceMapping = false, scan = null, latencyMs = 0, poolOptimizer } = {}) {
+export async function receiptFixture({ loaded = [], confirm = async () => true, modalFocus = null, viaServiceMapping = false, scan = null, latencyMs = 0, poolOptimizer, sharedStoreList = async () => [], sharedStore = null } = {}) {
   storage.clear(); // toolbar filters are kept in session storage per user: every fixture starts from a clean browser session
   globalThis.window = { addEventListener() {}, removeEventListener() {}, setTimeout, clearTimeout };
   globalThis.matchMedia = () => ({ matches: false });
@@ -35,7 +35,8 @@ export async function receiptFixture({ loaded = [], confirm = async () => true, 
   const makeRow = () => {
     const parts = new Map();
     const part = selector => { if (!parts.has(selector)) parts.set(selector, node({ value: '', files: [] })); return parts.get(selector); };
-    return node({ open: false, querySelector: part, querySelectorAll: selector => selector === 'input, select' ? fieldSelectors.map(part) : [], part });
+    const row = node({ open: false, querySelector: part, querySelectorAll: selector => selector === 'input, select' ? fieldSelectors.map(part) : [], part, remove() { list.children = list.children.filter(item => item !== row); } });
+    return row;
   };
   globalThis.document = { createDocumentFragment: () => ({ children: [], append(...nodes) { this.children.push(...nodes); } }), createElement: () => node({ className: '' }), addEventListener() {}, get activeElement() { return state.activeElement; } };
   const list = node({ append(row) { list.children.push(row); }, replaceChildren(...rows) { list.children = rows; } });
@@ -48,14 +49,21 @@ export async function receiptFixture({ loaded = [], confirm = async () => true, 
   // An in-memory receipts table. Tests change `db` directly to simulate another session, and set `fails.*` to inject failures.
   const stamp = () => `2026-10-18T00:00:${String(++clock).padStart(2, '0')}Z`;
   const db = new Map(loaded.map(item => [item.dbId, { amount: '', receiptDate: '', vat: '', invoice: '', store: '', address: '', tin: '', status: 'available', ...item, updatedAt: item.updatedAt ?? stamp() }]));
-  const fails = { snapshot: null, snapshotGate: null, saveAfter: null, saveGate: null, saveGateOnce: null, createResponseLost: null, load: null, consume: null, download: null, afterDownload: null, consumeResponseLost: null, gate: null, save: null };
+  const fails = { loadGates: [], importGate: null, restoreGate: null, deleteGate: null, snapshotHold: null, snapshot: null, snapshotGate: null, saveAfter: null, saveGate: null, saveGateOnce: null, createResponseLost: null, load: null, consume: null, download: null, afterDownload: null, consumeResponseLost: null, gate: null, save: null };
   const databaseShape = row => { const raw = { id: row.dbId, amount: row.amount === '' ? null : row.amount, receipt_date: row.receiptDate, vat_status: row.vat, invoice_number: row.invoice, store_name: row.store, address: row.address, tin: row.tin, updated_at: row.updatedAt }; if ('status' in row) raw.status = row.status; return raw; };
   const copy = row => viaServiceMapping ? fromDatabaseReceipt(databaseShape(row)) : { ...row };
   const storedAmount = raw => { const parsed = parseMoneyAmount(raw); return parsed.blank ? '' : parsed.valid ? parsed.amount : raw; };
   const receiptService = {
-    loadReceipts: async () => { calls.load.push(db.size); if (fails.load) throw fails.load; return [...db.values()].map(copy); },
-    loadReceiptsByIds: async ids => { calls.snapshot.push([...ids]); if (fails.snapshotGate) await fails.snapshotGate; if (fails.snapshot) throw fails.snapshot; return ids.filter(id => db.has(id)).map(id => copy(db.get(id))); },
-    updateReceiptStatus: async (id, status) => { const row = { ...db.get(id), status, updatedAt: stamp() }; db.set(id, row); return copy(row); },
+    // The answer is the table AT THE MOMENT OF THE REQUEST; a queued gate (fails.loadGates) holds it back, so a test can make a load slow or out of order (Issue #27).
+    loadReceipts: async () => { calls.load.push(db.size); if (fails.load) throw fails.load; const snapshot = [...db.values()].map(copy); const gate = fails.loadGates.shift(); if (gate) await gate; return snapshot; },
+    importReceipts: async receipts => { calls.import = [...(calls.import ?? []), receipts.length]; if (fails.importGate) await fails.importGate; return receipts.map((receipt, index) => { const row = { ...receipt, dbId: `imported-${index}`, status: 'available', updatedAt: stamp() }; db.set(row.dbId, row); return copy(row); }); },
+    // snapshotHold, unlike snapshotGate, holds back an answer that was already READ at the moment of the request (as a real database answers), so a late answer
+    // still carries the data of the account that asked (Issue #27).
+    loadReceiptsByIds: async ids => { calls.snapshot.push([...ids]); const hold = fails.snapshotHold; const early = hold ? ids.filter(id => db.has(id)).map(id => copy(db.get(id))) : null; if (hold) { await hold; return early; } if (fails.snapshotGate) await fails.snapshotGate; if (fails.snapshot) throw fails.snapshot; return ids.filter(id => db.has(id)).map(id => copy(db.get(id))); },
+    // Like a database, the answer is READ at the moment of the request; restoreGate only holds it back (Issue #27).
+    updateReceiptStatus: async (id, status) => { const row = { ...db.get(id), status, updatedAt: stamp() }; db.set(id, row); const answer = copy(row); if (fails.restoreGate) await fails.restoreGate; return answer; },
+    deleteReceipt: async id => { calls.deleted = [...(calls.deleted ?? []), id]; if (fails.deleteGate) await fails.deleteGate; db.delete(id); },
+    deleteConsumedReceipt: async id => { calls.deleted = [...(calls.deleted ?? []), id]; if (fails.deleteGate) await fails.deleteGate; db.delete(id); },
     createReceipt: async values => { calls.create.push({ ...values }); if (latencyMs) await new Promise(resolve => setTimeout(resolve, latencyMs)); if (fails.saveGate) await fails.saveGate; if (fails.saveGateOnce) { const gate = fails.saveGateOnce; fails.saveGateOnce = null; await gate; } if (fails.save) throw fails.save; if (fails.saveAfter != null && calls.create.length + calls.update.length > fails.saveAfter) throw new Error('Simulated save failure'); const row = { ...values, amount: storedAmount(values.amount), dbId: `new-${++sequence}`, status: 'available', updatedAt: stamp() }; db.set(row.dbId, row); if (fails.createResponseLost) throw fails.createResponseLost; /* the insert was committed, the answer never arrived */ return copy(row); },
     updateReceipt: async (id, values) => { calls.update.push([id, { ...values }]); if (latencyMs) await new Promise(resolve => setTimeout(resolve, latencyMs)); if (fails.saveGate) await fails.saveGate; if (fails.saveGateOnce) { const gate = fails.saveGateOnce; fails.saveGateOnce = null; await gate; } if (fails.save) throw fails.save; if (fails.saveAfter != null && calls.create.length + calls.update.length > fails.saveAfter) throw new Error('Simulated save failure'); const row = { ...db.get(id), ...values, amount: storedAmount(values.amount), dbId: id, status: 'available', updatedAt: stamp() }; db.set(id, row); return copy(row); },
     consumeReceipts: async ids => {
@@ -69,7 +77,7 @@ export async function receiptFixture({ loaded = [], confirm = async () => true, 
     }
   };
   elements.exportConfirmModal.hidden = true; elements.editModal.hidden = true;
-  const ui = createReceiptUi({ elements, findBest, optimizationStrategies, toCents: value => Math.round(Number(String(value || 0).replace(/[^0-9.]/g, '')) * 100), scanPrintedDetails: scan ?? (async () => ({})), downloadSelectedReceipts: receipts => { if (fails.download) throw fails.download; calls.download.push(receipts.map(item => ({ ...item }))); fails.afterDownload?.(); }, receiptService, sharedStoreService: { listActiveSharedStores: async () => [] }, confirmAction: confirm, modalFocus, ...(poolOptimizer ? { poolOptimizer } : {}) });
+  const ui = createReceiptUi({ elements, findBest, optimizationStrategies, toCents: value => Math.round(Number(String(value || 0).replace(/[^0-9.]/g, '')) * 100), scanPrintedDetails: scan ?? (async () => ({})), downloadSelectedReceipts: receipts => { if (fails.download) throw fails.download; calls.download.push(receipts.map(item => ({ ...item }))); fails.afterDownload?.(); }, receiptService, sharedStoreService: sharedStore ?? { listActiveSharedStores: sharedStoreList }, confirmAction: confirm, modalFocus, ...(poolOptimizer ? { poolOptimizer } : {}) });
   ui.start(); await ui.loadForUser({ id: 'user-1' });
   const rows = () => list.children;
   const field = (row, name) => row.part(`.receipt-${name}`);

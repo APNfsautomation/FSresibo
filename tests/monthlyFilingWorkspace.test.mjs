@@ -433,7 +433,10 @@ test('logging out clears the presentation state: numbers, expansion and markers 
 // ---- E. what this checkpoint must not touch ----------------------------------------------------------------------------------------
 test('Monthly services, export builder, migrations and the engine are untouched by the UI work', async () => {
   const ui = await read('../ui/monthlyFilingUi.js');
-  assert.ok(ui.includes('runMonthlyFilingExport({ save: () => save({ successFeedback: false, fromExport: true }), snapshot: activeRecords, generateWorkbook: snapshot => downloadExpenseDetailedReport(snapshot, monthlyFilingExportFilename()), archive: ids => monthlyFilingService.archiveMonthlyFilingReceipts(ids) })'), 'export pipeline unchanged');
+  // Issue #27: the same export steps in the same order (save, workbook from the snapshot, exact-id archive); each step now also re-checks that its session is still the current one.
+  assert.ok(ui.includes('save: () => save({ successFeedback: false, fromExport: true, session: owner })'));
+  assert.ok(ui.includes('downloadExpenseDetailedReport(snapshot, monthlyFilingExportFilename())') && ui.includes('return monthlyFilingService.archiveMonthlyFilingReceipts(ids)'));
+  assert.ok(ui.indexOf('save: () => save(') < ui.indexOf('downloadExpenseDetailedReport(snapshot') && ui.indexOf('downloadExpenseDetailedReport(snapshot') < ui.indexOf('return monthlyFilingService.archiveMonthlyFilingReceipts(ids)'));
   assert.ok(ui.includes('export async function runMonthlyFilingExport({ save, snapshot, generateWorkbook, archive })'));
   assert.doesNotMatch(ui, /localStorage|sessionStorage|indexedDB|supabase|\.rpc\(/i, 'no second persistence');
   const service = await read('../services/monthlyFilingService.js');

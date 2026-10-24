@@ -516,3 +516,29 @@ Real saved pools exceed 32 receipts, and the 32-receipt limit comes from 32-bit 
 - Exact for every pool inside the budget, identical to the existing engine for up to 32 receipts, and refused rather than approximated outside it. Cost grows with receipts × target (in gcd units), not with the number of subsets: on the development machine (Node 24, Intel Core i7-14700HX) about 3 ns per cell, for example 400 typical receipts at a PHP 20,000 target in about 2.4 s and about 100 MiB, and whole-peso pools 100 times cheaper. Targets above the pool cost almost nothing. A target between half the pool and the pool is not specially accelerated.
 - Quick Optimizer keeps its separately specified 32 entered amounts and top-three results; Manual Selection keeps its 100-selected cap; bulk saving of hundreds of new receipts remains deferred. No schema, RLS, Auth, version or `main` change.
 - Mobile performance is not measured; WebAssembly acceleration and a user-chosen candidate scope are deferred and would each need a separate decision.
+
+# Decision 020
+
+## Session-Scoped Asynchronous Operations
+
+**Status**
+
+Accepted (Product Owner authorized implementation of Issue #27 on 2026-10-25). Implemented in the Issue #27 pull request; independent review and the Product Owner's two-account live-browser UAT are pending.
+
+### Decision
+
+Every asynchronous operation that can change what a signed-in user sees belongs to a session. A session is replaced by every sign-in (the same account signing in again included), sign-out, recovery event and missing session. An operation captures its session when it starts and treats its result, error and `finally` as inert once the session is no longer current: it renders nothing, says nothing, prompts nothing, sends nothing further, and releases only its own session's guards. Guards (busy flag, mutation guard, archive-uncertainty lifecycle) are part of the session, so a new session starts with free guards even if an earlier request never finishes. App-level activation uses an epoch checked after every await, and a confirmation prompt is dismissed when its account ends or changes.
+
+### Reason
+
+A previous account's Monthly Filing financial data could appear inside the next account's authenticated screen, and the next account's controls could stay disabled behind a request that never answered. Overlapping activation was confirmed by reproduction in Receipt Encoding's load and in `app.js`.
+
+### Consequences
+
+- The successful same-session flows (save, directory decision, workbook snapshot, archive, single mutation restriction, archive-uncertainty reconciliation, Active/Archived behavior) are unchanged. Same-account token refreshes are still de-duplicated by `app.js` and never start a new session.
+- A request already sent to the database before the switch cannot be recalled: a workbook already generated, an archive or Company Directory contribution already requested keep their server-side effect, which stays owner-scoped by RLS. Only the on-screen effect is suppressed.
+- No schema, RLS, Auth, dependency, feature or version change; automated tests use fake services and are not live hosted evidence.
+- Round 1 review of PR #31 added: the latest authentication event wins (A, B, A and B, A, B), a late startup session answer is ignored once any later sign-in, sign-out or recovery event has happened, password recovery ends both controllers' sessions, and Receipt Encoding's dialogs and pending review, export and edit save belong to their session (the previous account's are closed or discarded before the next session's first await, and its export runner can no longer read, generate a workbook or consume). A review read, workbook, consume or correction already sent before the switch cannot be recalled.
+- Round 2 review of PR #31 added: every remaining asynchronous Receipt Encoding continuation is session-scoped (Restore, Delete, permanent Consumed delete, Company Directory contribution and post-save prompts, OCR callback), and a stale Edit correction writes nothing to the shared Save correction button (a new session resets it; each session releases only its own). An earlier statement here that the unguarded Restore, Delete and OCR continuations "show no receipt data of the previous account" was wrong: a late Restore inserted the previous account's receipt (store, address, TIN) into the next account's receipt-history suggestions. It was reproduced by a failing test, fixed, and the remaining operations were audited (see `07_Regression_Coverage_Matrix.md`).
+- Round 3 review of PR #31 added: the three remaining confirmation continuations (Clear manual selection, Clear form, Discard unfinished receipt) check their session after the answer instead of relying on `app.js` dismissing the shared prompt with `false` on an account change. Tests use a late `true` confirmation, which is the harder case, and assert nothing of the next account changes (receipts, unsaved edits, selections, feedback, focus). With this the guarantee is: **every** confirmation, request and callback of the Receipt Encoding and Monthly Filing controllers captures its session and writes nothing once it has ended.
+- A request already sent before the switch (a status update, delete, contribution, correction, review read, workbook download, consume) cannot be recalled; its server-side effect stays owner-scoped by RLS and only its on-screen and cache effect is suppressed. Observed separately and not changed here: after a successful Edit correction the shared Save correction button is not re-enabled until the page is reloaded (this predates Issue #27).

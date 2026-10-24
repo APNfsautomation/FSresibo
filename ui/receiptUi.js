@@ -209,7 +209,7 @@ export function buildOptimizationView(entries, state) {
 }
 export const availableOptimizerReceipts = receipts => receipts.filter(receipt => normalizeReceiptStatus(receipt.status) === 'available' && receipt.cents > 0);
 
-export function createReceiptDeleteHandler({ row, triggerFallback, getCurrentUser, getReceiptStatus, hasDraftContent, confirmAction, deleteReceipt, removeStoreSourceReceipt, clearSelection, refreshReceiptIds, refreshEncodingCards, refreshOptimizationCards, setFeedback, feedbackTarget }) {
+export function createReceiptDeleteHandler({ row, triggerFallback, getSession = () => 0, getCurrentUser, getReceiptStatus, hasDraftContent, confirmAction, deleteReceipt, removeStoreSourceReceipt, clearSelection, refreshReceiptIds, refreshEncodingCards, refreshOptimizationCards, setFeedback, feedbackTarget }) {
   let deletePending = false;
   return async event => {
     const trigger = event.currentTarget;
@@ -217,14 +217,18 @@ export function createReceiptDeleteHandler({ row, triggerFallback, getCurrentUse
     const id = row.dataset.receiptDbId;
     if (getReceiptStatus() === 'consumed') return;
     const nextFocus = row.nextElementSibling || row.previousElementSibling;
+    const session = getSession(); // the session this delete belongs to (Issue #27): an answer for an earlier one changes nothing under the next account
     deletePending = true;
     try {
       if (id && getCurrentUser()) {
         if (!await confirmAction({ title: 'Delete saved receipt?', message: 'This cannot be undone.', confirmLabel: 'Delete receipt', cancelLabel: 'Keep receipt', danger: true, trigger })) return;
+        if (getSession() !== session) return;
         trigger.disabled = true;
         setFeedback(feedbackTarget);
         await deleteReceipt(id);
+        if (getSession() !== session) return;
       } else if (hasDraftContent() && !await confirmAction({ title: 'Discard unfinished receipt?', message: 'Its entered details will be lost.', confirmLabel: 'Discard receipt', cancelLabel: 'Keep editing', danger: true, trigger })) return;
+      if (getSession() !== session) return; // a late Yes from an earlier session removes nothing, clears nothing and moves no focus under the next account
       row.remove();
       if (id) removeStoreSourceReceipt(id);
       clearSelection();
@@ -233,6 +237,7 @@ export function createReceiptDeleteHandler({ row, triggerFallback, getCurrentUse
       refreshOptimizationCards();
       (nextFocus?.querySelector('summary') || triggerFallback).focus({ preventScroll: true });
     } catch (error) {
+      if (getSession() !== session) return;
       setFeedback(feedbackTarget, `Could not delete this receipt: ${error.message}`, 'error');
     } finally {
       deletePending = false;
@@ -241,7 +246,7 @@ export function createReceiptDeleteHandler({ row, triggerFallback, getCurrentUse
   };
 }
 // Permanent deletion of a saved Consumed receipt. The row stays in the list until the database has confirmed the deletion.
-export function createConsumedDeleteHandler({ row, triggerFallback, getCurrentUser, getReceiptStatus, confirmAction, deleteConsumedReceipt, removeStoreSourceReceipt, clearSelection, refreshReceiptIds, refreshEncodingCards, refreshOptimizationCards, setFeedback, feedbackTarget }) {
+export function createConsumedDeleteHandler({ row, triggerFallback, getSession = () => 0, getCurrentUser, getReceiptStatus, confirmAction, deleteConsumedReceipt, removeStoreSourceReceipt, clearSelection, refreshReceiptIds, refreshEncodingCards, refreshOptimizationCards, setFeedback, feedbackTarget }) {
   let deletePending = false;
   const visibleNeighbour = (start, step) => { let node = start; while (node && node.hidden) node = node[step]; return node; };
   return async event => {
@@ -250,12 +255,15 @@ export function createConsumedDeleteHandler({ row, triggerFallback, getCurrentUs
     const id = row.dataset.receiptDbId;
     if (!id || !getCurrentUser() || getReceiptStatus() !== 'consumed') return;
     const nextFocus = visibleNeighbour(row.nextElementSibling, 'nextElementSibling') || visibleNeighbour(row.previousElementSibling, 'previousElementSibling');
+    const session = getSession();
     deletePending = true;
     try {
       if (!await confirmAction({ title: 'Permanently delete this Consumed receipt?', message: 'This permanently deletes the saved receipt. It cannot be undone. Receipts you already exported are not affected.', confirmLabel: 'Delete permanently', cancelLabel: 'Keep receipt', danger: true, trigger })) return;
+      if (getSession() !== session) return;
       trigger.disabled = true;
       setFeedback(feedbackTarget);
       await deleteConsumedReceipt(id);
+      if (getSession() !== session) return;
       row.remove();
       removeStoreSourceReceipt(id);
       clearSelection();
@@ -265,6 +273,7 @@ export function createConsumedDeleteHandler({ row, triggerFallback, getCurrentUs
       setFeedback(feedbackTarget, 'Consumed receipt deleted permanently.', 'success');
       (nextFocus?.querySelector('summary') || triggerFallback)?.focus?.({ preventScroll: true });
     } catch (error) {
+      if (getSession() !== session) return;
       setFeedback(feedbackTarget, `Could not delete this Consumed receipt: ${String(error?.message || 'Unknown error').replace(/[.\s]+$/, '')}. It was not removed from your list.`, 'error');
     } finally {
       deletePending = false;
@@ -329,6 +338,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   // Every sign-in, sign-out or account change starts a new save session: a save still in flight from an earlier one can no longer show progress, change the cache or
   // the controls, or clear state that belongs to a newer save.
   let saveGeneration = 0;
+  // Advanced by every sign-in and sign-out: a load or import that started under an earlier value belongs to an ended session and is inert (Issue #27).
+  let sessionGeneration = 0;
   // New receipts whose write failed: the database may have committed them even though the answer was lost, so they are checked before being created again.
   let uncertainCreates = new WeakMap();
   const resetSaveState = () => {
@@ -362,9 +373,9 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   const sharedProfile = profile => ({ ...profile, storeName: profile.storeName || profile.store, address: profile.address || '', tin: profile.tin || '' });
   const profileIdentity = sharedProfileIdentity;
   const combinedStoreProfiles = () => combineStoreProfiles(sharedStoreProfiles, storeProfiles);
-  const reloadSharedStores = async () => {
-    try { sharedStoreProfiles = await sharedStoreService.listActiveSharedStores(); return true; }
-    catch { setFeedback(elements.encodingFeedback, 'Company Store Directory is temporarily unavailable. Your receipt history is still available.', 'warning'); return false; }
+  const reloadSharedStores = async (generation = sessionGeneration) => {
+    try { const loaded = await sharedStoreService.listActiveSharedStores(); if (generation !== sessionGeneration) return false; sharedStoreProfiles = loaded; return true; }
+    catch { if (generation !== sessionGeneration) return false; setFeedback(elements.encodingFeedback, 'Company Store Directory is temporarily unavailable. Your receipt history is still available.', 'warning'); return false; }
   };
   const upsertStoreSourceReceipt = receipt => {
     if (!receipt?.dbId) return;
@@ -723,7 +734,9 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   };
   const clearManualSelection = async event => {
     if (!manualIds.length) return;
+    const session = sessionGeneration; // the confirmation belongs to the session that asked (Issue #27): a late Yes never clears another account's selection
     if (manualIds.length >= 25 && !await confirmAction({ title: 'Clear the manual selection?', message: `This deselects all ${manualIds.length} receipts. Your receipts themselves are not changed.`, confirmLabel: 'Clear selection', cancelLabel: 'Keep selection', danger: true, trigger: event?.currentTarget })) return;
+    if (session !== sessionGeneration) return;
     setManualIds([]);
     setManualFeedback('Manual selection cleared.');
     refreshOptimizationCards();
@@ -953,10 +966,11 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     row.dataset.receiptStatus = normalizeReceiptStatus(values.status);
     if (values.dbId) row.dataset.persistedStoreFingerprint = persistedStoreFingerprint(values);
     for (const [key, value] of Object.entries(values)) { const field = row.querySelector(`.receipt-${key}`); if (field) field.value = value; }
-    row.querySelector('.receipt-photo').addEventListener('change', event => { const file = event.currentTarget.files[0]; if (file) scanPrintedDetails(file, row, target => { refreshSummary(target); refreshAvailableSummary(); }); }); // the scan fills fields after it returns: refresh the unsaved flag and count then
+    row.querySelector('.receipt-photo').addEventListener('change', event => { const file = event.currentTarget.files[0]; if (file) { const session = sessionGeneration; scanPrintedDetails(file, row, target => { if (session !== sessionGeneration) return; refreshSummary(target); refreshAvailableSummary(); }); } }); // the scan fills fields after it returns: refresh the unsaved flag and count then
     row.querySelector('.delete-receipt').addEventListener('click', createReceiptDeleteHandler({
       row,
       triggerFallback: elements.floatingAdd,
+      getSession: () => sessionGeneration,
       getCurrentUser: () => currentUser,
       getReceiptStatus: () => receiptStatus(row),
       hasDraftContent: () => Object.values(rowValues(row)).some(value => String(value || '').trim()) || row.querySelector('.receipt-photo').files.length > 0,
@@ -979,12 +993,17 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       if (resolution.status === 'existing') return setFeedback(elements.encodingFeedback, 'This store already exists in the Company Store Directory.', 'info');
       if (resolution.status === 'ambiguous') return setFeedback(elements.encodingFeedback, 'Multiple Company profiles match. Add an Address or TIN before contributing.', 'warning');
       event.currentTarget.disabled = true;
+      const generation = sessionGeneration; // an answer for an earlier session says nothing under the next account
+      const contributor = currentUser;
       try {
-        await sharedStoreService.contributeSharedStore(candidate, currentUser.id);
-        await reloadSharedStores();
+        await sharedStoreService.contributeSharedStore(candidate, contributor.id);
+        if (generation !== sessionGeneration) return;
+        await reloadSharedStores(generation);
+        if (generation !== sessionGeneration) return;
         setFeedback(elements.encodingFeedback, 'Store added to the Company Store Directory.', 'success');
       } catch (error) {
-        if (error?.name === 'SharedStoreDuplicateError') { await reloadSharedStores(); resolveSharedContributionCandidate(candidate, sharedStoreProfiles); setFeedback(elements.encodingFeedback, 'This store was already added to the Company Store Directory.', 'info'); }
+        if (generation !== sessionGeneration) return;
+        if (error?.name === 'SharedStoreDuplicateError') { await reloadSharedStores(generation); if (generation !== sessionGeneration) return; resolveSharedContributionCandidate(candidate, sharedStoreProfiles); setFeedback(elements.encodingFeedback, 'This store was already added to the Company Store Directory.', 'info'); }
         else setFeedback(elements.encodingFeedback, `Could not add this store: ${error.message}`, 'error');
       } finally { event.currentTarget.disabled = false; }
     });
@@ -992,6 +1011,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     row.querySelector('.delete-consumed').addEventListener('click', createConsumedDeleteHandler({
       row,
       triggerFallback: elements.receiptStatusFilter,
+      getSession: () => sessionGeneration,
       getCurrentUser: () => currentUser,
       getReceiptStatus: () => receiptStatus(row),
       confirmAction,
@@ -1042,22 +1062,28 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     const details = [candidate.address && `Address: ${candidate.address}`, candidate.tin && `TIN: ${candidate.tin}`].filter(Boolean);
     return `“${candidate.storeName}” is not currently in the Company Directory. Adding it will make its store details available to other users.${details.length ? ` ${details.join(' · ')}` : ''}`;
   };
-  const contributeAfterReceiptSave = async candidate => {
+  // The save's own user and liveness check (mine) are passed in: a prompt, contribution or message that belongs to an ended session never reaches the next account.
+  const contributeAfterReceiptSave = async (candidate, user, mine) => {
     try {
-      await sharedStoreService.contributeSharedStore(candidate, currentUser.id);
+      await sharedStoreService.contributeSharedStore(candidate, user.id);
+      if (!mine()) return;
       await reloadSharedStores();
+      if (!mine()) return;
       setFeedback(elements.encodingFeedback, 'Receipt saved. Store added to the Company Directory.', 'success');
     } catch (error) {
+      if (!mine()) return;
       if (error?.name === 'SharedStoreDuplicateError') {
         await reloadSharedStores();
+        if (!mine()) return;
         setFeedback(elements.encodingFeedback, 'Receipt saved. This store is already in the Company Directory.', 'success');
       } else {
         setFeedback(elements.encodingFeedback, `Receipt saved, but the store could not be added to the Company Directory: ${error.message}`, 'warning');
       }
     }
   };
-  const processPostSaveDirectoryCandidates = async candidates => {
+  const processPostSaveDirectoryCandidates = async (candidates, user, mine) => {
     for (const decision of deduplicateDirectoryCandidates(candidates)) {
+      if (!mine()) return;
       if (decision.status === 'ambiguous') {
         setFeedback(elements.encodingFeedback, 'Receipt saved. Multiple Company profiles match this store; add more identifying information before adding it to the directory.', 'warning');
         continue;
@@ -1070,11 +1096,12 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
         cancelLabel: 'Keep in My Receipt History',
         trigger: elements.saveDraft
       });
+      if (!mine()) return;
       if (!confirmed) {
         setFeedback(elements.encodingFeedback, 'Receipt saved. Store kept in My Receipt History.', 'success');
         continue;
       }
-      await contributeAfterReceiptSave(decision.candidate);
+      await contributeAfterReceiptSave(decision.candidate, user, mine);
     }
   };
   // ---- Save: dirty-only persistence with real progress (Issue #24) ----
@@ -1220,7 +1247,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       refreshOptimizationCards();
       const nowHidden = releasedHiddenNotice(released.filter(row => row.hidden).map(row => row.dataset.receiptId || ''));
       setFeedback(elements.encodingFeedback, `Receipt changes saved.${nowHidden ? ` ${nowHidden}` : ''}${notices ? ` ${notices}` : ''}`, 'success');
-      await processPostSaveDirectoryCandidates(candidates);
+      await processPostSaveDirectoryCandidates(candidates, user, mine);
     } catch (error) { if (!mine()) return; refreshEncodingCards(); refreshOptimizationCards(); setFeedback(elements.encodingFeedback, `Could not save receipt changes: ${error.message}`, 'error'); }
     finally { if (mine()) { savePending = false; elements.saveDraft.disabled = false; elements.saveDraft.removeAttribute?.('aria-busy'); } } // a stale save never touches a newer save's controls
   };
@@ -1398,16 +1425,20 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     if (!draft || localStorage.getItem(migrationKey)) return false;
     let data;
     try { data = JSON.parse(draft); } catch { return false; }
+    const generation = sessionGeneration;
     if (!data.receipts?.length || !await confirmAction({ title: 'Import saved browser receipts?', message: `Import ${data.receipts.length} saved browser receipt${data.receipts.length === 1 ? '' : 's'} into your account? Your local draft will be kept as a backup.`, confirmLabel: 'Import receipts', cancelLabel: 'Not now', trigger: document.activeElement })) return false;
+    if (generation !== sessionGeneration) return false; // the account changed while the question was open: nothing is imported for it
     importPending = true;
     try {
       const imported = await receiptService.importReceipts(data.receipts, user.id);
-      localStorage.setItem(migrationKey, 'true');
+      localStorage.setItem(migrationKey, 'true'); // the import itself happened for that account, so it is recorded as done for that account only
+      if (generation !== sessionGeneration) return false; // ...but its receipts are never drawn under the next account
       if (data.target) elements.target.value = data.target;
       imported.forEach(receipt => { addReceipt(receipt); upsertStoreSourceReceipt(receipt); });
       setFeedback(elements.encodingFeedback, 'Import completed. Your original browser draft was kept as a backup.', 'success');
       return true;
     } catch (error) {
+      if (generation !== sessionGeneration) return false;
       setFeedback(elements.encodingFeedback, `Could not import saved browser receipts: ${error.message}`, 'error');
       return false;
     } finally { importPending = false; }
@@ -1491,12 +1522,27 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   // Review (Snapshot A) happens before the confirmation dialog opens; the final read (Snapshot B) happens when the user confirms.
   let exportReviewPending = false;
   let exportSession = null; // { selection, entries, baseline } while the confirmation dialog is open
-  const newExportRunner = () => createReceiptExportRunner({
-    fetchSnapshot: ids => receiptService.loadReceiptsByIds(ids),
-    generateWorkbook: rows => downloadSelectedReceipts(rows),
-    consume: ids => receiptService.consumeReceipts(ids)
-  });
+  // A runner belongs to the session that created it (Issue #27): once that session has ended, none of its steps may start a read, generate a workbook or send a
+  // status update. A step already sent cannot be recalled; its answer is ignored by the continuation, and its server-side effect stays owner-scoped.
+  const newExportRunner = () => {
+    const generation = sessionGeneration; const live = () => generation === sessionGeneration;
+    const ended = () => new Error('The signed-in account changed, so this export was stopped.');
+    return createReceiptExportRunner({
+      fetchSnapshot: async ids => { if (!live()) throw ended(); const rows = await receiptService.loadReceiptsByIds(ids); if (!live()) throw ended(); return rows; },
+      generateWorkbook: rows => { if (!live()) throw ended(); return downloadSelectedReceipts(rows); },
+      consume: async ids => { if (!live()) throw ended(); return receiptService.consumeReceipts(ids); }
+    });
+  };
   let exportRunner = newExportRunner();
+  // Everything an earlier account's review, export and dialogs left behind. Every new session runs it BEFORE its first await, so nothing of the previous account
+  // (an open Review & Arrange or Edit dialog, a pending export or review, a manual selection) is ever visible, or blocking, under the next one.
+  const endTransientAccountState = () => {
+    exportPending = false; exportReviewPending = false; editSavePending = false; exportSession = null; exportRunner = newExportRunner();
+    exportMode = 'best-match'; knownMissingIds.clear(); setManualIds([]); setManualFeedback(''); applyExportModeView();
+    const editSubmit = elements.editForm?.querySelector?.('button[type="submit"]'); if (editSubmit) editSubmit.disabled = false; // the shared button belongs to the session that disabled it: a new session starts with it free
+    if (!elements.editModal.hidden) closeEditModal(); // only an open dialog is closed: an idle one has nothing to hand focus back from
+    if (!elements.exportConfirmModal.hidden) closeExportConfirmation({ force: true });
+  };
   const errorText = error => String(error?.message || 'Unknown error').replace(/[.\s]+$/, '');
   const rowForSelectionEntry = entry => [...elements.list.children].find(row => selectionEntryMatchesRow(entry, row));
   const exportEntries = () => exportSource().entries.map(({ dbId, label, used }) => ({ dbId, label, used }));
@@ -1560,6 +1606,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     if (!local.ok) return blockForEncoding(local.problems);
     const reviewed = source;
     const mode = exportMode; // the mode and selection this review belongs to: checked again after every await
+    const generation = sessionGeneration; // and the session: an answer for an earlier account opens nothing and says nothing
     const button = exportButton();
     const entries = exportEntries();
     exportReviewPending = true;
@@ -1567,7 +1614,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     try {
       let baseline;
       try { baseline = await exportRunner.loadBaseline(entries.map(entry => entry.dbId)); }
-      catch (error) { return setExportFeedback(`Could not load the latest saved receipt values: ${errorText(error)}. Nothing was exported.`, '', mode); }
+      catch (error) { if (generation !== sessionGeneration) return; return setExportFeedback(`Could not load the latest saved receipt values: ${errorText(error)}. Nothing was exported.`, '', mode); }
+      if (generation !== sessionGeneration) return;
       if (exportMode !== mode || exportSource() !== reviewed) return setExportFeedback('The selection changed while the receipts were being checked. Nothing was exported; choose Export Selected again.', '', mode);
       const reference = new Map(storeSourceReceipts.map(receipt => [receipt.dbId, receipt]));
       const verdict = classifyExportSnapshot({ entries, snapshotRows: baseline.rows, reference });
@@ -1588,8 +1636,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       modalFocus?.open(elements.exportConfirmModal, { trigger: button, fallback: mode === 'manual' ? elements.manualSelectShown : elements.calculate, onEscape: escapeReview });
       (exportSession.needsAck ? elements.exportReviewAckInput : elements.confirmExport).focus();
     } finally {
-      exportReviewPending = false;
-      button.removeAttribute('aria-busy');
+      if (generation === sessionGeneration) { exportReviewPending = false; button.removeAttribute('aria-busy'); }
     }
   };
   const exportAndConsume = async () => {
@@ -1609,7 +1656,9 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     const byId = new Map(session.entries.map(entry => [entry.dbId, entry]));
     const arrangement = arrangements[session.mode];
     const confirmedOrder = arrangement && arrangement.selection === session.selection && sameMembers(arrangement.order, session.entries.map(entry => entry.dbId)) ? arrangement.order : session.entries.map(entry => entry.dbId);
+    const generation = sessionGeneration;
     const result = await exportRunner.run({ entries: confirmedOrder.map(id => byId.get(id)), baseline: session.baseline });
+    if (generation !== sessionGeneration) return; // the account changed while this export ran: nothing is applied, announced or unlocked for the next account
     if (result.state === 'busy') return stop('An export is already in progress.');
     if (result.state === 'verification-required') return stop('Receipt status changed since this review. Choose Export Selected again so the receipts are verified with the database first. Nothing was exported.');
     if (result.state === 'snapshot-failed') return stop(`Could not verify the latest saved receipt values: ${errorText(result.error)}. Nothing was exported or marked Consumed.`);
@@ -1668,10 +1717,13 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   const restoreReceipt = async (index, trigger) => {
     const row = elements.list.children[index];
     if (!row || receiptStatus(row) !== 'consumed' || !row.dataset.receiptDbId) return;
+    const generation = sessionGeneration; // an answer for an earlier session must not put its receipt into the next account's history, or speak on its screen (Issue #27)
     if (!await confirmAction({ title: 'Mark receipt Available?', message: 'It will return to normal editing and optimization.', confirmLabel: 'Mark Available', cancelLabel: 'Keep Consumed', trigger })) return;
+    if (generation !== sessionGeneration) return;
     if (trigger) trigger.disabled = true;
     try {
       const saved = await receiptService.updateReceiptStatus(row.dataset.receiptDbId, 'available');
+      if (generation !== sessionGeneration) return;
       row.dataset.receiptStatus = saved.status;
       row.dataset.receiptUpdatedAt = saved.updatedAt || '';
       applyReceiptStatusState(row);
@@ -1679,7 +1731,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       refreshEncodingCards();
       refreshOptimizationCards();
       setFeedback(elements.encodingFeedback, 'Receipt marked as Available.', 'success');
-    } catch (error) { setFeedback(elements.encodingFeedback, `Could not restore this receipt: ${error.message}`, 'error'); if (trigger) trigger.disabled = false; }
+    } catch (error) { if (generation !== sessionGeneration) return; setFeedback(elements.encodingFeedback, `Could not restore this receipt: ${error.message}`, 'error'); if (trigger) trigger.disabled = false; }
   };
   const saveModalCorrection = async event => {
     event.preventDefault();
@@ -1692,14 +1744,16 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     const parsedAmount = parseMoneyAmount(values.amount);
     if (parsedAmount.valid === false) return setFeedback(elements.editFeedback, `Could not save correction: ${parsedAmount.message}`, 'error');
     editSavePending = true;
+    const generation = sessionGeneration; const owner = currentUser;
     const submitButton = event.submitter;
     if (submitButton) submitButton.disabled = true;
     if (row.dataset.receiptDbId && currentUser) {
       try {
-        const saved = await receiptService.updateReceipt(row.dataset.receiptDbId, values, currentUser.id);
+        const saved = await receiptService.updateReceipt(row.dataset.receiptDbId, values, owner.id);
+        if (generation !== sessionGeneration) return; // an earlier account's correction: nothing is applied or said under the next one, and the shared button is not touched (the new session reset it)
         if (saved.updatedAt) row.dataset.receiptUpdatedAt = saved.updatedAt;
         upsertStoreSourceReceipt(saved);
-      } catch (error) { setFeedback(elements.editFeedback, `Could not save correction: ${error.message}`, 'error'); editSavePending = false; if (submitButton) submitButton.disabled = false; return; }
+      } catch (error) { if (generation !== sessionGeneration) return; setFeedback(elements.editFeedback, `Could not save correction: ${error.message}`, 'error'); editSavePending = false; if (submitButton) submitButton.disabled = false; return; }
     }
     cancelCalculation('changed'); // a correction to any receipt stales a calculation that is still running
     // A correction to a receipt in the current Find Best Match result makes that result stale: clear it and say why, rather than exporting different values.
@@ -1733,14 +1787,22 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     refreshOptimizationCards();
   };
   return {
+    // Every sign-in is a new session (the same account again included). Whatever an earlier session left on screen is wiped first, and an earlier session's late
+    // answers (its load, its Company Directory list, its legacy import) are stale: they render nothing and say nothing under the next account (Issue #27, AUTH-10).
     async loadForUser(user) {
       cancelCalculation();
       resetSaveState();
+      const generation = ++sessionGeneration;
+      endTransientAccountState();
       currentUser = user;
-      const receipts = await receiptService.loadReceipts();
+      elements.list.replaceChildren(); storeSourceReceipts = []; sharedStoreProfiles = []; rebuildStoreProfiles(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty();
+      let receipts;
+      try { receipts = await receiptService.loadReceipts(); } catch (error) { if (generation !== sessionGeneration) return; throw error; }
+      if (generation !== sessionGeneration) return;
       storeSourceReceipts = receipts;
       rebuildStoreProfiles();
-      await reloadSharedStores();
+      await reloadSharedStores(generation);
+      if (generation !== sessionGeneration) return;
       elements.list.replaceChildren();
       exportRunner = newExportRunner(); exportSession = null;
       exportMode = 'best-match'; knownMissingIds.clear(); setManualIds([]); setManualFeedback(''); applyExportModeView(); // a different user starts with nothing selected
@@ -1766,7 +1828,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     },
     setWorkspace,
     setModuleVisible,
-    clearForLogout() { cancelCalculation(); resetSaveState(); currentUser = undefined; sharedStoreProfiles = []; toolbarState = defaultOptimizationToolbarState(); encodingDisplayState = { compartment: 'all' }; storeSourceReceipts = []; rebuildStoreProfiles(); syncToolbarControls(); elements.encodingAmountCompartment.value = 'all'; setActiveStrategy(optimizationStrategies.closest, { persist: false }); elements.list.replaceChildren(); elements.target.value = ''; exportRunner = newExportRunner(); exportMode = 'best-match'; knownMissingIds.clear(); setManualIds([]); setManualFeedback(''); applyExportModeView(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); closeEditModal(); closeExportConfirmation({ force: true }); },
+    clearForLogout() { cancelCalculation(); sessionGeneration += 1; resetSaveState(); currentUser = undefined; sharedStoreProfiles = []; toolbarState = defaultOptimizationToolbarState(); encodingDisplayState = { compartment: 'all' }; storeSourceReceipts = []; rebuildStoreProfiles(); syncToolbarControls(); elements.encodingAmountCompartment.value = 'all'; setActiveStrategy(optimizationStrategies.closest, { persist: false }); elements.list.replaceChildren(); elements.target.value = ''; endTransientAccountState(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); closeEditModal(); closeExportConfirmation({ force: true }); },
     importLegacyDraft,
     start() {
       renderEncodingAmountCompartmentOptions();
@@ -1790,7 +1852,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       elements.exportConfirmBackdrop.addEventListener('click', closeExportConfirmation);
       elements.saveDraft.addEventListener('click', saveDraft);
       elements.clearAll.addEventListener('click', async event => {
-        if (!elements.list.children.length || await confirmAction({ title: 'Clear receipts from this form?', message: 'Saved receipts remain in your account and return after a refresh.', confirmLabel: 'Clear form', cancelLabel: 'Keep receipts', danger: true, trigger: event.currentTarget })) { elements.list.replaceChildren(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); }
+        const session = sessionGeneration; // a late Yes from an earlier session never erases the next account's form
+        if (!elements.list.children.length || await confirmAction({ title: 'Clear receipts from this form?', message: 'Saved receipts remain in your account and return after a refresh.', confirmLabel: 'Clear form', cancelLabel: 'Keep receipts', danger: true, trigger: event.currentTarget })) { if (session !== sessionGeneration) return; elements.list.replaceChildren(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); }
       });
       elements.floatingAdd.addEventListener('click', addReceiptForEncoding);
       elements.editForm.addEventListener('submit', saveModalCorrection);
