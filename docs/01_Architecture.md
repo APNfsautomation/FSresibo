@@ -103,7 +103,7 @@ These changes live on the protected UAT branch `claude/ui-ux-refinement` (45 com
 - **Workbooks and dates:** export filenames use the Philippine calendar date; Amount cells are numeric with a `#,##0.00` format, a blank amount is an empty cell and an explicit zero is numeric zero.
 - **Workflow safeguards:** keyboard shortcuts (Ctrl+Enter adds a receipt, Ctrl+S saves), in-app confirmation dialogs with focus containment, and a GitHub Actions `node-tests` check that a repository ruleset requires on pull requests to the UAT branch.
 
-Known gap: Monthly Filing save, export and load are not session-scoped the way Receipt Encoding saves are (Issue #27).
+Known gap: Monthly Filing save, export and load are not session-scoped the way Receipt Encoding saves are (Issue #27). A previous account's Monthly Filing data can appear on the next account's screen; the recommended severity is HIGH, with a fix before any `main` promotion. Overlapping account activation for Receipt Encoding is unverified.
 
 ## Current UI Direction
 Only the receipt list scrolls.

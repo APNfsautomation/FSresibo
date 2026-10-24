@@ -21,10 +21,10 @@ Live status words: **PASS**, **FAIL**, **PARTIAL**, **DEFERRED**, **NOT RUN**. `
 |---|---|---|
 | Baseline, UAT `2b1268c` (this checkpoint, local, Node v24.19.0) | `node --test tests/*.test.mjs` | 731 tests, 731 pass, 0 fail |
 | Same head, hosted | `node-tests` on PR #25 head `2e7b070`, run `40074662952` | 731 pass, 0 fail |
-| Final, this PR (local, Node v24.19.0) | `node --test tests/*.test.mjs` | 747 tests: 744 pass, 0 fail, 3 todo (the known-defect tests) |
+| Final, this PR (local, Node v24.19.0) | `node --test tests/*.test.mjs` | 747 tests: 744 pass, 0 ordinary fail, 3 todo. **The 3 todo tests (AUTH-7, AUTH-8, AUTH-9) actually fail** and are marked todo only so CI stays green while Issue #27 is triaged. This is not 747 passing tests and not complete session-isolation coverage. |
 | Final, this PR, hosted | `node-tests` on the exact PR head | the SHA and run id are recorded in the PR description |
 
-`tests/crossModuleRegression.test.mjs` adds 16 tests: 13 are ordinary tests, and 3 (AUTH-7, AUTH-8, AUTH-9) are `todo` tests for a known defect (section 6). A `todo` test that fails is reported but does not fail the run.
+`tests/crossModuleRegression.test.mjs` adds 16 tests: 13 are ordinary tests, and 3 (AUTH-7, AUTH-8, AUTH-9) are `todo` tests for a known defect (section 6). Those three **assert the intended behavior and currently fail**; Node reports a failing `todo` test but does not fail the run. Never report them as passing.
 
 ## 3. Coverage matrix
 
@@ -40,9 +40,10 @@ Each citation names a test file in backticks, then › and the start of a test t
 | AUTH-04 | A user change or logout clears the receipt manual selection, both arrangements and known-missing ids. (A) | `arrangementIsolation.test.mjs` › "R01: logout and a user change clear both arrangements"; `asyncExportIsolation.test.mjs` › "R03: logout and a user change reset the manual selection" | None | NOT RUN |
 | AUTH-05 | Quick Optimizer keeps its state for the same account and clears it on an account switch, logout and null session. (A) | `quickOptimizer.integration.test.mjs` › "same account retains calculator; account switch, logout and repeated null cleanup clear it" | None | NOT RUN |
 | AUTH-06 | A receipt save pending when a user signs out never affects the next account, and does not block its Save. (A) | `savePerformance.test.mjs` › "R2: sign out during a save, sign in as someone else"; `savePerformance.test.mjs` › "R2: an account that never finishes its save does not stop the next account from saving" | Covers Receipt Encoding only. | NOT RUN |
-| AUTH-07 | The real `app.js` activates receipts then Monthly Filing for the new account only; a token refresh reloads nothing; a switch without sign-out reloads both; duplicate sign-in events load once. (A) | `crossModuleRegression.test.mjs` › "AUTH-1: the first session activates receipts"; `crossModuleRegression.test.mjs` › "AUTH-2: a different account signing in"; `crossModuleRegression.test.mjs` › "AUTH-3: a second sign-in event" | New in this checkpoint. | NOT RUN |
+| AUTH-07 | The real `app.js` activates receipts then Monthly Filing for the signed-in account; a token refresh reloads nothing; a **sequential** switch without a sign-out event reloads both; duplicate sign-in events for the **same** account load once. (A) | `crossModuleRegression.test.mjs` › "AUTH-1: the first session activates receipts"; `crossModuleRegression.test.mjs` › "AUTH-2: a different account signing in"; `crossModuleRegression.test.mjs` › "AUTH-3: a second sign-in event" | New in this checkpoint. These tests complete one activation before the next begins. They do **not** cover overlapping activations (see AUTH-10). | NOT RUN |
 | AUTH-08 | Sign-out, a missing session and a signed-out start each clear receipts, Monthly Filing and Quick; recovery ignores sign-in events until sign-out. (A) | `crossModuleRegression.test.mjs` › "AUTH-4: sign-out, a missing session"; `crossModuleRegression.test.mjs` › "AUTH-5: after a recovery event" | New in this checkpoint. | NOT RUN |
-| AUTH-09 | A Monthly Filing save, export or load belonging to a signed-out account never changes or blocks the next account's screen. | `crossModuleRegression.test.mjs` › "AUTH-7 (known defect)" (todo); `crossModuleRegression.test.mjs` › "AUTH-8 (known defect)" (todo); `crossModuleRegression.test.mjs` › "AUTH-9 (known defect)" (todo) | **Known defect, Issue #27**, awaiting Product Owner triage. Not fixed in this checkpoint. | NOT RUN |
+| AUTH-09 | A Monthly Filing save, export or load belonging to a signed-out account never changes or blocks the next account's screen. | `crossModuleRegression.test.mjs` › "AUTH-7 (known defect)" (todo); `crossModuleRegression.test.mjs` › "AUTH-8 (known defect)" (todo); `crossModuleRegression.test.mjs` › "AUTH-9 (known defect)" (todo) | **Known defect, Issue #27**, awaiting Product Owner triage. Not fixed in this checkpoint. The failing tests show a previous account's Monthly Filing financial data appearing on the next account's signed-in screen, so a **HIGH severity, fix-before-`main`-promotion** classification is recommended (section 6). | NOT RUN |
+| AUTH-10 | Overlapping account activation is safe: account A's load still running when B signs in never shows A's data to B, for both Monthly Filing and Receipt Encoding. | none | **Unverified.** No test holds A's load open and switches to B before it completes. `app.js` and `receiptUi.loadForUser` have awaited load boundaries; Monthly Filing's was reproduced (AUTH-9), Receipt Encoding's was not probed. Potential Issue #27 follow-up; not a confirmed additional bug. | NOT RUN |
 
 ### 3.2 Receipt Encoding
 
@@ -113,6 +114,7 @@ Each citation names a test file in backticks, then › and the start of a test t
 | DIR-03 | An interrupted save keeps the prompt fingerprint and loses no directory decision. (A) | `sharedStorePostSave.test.mjs` › "an aborted batch preserves the prior prompt fingerprint" | None | as above |
 | DIR-04 | Transactions keep their own store snapshot; selecting a profile never rewrites canonical data. (A) | `monthlyFilingUi.test.mjs` › "Company profile selection copies a transaction snapshot and retains sharedStoreId"; `sharedStoreAdoption.test.mjs` › "shared selection copies an exact snapshot and clears stale blank fields" | None | as above |
 | DIR-05 | Another account sees contributed stores; receipt data stays user-specific. (S) | `sharedStoreMigration.test.mjs` › "shared-store migration enables restrictive RLS and grants only active reads plus owned active contributions"; `sharedStoreService.test.mjs` › "shared-store service remains isolated from receipt persistence" | Cross-user visibility is server behavior. **No two-account hosted run was made for this checkpoint.** | NOT RUN |
+| DIR-06 | Live new-contribution and cross-account directory visibility. | none | **DEFERRED / NOT RUN on the shared company project.** `public.shared_store_directory` is a company-wide canonical table and the app offers no user delete or deactivate (`sharedStoreService.js` exports list and contribute only). A test contribution would be a durable dummy profile visible to colleagues, and deleting a test receipt does not remove it. Run only on an isolated throwaway Supabase staging project, or with an administrator-approved disposable profile and cleanup procedure. On the shared project the PO checklist tests existing permitted profiles and that declining contribution adds nothing. | DEFERRED unless a safe setup exists |
 
 ### 3.7 UI, accessibility and operation
 
@@ -166,18 +168,20 @@ These are three different things and must not be merged into one claim.
 | U01-B, Issue #24 (PR #25) | Product Owner reported UAT **PASS** and praised the save-progress indicator. This is milestone-level acceptance, not item-by-item certification. | Uncertain-create fault injection, 400-new-receipt behavior and other edge cases were not individually observed. | Not authorized. |
 | This checkpoint, Issue #26 | Pending independent technical review, then separate Product Owner permission for any UAT merge. | The Product Owner's focused integration UAT (`08_Integration_UAT_Checklist.md`). | Not authorized. |
 
-Open authentication items (AUTH-02, SEC-06) and the Monthly Filing session defect (Issue #27) may block promotion to `main` even if this checkpoint is accepted.
+Open authentication items (AUTH-02, SEC-06) and the Monthly Filing session defect (Issue #27) may block promotion to `main` even if this checkpoint is accepted. Issue #27 is recommended as a **production-release blocker** (section 6).
 
 ## 6. Defects found by this checkpoint
 
 | Issue | Summary | Status |
 |---|---|---|
-| [#27](https://github.com/APNfsautomation/FSresibo/issues/27) | Monthly Filing save, export and load are not session-scoped. A signed-out account's late answer can replace the next account's receipts on screen and keep that account's Save disabled. Receipt Encoding does not have this problem (Issue #24). Database writes stay user-scoped by RLS. | Proposed for Product Owner triage. Not fixed. Reproduced by the three `todo` tests AUTH-7, AUTH-8 and AUTH-9. |
+| [#27](https://github.com/APNfsautomation/FSresibo/issues/27) | Monthly Filing save, export and load are not session-scoped. A signed-out account's late answer can replace the next account's receipts on screen, so **a previous user's Monthly Filing financial data appears inside the next user's authenticated screen**, and it keeps that account's Save disabled. Receipt Encoding saves do not have this problem (Issue #24). Database writes stay user-scoped by RLS, so this is a confidentiality and integrity problem of the screen, not cross-account database writes. | **Recommended severity: HIGH. Must be fixed before any `main` promotion or broad shared-browser rollout**, subject to Product Owner triage. Not fixed here. Reproduced by the three failing `todo` tests AUTH-7, AUTH-8 and AUTH-9. Rare timing does not make the exposure trivial. |
+
+**Safety workaround until fixed:** Until it is fixed, do not switch accounts while a Monthly Filing save, export or load is still running, and reload the page before trusting a view after an account switch.
 
 Observations, not defects claimed:
 
 - On a `PASSWORD_RECOVERY` event `app.js` clears only the workspace composition (Quick Optimizer); receipt and Monthly Filing state is cleared on the following sign-out. The application view is hidden meanwhile and sign-in events are ignored (AUTH-5), so nothing is shown. Recorded for CP10-C4 review of the recovery flow.
-- `receiptUi.loadForUser` may have the same slow-load race as #27. It could not be probed because the receipt fixture has no load gate.
+- **Overlapping activation is unverified (AUTH-10).** Whether Receipt Encoding's `loadForUser`, or the `app.js` activation as a whole, shows account A's data to account B when A's load is still running at the switch has not been tested: the receipt fixture has no load gate and no test holds A's load open. Treat it as a potential follow-up to Issue #27, not as assured safe and not as a confirmed bug.
 
 ## 7. CP10-C4 queue (unresolved, not resolved by this checkpoint)
 
@@ -185,7 +189,7 @@ Observations, not defects claimed:
 2. **Password-reset flow.** Recovery links entered the app without showing a reset form. Requires a live functional retest (AUTH-02). Unit tests cover only link recognition and the expired/invalid state.
 3. **Public sign-up.** Confirm hosted sign-up is disabled for direct API calls (SEC-06).
 4. **Dependency pinning and security.** Runtime dependencies are loaded from CDNs at floating versions with no integrity attribute: the Supabase client from `esm.sh/@supabase/supabase-js@2` (`config/supabase.js`) and Tesseract.js from `cdn.jsdelivr.net/npm/tesseract.js@5` (`index.html`). SheetJS is vendored at a pinned version. Pinning and subresource integrity need a scoped decision.
-5. **Monthly Filing session isolation** (Issue #27).
+5. **Monthly Filing session isolation** (Issue #27), recommended HIGH and a release blocker, together with a probe of overlapping activation for Receipt Encoding (AUTH-10).
 6. **Pre-production data reset and maintenance runbook** (already a release gate in `01_Architecture.md`).
 
 ## 8. Reconciliation of historical issues

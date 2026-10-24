@@ -252,7 +252,7 @@ Epic 4 is OCR Improvements.
 Highest Priority
 
 - Safe Epic 3 navigation and transaction-domain isolation
-- Unresolved CP10-C4 items: email confirmation redirect, password-recovery flow, hosted sign-up setting, CDN dependency pinning, and the Monthly Filing session-isolation defect (Issue #27)
+- Unresolved CP10-C4 items: email confirmation redirect, password-recovery flow, hosted sign-up setting, CDN dependency pinning, and the Monthly Filing session-isolation defect (Issue #27, recommended HIGH and a release blocker: a previous account's Monthly Filing data can appear to the next account)
 - Product Owner integration UAT (`08_Integration_UAT_Checklist.md`) after the CP10-C3E-5 pull request is reviewed and merged
 - Preserve accepted Monthly Filing lifecycle/export and shared-directory behavior
 
