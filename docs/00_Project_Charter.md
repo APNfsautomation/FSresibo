@@ -1,6 +1,6 @@
 # FSResibo Project Charter
 
-Version: 1.4
+Version: 1.5
 
 ## Purpose
 FSResibo is a productivity tool for receipt management that helps users capture, organize, optimize, and export receipt data while reducing repetitive manual work.
@@ -20,7 +20,7 @@ Every feature should answer:
 
 ## Approved Product Direction
 
-Epic 3 extends FSResibo into a focused multi-module productivity application. Milestones 3.1–3.5 are merged and complete. Milestone 3.6 implementation is complete; technical review and Product Owner browser acceptance are pending.
+Epic 3 extends FSResibo into a focused multi-module productivity application. Milestones 3.1–3.5 are merged and complete. Milestone 3.6 (Quick Optimizer) was merged to `main` by PR #15 on 2026-10-10 after the Product Owner reported browser tests passed; mobile device validation was not performed and is not claimed. Subsequent UI and workflow refinement (CP10) lives on the protected UAT branch `claude/ui-ux-refinement`, which is ahead of `main` and has no production release approval. Current completed, live-tested, deferred, unverified and not-released status is tracked in `07_Regression_Coverage_Matrix.md`.
 
 - **Receipts** keeps the existing long-term receipt pool and contains Receipt Encoding and Receipt Optimization.
 - **Monthly Filing** manages a separate monthly receipt pool through encode, review, export, archive, correction, and deliberate clearing.
@@ -38,5 +38,3 @@ Receipt Optimization and Quick Optimizer share accounting rules: target-reaching
 - Optional integrations only when they remain consistent with the focused-product philosophy
 
 Analytics and dashboards are intentionally out of scope.
-
--

@@ -73,7 +73,7 @@ Migration 003 is deployed to hosted Supabase. Live two-user RLS validation, brow
 
 Migration 004 is deployed. Hosted RPC/security/two-user/concurrency validation passed. Original lifecycle, Company Directory, final Active/Archived cleanup, and mobile browser acceptance passed. PR #14 is merged; Milestone 3.5 is complete.
 
-### Milestone 3.6 — Quick Optimizer & Accounting Tolerance Revision
+### Milestone 3.6 ✅ (source merged; manual acceptance partial) — Quick Optimizer & Accounting Tolerance Revision
 - Authenticated top-level workspace, desktop sidebar/mobile drawer, and hash routing
 - In-memory R1/R2/R3 defaults, stable monotonic labels, strict amounts, atomic newline bulk append, and 32-input limit
 - Shared exact top-three engine; alternative selection, highlights, explicit calculation, and stale-result invalidation
@@ -82,10 +82,34 @@ Migration 004 is deployed. Hosted RPC/security/two-user/concurrency validation p
 - Exact centavo display, workspace state retention, and refresh/logout/account-change resets
 - No persistence, store data, lifecycle, export, or migration
 
-Implementation complete; technical review and Product Owner browser acceptance pending. Version: `FSResibo v3.6.0-beta.1`. Milestone 3.6 is not yet accepted or merged; production rollout is not complete. See `06_M3.6_Browser_Acceptance.md` for the release acceptance checklist.
+Version: `FSResibo v3.6.0-beta.1`. Merged to `main` by PR #15 on 2026-10-10 after technical-lead review; the Product Owner reported browser tests passed the same day. **Mobile device validation was not performed**, and assistive-technology, mobile-performance and tested-browser details are not recorded, so milestone-wide manual acceptance is not claimed. No production rollout is claimed. See `06_M3.6_Browser_Acceptance.md` for the checklist and the recorded evidence.
 
-## CP10-C3E follow-ups
-- C3E-2 UI follow-up: add the approved "Go to Encoding" action to the unsaved-changes export block (open Encoding and focus the first affected receipt). C3E-1 only names the receipts in the message.
+## CP10 — UI/UX refinement on the UAT branch
+
+Work proceeds on the protected branch `claude/ui-ux-refinement` through pull requests with the `node-tests` check (see `03_Development_Workflow.md`). `main` is untouched and no production release is authorized. Evidence for every row is in `07_Regression_Coverage_Matrix.md`.
+
+| Checkpoint | Scope | State |
+|---|---|---|
+| C1-C3, C3E-1 to C3E-4 | Receipt Encoding, Monthly Filing and authentication polish; export integrity, review and ordering; Manual Selection export | Committed directly to the UAT branch before the pull-request and CI workflow existed; manual acceptance is not recorded in GitHub; covered by the automated suite |
+| CI pilot, Issue #18 / PR #19 | `node-tests` on pull requests to the UAT branch | Merged |
+| UAT branch protection, Issue #20 | Ruleset requiring a pull request and `node-tests` | Active |
+| U01-A, Issue #22 / PR #23 | Unsaved indicators, capped Select Shown, reachable Expand/Collapse | Accepted by the Product Owner: 18 PASS, 1 DEFERRED (A7) |
+| U01-B, Issue #24 / PR #25 | Dirty-only saves, real progress, edit/session safety | Merged; Product Owner UAT PASS at milestone level |
+| C3E-5, Issue #26 | Regression coverage map, documentation alignment, Product Owner checklist | In review (tests and documentation only) |
+| C4 | Authentication remediation and release gate (see below) | Not started |
+
+The earlier C3E-2 follow-up (the "Go to Encoding" action in the unsaved-changes export block) is delivered; it is covered by `reviewArrange.test.mjs`.
+
+### Approved deferments
+- Manual OCR dirty-indicator test **A7** (Issue #22): deferred to Epic 4, OCR Improvements. Not passed.
+- 400 genuinely new receipts and bulk-save optimization: deferred to later, with new approval. Not passed.
+
+### CP10-C4 queue (unresolved)
+- Email confirmation link redirect (an obsolete Synology address was observed) and the password-recovery flow (links entered the app without a reset) need live Supabase configuration and a functional retest. Unit tests do not resolve them.
+- Confirm hosted public sign-up is refused.
+- Dependency pinning and integrity for CDN-loaded libraries (Supabase client, Tesseract.js).
+- Monthly Filing session isolation defect (Issue #27): recommended HIGH and a release blocker for `main`, pending Product Owner triage; also probe overlapping account activation for Receipt Encoding.
+- Pre-production data reset and maintenance runbook.
 
 ## Future
 - Epic 4 — OCR Improvements

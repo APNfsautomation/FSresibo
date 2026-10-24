@@ -467,7 +467,9 @@ Archived means exported and read-only until returned to Active; it does not mean
 
 **Status**
 
-Accepted accounting/design contract; Milestone 3.6 implementation review and Product Owner browser acceptance pending.
+Accepted accounting/design contract. The original note read "Milestone 3.6 implementation review and Product Owner browser acceptance pending."
+
+Status update (2026-10-24, Issue #26): the implementation was merged to `main` by PR #15 on 2026-10-10 after technical-lead review, and the Product Owner reported browser tests passed. Mobile device validation was not performed and is not claimed; assistive-technology and mobile-performance checks are not recorded. The decision itself is unchanged.
 
 ### Decision
 
