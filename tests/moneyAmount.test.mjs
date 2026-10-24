@@ -145,7 +145,7 @@ test('a blank unsaved receipt and a Consumed receipt never block Save', async ()
   f.field(f.rows()[0], 'amount').value = 'not a number';
   await f.click(f.elements.floatingAdd);
   await f.click(f.elements.saveDraft);
-  assert.equal(f.elements.encodingFeedback.textContent, 'Receipt changes saved.');
+  assert.equal(f.elements.encodingFeedback.textContent, 'No changes to save.', 'nothing was dirty: Save says so and writes nothing (Issue #24)');
   assert.equal(f.calls.create.length, 0); assert.equal(f.calls.update.length, 0);
 });
 

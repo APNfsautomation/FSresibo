@@ -322,6 +322,18 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   let storeSuggestionSequence = 0;
   let receiptDomSequence = 0;
   let savePending = false;
+  // Every sign-in, sign-out or account change starts a new save session: a save still in flight from an earlier one can no longer show progress, change the cache or
+  // the controls, or clear state that belongs to a newer save.
+  let saveGeneration = 0;
+  // New receipts whose write failed: the database may have committed them even though the answer was lost, so they are checked before being created again.
+  let uncertainCreates = new WeakMap();
+  const resetSaveState = () => {
+    saveGeneration += 1; savePending = false; uncertainCreates = new WeakMap();
+    if (elements.saveDraft) { elements.saveDraft.disabled = false; elements.saveDraft.removeAttribute?.('aria-busy'); }
+    if (elements.saveProgress) { elements.saveProgress.hidden = true; elements.saveProgress.dataset.busy = ''; }
+    if (elements.saveProgressText) elements.saveProgressText.textContent = '';
+    if (elements.saveProgressLive) elements.saveProgressLive.textContent = '';
+  };
   let importPending = false;
   let editSavePending = false;
   const format = cents => money.format(cents / 100);
@@ -989,8 +1001,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     installStoreAutocomplete(row);
     const storeInput = row.querySelector('.receipt-store');
     row.querySelectorAll('input, select').forEach(field => {
-      const refreshView = () => { if (!row.hidden) pinReceipt(row); refreshSummary(row); clearSelection(); refreshEncodingCards(); refreshOptimizationCards(); };
-      field.addEventListener('input', field === storeInput ? () => { if (!row.hidden) pinReceipt(row); refreshSummary(row); refreshAvailableSummary(); } : refreshView);
+      const refreshView = () => { clearSaveSummary(); if (!row.hidden) pinReceipt(row); refreshSummary(row); clearSelection(); refreshEncodingCards(); refreshOptimizationCards(); };
+      field.addEventListener('input', field === storeInput ? () => { clearSaveSummary(); if (!row.hidden) pinReceipt(row); refreshSummary(row); refreshAvailableSummary(); } : refreshView);
       field.addEventListener('change', refreshView);
     });
     row.addEventListener('toggle', () => { refreshToggle(row); if (!row.open && row.dataset.filterPinned) releasePinAfterCollapse(row); });
@@ -1058,11 +1070,83 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       await contributeAfterReceiptSave(decision.candidate);
     }
   };
+  // ---- Save: dirty-only persistence with real progress (Issue #24) ----
+  // The Save progress is shown twice: a visible counter that follows every real write, and a screen-reader line that only speaks at the start, at each quarter and at the end.
+  const pluralReceipts = count => `${count} receipt${count === 1 ? '' : 's'}`;
+  const showSaveProgress = (text, { speak = '', busy = false } = {}) => {
+    if (elements.saveProgress) { elements.saveProgress.hidden = !text; elements.saveProgress.dataset.busy = busy ? '1' : ''; if (elements.saveProgressText) elements.saveProgressText.textContent = text; }
+    if (speak && elements.saveProgressLive) elements.saveProgressLive.textContent = speak;
+    elements.saveDraft.setAttribute?.('aria-busy', String(Boolean(savePending && text)));
+  };
+  const clearSaveSummary = () => { if (!savePending && elements.saveProgress && !elements.saveProgress.hidden) showSaveProgress(''); };
+  // What Save must write: modified saved receipts and new receipts with content, judged by the same authoritative comparison as the unsaved flags and the export preflight
+  // (unsavedKind). A saved receipt whose saved record is unknown cannot be proven unchanged, so it is written. Unchanged, blank and Consumed receipts are never written.
+  // Saved receipts that are unchanged but whose store details were never offered to the Company Directory (an earlier batch failed before its prompts) still get a decision.
+  const planSave = () => {
+    const work = []; const directoryOnly = [];
+    [...elements.list.children].forEach(row => {
+      if (receiptStatus(row) === 'consumed' || isBlankUnsavedReceipt(row)) return;
+      const dbId = row.dataset.receiptDbId;
+      const values = rowValues(row); // an immutable snapshot: edits made while the save runs are never written by this save, and stay flagged as unsaved
+      if (!dbId || !savedReceiptFor(row) || unsavedKind(row)) { work.push({ row, values, dbId, previousFingerprint: row.dataset.persistedStoreFingerprint }); return; }
+      const decision = postSaveDirectoryDecision({ values, previousFingerprint: row.dataset.persistedStoreFingerprint, profiles: sharedStoreProfiles });
+      if (decision.status === 'new' || decision.status === 'ambiguous') directoryOnly.push({ row, fingerprint: decision.fingerprint, decision });
+    });
+    return { work, directoryOnly };
+  };
+  // A failed create may still have been committed (the answer can be lost after the insert), so before such a receipt is created again the account is read once.
+  // Equal content is NOT proof that a receipt in the account is this one: it could be a separate identical receipt added elsewhere. So a receipt is never linked silently:
+  //   - nothing matches: the check found no copy at that moment, and the receipt is saved again (said plainly afterwards);
+  //   - exactly one Available match: the user is asked whether it is the same receipt (link) or a separate one (save as new), or to leave it unsaved;
+  //   - several matches, or a match that is not Available (Consumed or another status): it is never linked or edited; the user may only save a new receipt or leave it.
+  // A receipt the user leaves unsaved stays unconfirmed and is asked about again at the next Save.
+  const reconcileUncertainCreates = async mine => {
+    const pending = [...elements.list.children].filter(row => uncertainCreates.has(row) && !row.dataset.receiptDbId);
+    if (!pending.length) return { ok: true, adopted: [], recreated: [] };
+    let everything;
+    try { everything = await receiptService.loadReceipts(); } catch (error) { return { ok: false, severity: 'error', message: `Could not check whether an earlier attempt already saved a new receipt: ${String(error?.message || 'Unknown error').replace(/[.\s]+$/, '')}. Nothing was saved; try again.` }; }
+    if (!mine()) return { aborted: true };
+    const known = new Set(storeSourceReceipts.map(receipt => receipt.dbId)); const claimed = new Set(); const adopted = []; const recreated = []; const decidedNew = [];
+    const stop = (row, why) => ({ ok: false, severity: 'warning', message: `Nothing was saved. Receipt ${row.dataset.receiptId} is still unsaved${why ? ` (${why})` : ''}; save again when you are ready to decide.` });
+    for (const row of pending) {
+      const label = `Receipt ${row.dataset.receiptId}`;
+      const values = uncertainCreates.get(row);
+      const matches = everything.filter(candidate => !known.has(candidate.dbId) && !claimed.has(candidate.dbId) && changedWorkbookFields(candidate, values, { includeUpdatedAt: false }).length === 0);
+      if (!matches.length) { recreated.push(row.dataset.receiptId); decidedNew.push(row); continue; }
+      const onlyAvailable = matches.length === 1 && matches[0].status === 'available';
+      if (onlyAvailable) {
+        const link = await confirmAction({ title: 'Is this the same receipt?', message: `An earlier attempt to save ${label} did not report success. Your account already holds a receipt with exactly the same details that this page did not know about. It may be the earlier attempt, or it may be a separate identical receipt (for example added from another device). Link ${label} to it, or save ${label} as a new receipt.`, confirmLabel: `Link ${label} to the saved receipt`, cancelLabel: 'Do not link', trigger: elements.saveDraft });
+        if (!mine()) return { aborted: true };
+        if (link) {
+          const [match] = matches; claimed.add(match.dbId);
+          row.dataset.receiptDbId = match.dbId;
+          if (match.updatedAt) row.dataset.receiptUpdatedAt = match.updatedAt;
+          upsertStoreSourceReceipt(match);
+          applyUnsavedKind(row, unsavedKind(row));
+          uncertainCreates.delete(row);
+          adopted.push(row.dataset.receiptId);
+          continue;
+        }
+      }
+      const reason = onlyAvailable ? 'it matches a receipt already in your account' : matches.length > 1 ? `${matches.length} receipts in your account look identical to it` : `an identical receipt in your account is ${matches[0].status === 'consumed' ? 'Consumed' : 'not Available'}`;
+      const saveNew = await confirmAction({ title: 'Save as a new receipt?', message: `${label}: ${reason.charAt(0).toUpperCase()}${reason.slice(1)}. ${onlyAvailable ? '' : 'It cannot be linked or edited from here. '}Saving it as a new receipt will create another receipt with the same details; leaving it unsaved keeps your entry on screen and changes nothing in your account.`, confirmLabel: 'Save as a new receipt', cancelLabel: 'Leave unsaved', trigger: elements.saveDraft });
+      if (!mine()) return { aborted: true };
+      if (!saveNew) return stop(row, reason);
+      decidedNew.push(row);
+    }
+    decidedNew.forEach(row => uncertainCreates.delete(row)); // only now: a Save the user abandoned part-way leaves every undecided receipt unconfirmed
+    return { ok: true, adopted, recreated };
+  };
+  const adoptedNotice = adopted => adopted.length ? `${adopted.length === 1 ? `Receipt ${adopted[0]} was` : `Receipts ${adopted.join(', ')} were`} linked to ${adopted.length === 1 ? 'the matching receipt' : 'the matching receipts'} already in your account, as you chose, so ${adopted.length === 1 ? 'it was' : 'they were'} not saved twice.` : '';
+  const recreatedNotice = recreated => recreated.length ? `A check of your account just now found no matching copy of ${recreated.length === 1 ? `Receipt ${recreated[0]}` : `Receipts ${recreated.join(', ')}`}, so ${recreated.length === 1 ? 'it was' : 'they were'} saved again.` : '';
+  const removedNotice = count => count ? `${count === 1 ? 'A receipt you removed from the list was' : `${count} receipts you removed from the list were`} already being saved and ${count === 1 ? 'was' : 'were'} saved anyway; refresh the page to see ${count === 1 ? 'it' : 'them'}.` : '';
   const saveDraft = async () => {
     if (savePending) return;
     if (!currentUser) return setFeedback(elements.encodingFeedback, 'Please sign in before saving receipts.', 'warning');
     savePending = true;
     elements.saveDraft.disabled = true;
+    const generation = saveGeneration; const mine = () => generation === saveGeneration;
+    const user = currentUser; // a save belongs to the account and session that started it
     try {
       const invalidRow = [...elements.list.children].find(row => receiptStatus(row) !== 'consumed' && !isBlankUnsavedReceipt(row) && amountProblem(row));
       if (invalidRow) {
@@ -1072,34 +1156,66 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
         (invalidRow.hidden ? elements.receiptStatusFilter : invalidRow.querySelector('.receipt-amount')).focus?.({ preventScroll: false });
         return;
       }
-      const { persisted, candidates, error } = await persistReceiptsBeforeDirectoryPrompts([...elements.list.children], async row => {
-        if (receiptStatus(row) === 'consumed') return undefined;
-        const receipt = rowValues(row);
-        if (isBlankUnsavedReceipt(row)) return undefined;
-        const previousFingerprint = row.dataset.persistedStoreFingerprint;
-        const saved = row.dataset.receiptDbId ? await receiptService.updateReceipt(row.dataset.receiptDbId, receipt, currentUser.id) : await receiptService.createReceipt(receipt, currentUser.id);
+      const reconciled = await reconcileUncertainCreates(mine);
+      if (reconciled.aborted || !mine()) return;
+      if (!reconciled.ok) { showSaveProgress(''); setFeedback(elements.encodingFeedback, reconciled.message, reconciled.severity || 'error'); return; }
+      const { work, directoryOnly } = planSave();
+      const total = work.length;
+      if (!total && !directoryOnly.length) {
+        showSaveProgress('');
+        if (reconciled.adopted.length) setFeedback(elements.encodingFeedback, adoptedNotice(reconciled.adopted), 'success');
+        else setFeedback(elements.encodingFeedback, 'No changes to save.', 'info');
+        return;
+      }
+      const itemByRow = new Map(work.map(item => [item.row, item]));
+      const inList = row => [...elements.list.children].includes(row);
+      let completed = 0; let removed = 0; let orphaned = 0; let nextAnnouncement = Math.max(1, Math.ceil(total / 4));
+      if (total) showSaveProgress(`Saving 0 of ${total}`, { speak: `Saving ${pluralReceipts(total)}.`, busy: true });
+      const { persisted, candidates, error } = await persistReceiptsBeforeDirectoryPrompts(work.map(item => item.row), async row => {
+        const item = itemByRow.get(row);
+        if (!mine()) throw new Error('You were signed out or switched accounts, so the remaining receipts were not saved.');
+        if (!inList(row)) { removed += 1; return undefined; } // taken off the list before its turn: never write it
+        let saved;
+        try { saved = item.dbId ? await receiptService.updateReceipt(item.dbId, item.values, user.id) : await receiptService.createReceipt(item.values, user.id); }
+        catch (failure) { if (!item.dbId && mine()) uncertainCreates.set(row, item.values); throw failure; } // a failed create may still have been committed
+        if (!mine()) throw new Error('You were signed out or switched accounts while saving; the remaining receipts were not saved.'); // never apply this answer to another session
+        completed += 1;
+        if (!inList(row)) { orphaned += 1; return undefined; } // removed while its write was in flight: the write happened, but nothing is applied to a card that is gone
         row.dataset.receiptDbId = saved.dbId;
         if (saved.updatedAt) row.dataset.receiptUpdatedAt = saved.updatedAt;
         upsertStoreSourceReceipt(saved);
-        const fingerprint = persistedStoreFingerprint(receipt);
-        return { row, fingerprint, decision: postSaveDirectoryDecision({ values: receipt, previousFingerprint, profiles: sharedStoreProfiles }) };
+        applyUnsavedKind(row, unsavedKind(row)); // only a write the database confirmed clears this card; edits made meanwhile keep it flagged
+        showSaveProgress(`Saving ${completed} of ${total}`, { busy: true, ...(completed >= nextAnnouncement && completed < total ? { speak: `Saved ${completed} of ${total}.` } : {}) });
+        if (completed >= nextAnnouncement) nextAnnouncement += Math.max(1, Math.ceil(total / 4));
+        const fingerprint = persistedStoreFingerprint(item.values);
+        return { row, fingerprint, decision: postSaveDirectoryDecision({ values: item.values, previousFingerprint: item.previousFingerprint, profiles: sharedStoreProfiles }) };
       });
+      if (!mine()) return; // the session changed: nothing here may touch the new session's screen
+      const notices = [adoptedNotice(reconciled.adopted), removedNotice(orphaned)].filter(Boolean).join(' '); // the feedback line keeps its wording; what the check established is stated in the progress status
       if (error) {
         // Earlier rows may already be saved: refresh the saved total, count and unsaved indicator (edit pins and drafts stay as they are).
         refreshEncodingCards();
         refreshOptimizationCards();
-        setFeedback(elements.encodingFeedback, `Could not save receipt changes: ${error.message}`, 'error');
+        const left = total - completed - removed;
+        const unconfirmed = [...elements.list.children].filter(row => uncertainCreates.has(row)).length;
+        // The counts live in the progress status (visible and spoken); the error line keeps its wording.
+        const detail = unconfirmed ? ` (${unconfirmed} new receipt${unconfirmed === 1 ? '' : 's'} may already be in your account; the next Save checks first)` : '';
+        showSaveProgress(`Saved ${completed} of ${total} · ${left} still unsaved${detail}`, { speak: `Saved ${completed} of ${total}. ${pluralReceipts(left)} still unsaved.${detail}` });
+        setFeedback(elements.encodingFeedback, `Could not save receipt changes: ${error.message}${unconfirmed ? ' The outcome of a failed new receipt could not be confirmed; the next Save checks the database before creating it again.' : ''}${notices ? ` ${notices}` : ''}`, 'error');
         return;
       }
-      finalizeDirectoryPromptFingerprints(persisted);
+      finalizeDirectoryPromptFingerprints([...persisted, ...directoryOnly]);
+      candidates.push(...directoryOnly.map(result => result.decision));
+      if (total) showSaveProgress(`Saved ${pluralReceipts(completed - orphaned)}${reconciled.recreated.length ? ` (${recreatedNotice(reconciled.recreated).replace(/\.$/, '').replace(/^A check/, 'a check')})` : ''}`, { speak: `Saved ${pluralReceipts(completed)}.${reconciled.recreated.length ? ` ${recreatedNotice(reconciled.recreated)}` : ''}` });
+      else if (reconciled.adopted.length) showSaveProgress(`${pluralReceipts(reconciled.adopted.length)} linked to the matching saved receipt`, { speak: adoptedNotice(reconciled.adopted) }); // stays visible even if a Company Directory prompt replaces the message below
       const released = releaseEditPins();
       refreshEncodingCards();
       refreshOptimizationCards();
       const nowHidden = releasedHiddenNotice(released.filter(row => row.hidden).map(row => row.dataset.receiptId || ''));
-      setFeedback(elements.encodingFeedback, `Receipt changes saved.${nowHidden ? ` ${nowHidden}` : ''}`, 'success');
+      setFeedback(elements.encodingFeedback, `Receipt changes saved.${nowHidden ? ` ${nowHidden}` : ''}${notices ? ` ${notices}` : ''}`, 'success');
       await processPostSaveDirectoryCandidates(candidates);
-    } catch (error) { refreshEncodingCards(); refreshOptimizationCards(); setFeedback(elements.encodingFeedback, `Could not save receipt changes: ${error.message}`, 'error'); }
-    finally { savePending = false; elements.saveDraft.disabled = false; }
+    } catch (error) { if (!mine()) return; refreshEncodingCards(); refreshOptimizationCards(); setFeedback(elements.encodingFeedback, `Could not save receipt changes: ${error.message}`, 'error'); }
+    finally { if (mine()) { savePending = false; elements.saveDraft.disabled = false; elements.saveDraft.removeAttribute?.('aria-busy'); } } // a stale save never touches a newer save's controls
   };
   // Keyboard-first encoding (CP10-C3E-3K): Ctrl+Enter = Add receipt, Ctrl+S = Save changes, nothing else. The listener sits on the Receipt Encoding workspace
   // only, so it never sees keys typed in other workspaces or in dialogs (those are outside this element), and it reuses the buttons' own handlers.
@@ -1526,6 +1642,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   };
   return {
     async loadForUser(user) {
+      resetSaveState();
       currentUser = user;
       const receipts = await receiptService.loadReceipts();
       storeSourceReceipts = receipts;
@@ -1556,7 +1673,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     },
     setWorkspace,
     setModuleVisible,
-    clearForLogout() { currentUser = undefined; sharedStoreProfiles = []; toolbarState = defaultOptimizationToolbarState(); encodingDisplayState = { compartment: 'all' }; storeSourceReceipts = []; rebuildStoreProfiles(); syncToolbarControls(); elements.encodingAmountCompartment.value = 'all'; setActiveStrategy(optimizationStrategies.closest, { persist: false }); elements.list.replaceChildren(); elements.target.value = ''; exportRunner = newExportRunner(); exportMode = 'best-match'; knownMissingIds.clear(); setManualIds([]); setManualFeedback(''); applyExportModeView(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); closeEditModal(); closeExportConfirmation({ force: true }); },
+    clearForLogout() { resetSaveState(); currentUser = undefined; sharedStoreProfiles = []; toolbarState = defaultOptimizationToolbarState(); encodingDisplayState = { compartment: 'all' }; storeSourceReceipts = []; rebuildStoreProfiles(); syncToolbarControls(); elements.encodingAmountCompartment.value = 'all'; setActiveStrategy(optimizationStrategies.closest, { persist: false }); elements.list.replaceChildren(); elements.target.value = ''; exportRunner = newExportRunner(); exportMode = 'best-match'; knownMissingIds.clear(); setManualIds([]); setManualFeedback(''); applyExportModeView(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); closeEditModal(); closeExportConfirmation({ force: true }); },
     importLegacyDraft,
     start() {
       renderEncodingAmountCompartmentOptions();

@@ -373,6 +373,13 @@ button[aria-busy="true"] { cursor: progress; opacity: .8; }
 #encodingActions .workflow-feedback[data-severity="error"]:not(:empty)::before { content: "✕" / "Error: "; color: var(--danger); }
 #encodingActions .workflow-feedback[data-severity="info"]:not(:empty)::before { content: "ℹ" / "Note: "; color: var(--primary); }
 #encodingActions .action-save { min-width: 160px; width: auto; }
+/* Save progress: a visible "Saving 12 of 400" / "Saved 3 receipts" counter that follows real writes (the spoken line is separate and quieter). */
+.save-progress { display: inline-flex; align-items: center; gap: var(--space-2); padding: 4px var(--space-3); border: var(--border-width) solid var(--border-strong); border-radius: var(--radius-pill); background: var(--surface-2); color: var(--text); font-size: var(--text-sm); font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; }
+.save-progress[hidden] { display: none; }
+.save-progress:not([data-busy="1"]) .save-spinner { display: none; }
+.save-spinner { width: 12px; height: 12px; border: 2px solid var(--border-strong); border-top-color: var(--primary); border-radius: 50%; animation: save-spin .8s linear infinite; }
+@keyframes save-spin { to { transform: rotate(360deg); } }
+#encodingActions .action-save[aria-busy="true"] { opacity: .75; cursor: progress; }
 .bar-tools { display: inline-flex; align-items: center; gap: var(--space-1); }
 .bar-tool { white-space: nowrap; }
 /* Unsaved-changes indicator beside Save: a dot plus text (never colour alone); the count comes from the existing dirty comparison. */
@@ -787,6 +794,7 @@ html[lang] body .receipt-summary:focus-visible { outline-offset: -3px; }
   #encodingActions .action-save { min-width: 0; }
   /* Expand/collapse in the phone bar are compact icon buttons (the accessible name stays on the button) so the three main buttons keep their room. */
   /* They take a short line of their own under the unsaved status, so Clear form, Add receipt and Save changes keep their full width. */
+  #encodingActions .save-progress { flex: 1 1 100%; order: -1; justify-content: center; }
   #encodingActions .bar-tools { flex: 1 1 100%; order: -1; justify-content: flex-end; }
   #encodingActions .bar-tool { flex: 0 0 44px; width: 44px; padding: 0; justify-content: center; }
   #encodingActions .bar-tool-text { display: none; }
