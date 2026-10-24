@@ -93,9 +93,12 @@ const clearRecoveryUrl = () => {
 };
 
 async function showAuthenticatedUser(user) {
-  if (activeUserId === user.id || activatingUserId === user.id) return;
+  // The latest request decides. While another account's activation is pending, the account that was active before it no longer counts as "already active":
+  // an A, B, A sequence must start a fresh A activation and end the held B one, while a redundant event for the account being activated stays ignored.
+  if ((activatingUserId ?? activeUserId) === user.id) return;
   const epoch = ++activationEpoch;
   const current = () => epoch === activationEpoch;
+  activeUserId = undefined; // this activation replaces the previous account's controller sessions, so no account is active until it completes
   endAccountPrompts();
   monthlyFilingUi.clearForLogout(); // a new activation ends the previous account's Monthly Filing session and screen at once, before any slow load can leave them visible
   applicationWorkspaces.setUser(user.id);
@@ -118,7 +121,9 @@ async function showAuthenticatedUser(user) {
 
 async function handleAuthState(event, nextSession) {
   if (event === 'PASSWORD_RECOVERY') {
-    activationEpoch += 1; activatingUserId = undefined; endAccountPrompts();
+    activationEpoch += 1; activeUserId = undefined; activatingUserId = undefined; endAccountPrompts();
+    receiptUi.clearForLogout(); // recovery ends every controller session: pending loads, saves, exports and open dialogs of the account that was signed in
+    monthlyFilingUi.clearForLogout();
     applicationWorkspaces.clearForLogout();
     recoveryMode = true;
     recoverySessionEstablished = Boolean(nextSession?.user);
@@ -171,13 +176,16 @@ async function start() {
     return;
   }
   await onAuthStateChange((event, nextSession) => { void handleAuthState(event, nextSession); });
+  // Any sign-in, sign-out or recovery event that arrives while this lookup is pending is newer than its answer, which is then stale and applied to nothing.
+  const startupEpoch = activationEpoch;
   const session = await getCurrentSession();
   if (recoveryMode) {
     await new Promise(resolve => window.setTimeout(resolve, 0));
     const error = recoveryCallbackError();
     if (recoverySessionEstablished) authPanel.showRecovery();
     else { authPanel.showRecoveryUnavailable(error || undefined); clearRecoveryUrl(); }
-  } else if (session?.user) await showAuthenticatedUser(session.user);
+  } else if (startupEpoch !== activationEpoch) return;
+  else if (session?.user) await showAuthenticatedUser(session.user);
   else { applicationWorkspaces.clearForLogout(); authPanel.show(); }
 }
 

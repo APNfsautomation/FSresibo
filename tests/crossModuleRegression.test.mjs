@@ -33,14 +33,14 @@ async function bootApp({ sessionUser = { id: 'a', email: 'a@example.test' }, gat
   let subscription; let logoutCalls = 0;
   const receipt = {
     setModuleVisible: () => {}, setWorkspace: () => {}, start: record('receipt.start'), clearForLogout: record('receipt.clear'),
-    loadForUser: async user => { log.push(`receipt.load:${user.id}`); if (gates.receiptLoad) await gates.receiptLoad; if (gates.receiptByUser?.[user.id]) await gates.receiptByUser[user.id]; },
+    loadForUser: async user => { log.push(`receipt.load:${user.id}`); if (gates.failFor === user.id) throw new Error('load failed'); if (gates.receiptLoad) await gates.receiptLoad; if (gates.receiptByUser?.[user.id]) await gates.receiptByUser[user.id]; },
     importLegacyDraft: async user => { log.push(`receipt.importLegacy:${user.id}`); }, consumeLegacyWorkspace: () => 'encoding'
   };
   const monthly = { setVisible: () => {}, start: record('monthly.start'), clearForLogout: record('monthly.clear'), loadForUser: async user => { log.push(`monthly.load:${user.id}`); if (gates.monthlyByUser?.[user.id]) await gates.monthlyByUser[user.id]; } };
   const auth = { show: (message, options) => log.push(`auth.show:${message ?? ''}:${options?.clearPasswords ? 'clearPasswords' : ''}`), hide: record('auth.hide'), setMessage: () => {}, showRecovery: record('auth.showRecovery'), showRecoveryUnavailable: record('auth.showRecoveryUnavailable') };
   const dependencies = {
     document, window, isSupabaseConfigured: () => true, supabaseConfig: {}, appMetadata: { name: 'FSResibo', version: '3.6.0-beta.1' },
-    authRedirectUrl: () => 'https://example.test/', getCurrentSession: async () => sessionUser ? { user: sessionUser } : null,
+    authRedirectUrl: () => 'https://example.test/', getCurrentSession: async () => { if (gates.session) await gates.session; return sessionUser ? { user: sessionUser } : null; },
     hasPasswordRecoveryIntent: () => false, login: () => {}, logout: async () => { logoutCalls += 1; },
     onAuthStateChange: async callback => { subscription = callback; }, recoveryCallbackError: () => null,
     register: () => {}, requestPasswordReset: () => {}, updatePassword: () => {}, scanPrintedDetails: () => {},
@@ -175,6 +175,73 @@ test('AUTH-10 (app.js): a direct account switch ends the previous account\'s Mon
   const mark = app.log.length; const switching = app.handle('SIGNED_IN', { user: { id: 'b' } }); await tick();
   assert.deepEqual(since(app, mark).filter(entry => /dialog\.close|monthly\.|receipt\.load|setUser/.test(entry)), ['dialog.close:false', 'monthly.clear', 'workspaces.setUser:b', 'receipt.load:b'], 'while b\'s receipts load, a\'s Monthly Filing screen is already gone');
   hold.open(); await switching;
+});
+
+// ---- Round 1 review of PR #31 (app.js): latest event wins, late startup answers, recovery ---------------------------------------------------------------------
+test('R1 (A to B to A): a held B activation cannot take over after A signed in again; the later A event is not ignored as a duplicate of the earlier A', async () => {
+  const hold = deferred(); const app = await bootApp({ gates: { receiptByUser: { b: hold.promise } } }); // A is fully active
+  const mark = app.log.length;
+  const b = app.handle('SIGNED_IN', { user: { id: 'b', email: 'b@example.test' } }); await tick();
+  await app.handle('SIGNED_IN', { user: { id: 'a', email: 'a@example.test' } });
+  assert.equal(since(app, mark).filter(entry => entry === 'receipt.load:a').length, 1, 'A is activated afresh');
+  assert.equal(app.nodes.get('#userEmail').textContent, 'a@example.test');
+  hold.open(); await b; await tick();
+  assert.equal(app.nodes.get('#userEmail').textContent, 'a@example.test', 'B did not take the screen over');
+  assert.equal(since(app, mark).includes('monthly.load:b'), false, 'B\'s activation stopped after its receipt load');
+  const after = app.log.length; await app.handle('TOKEN_REFRESHED', { user: { id: 'a' } }); await app.handle('SIGNED_IN', { user: { id: 'a' } });
+  assert.deepEqual(since(app, after), [], 'A is the active account again: redundant events for A are still de-duplicated');
+});
+
+test('R1 (B to A to B): the newest of three overlapping sign-ins is the one that ends up active', async () => {
+  const holdB = deferred(), holdA = deferred(); const app = await bootApp({ sessionUser: null, gates: { receiptByUser: { a: holdA.promise, b: holdB.promise } } });
+  const first = app.handle('SIGNED_IN', { user: { id: 'b', email: 'b@example.test' } }); await tick();
+  const second = app.handle('SIGNED_IN', { user: { id: 'a', email: 'a@example.test' } }); await tick();
+  const third = app.handle('SIGNED_IN', { user: { id: 'b', email: 'b@example.test' } }); await tick();
+  holdA.open(); await second; holdB.open(); await Promise.all([first, third]); await tick();
+  assert.equal(app.log.filter(entry => entry === 'monthly.load:b').length, 1, 'only the newest activation went on to load Monthly Filing');
+  assert.equal(app.log.filter(entry => entry === 'monthly.load:a').length, 0);
+  assert.equal(app.log.filter(entry => entry === 'navigation.start').length, 1); assert.equal(app.nodes.get('#userEmail').textContent, 'b@example.test');
+  const mark = app.log.length; await app.handle('TOKEN_REFRESHED', { user: { id: 'b' } }); assert.deepEqual(since(app, mark), []);
+});
+
+test('R1: a failed activation leaves no account marked active, so the account that was active before it can sign in again and load', async () => {
+  const app = await bootApp({ gates: { failFor: 'b' } }); // a is fully active
+  await assert.rejects(() => app.handle('SIGNED_IN', { user: { id: 'b' } }), /load failed/);
+  const mark = app.log.length; await app.handle('SIGNED_IN', { user: { id: 'a' } });
+  assert.ok(since(app, mark).includes('receipt.load:a'), 'a is loaded again: it is not mistaken for the still-active account of before b');
+});
+
+test('R2: a late initial getCurrentSession() answer never reactivates a user after SIGNED_OUT, after another account signed in, or after a recovery event', async () => {
+  for (const [label, event, expectEmail] of [['sign-out', ['SIGNED_OUT', null], undefined], ['recovery', ['PASSWORD_RECOVERY', { user: { id: 'a' } }], undefined], ['another account signed in', ['SIGNED_IN', { user: { id: 'b', email: 'b@example.test' } }], 'b@example.test']]) {
+    const hold = deferred(); const app = await bootApp({ gates: { session: hold.promise } }); // the startup session lookup is still pending
+    await app.handle(...event); const mark = app.log.length;
+    hold.open(); await tick(20);
+    const rest = since(app, mark);
+    assert.equal(rest.some(entry => /^(receipt\.load:a|monthly\.load:a|receipt\.importLegacy:a|navigation\.start)/.test(entry)), false, `${label}: a was not reopened (${rest.join(',')})`);
+    if (expectEmail) assert.equal(app.nodes.get('#userEmail').textContent, expectEmail, `${label}: the newer account stays on screen`);
+  }
+});
+
+test('R2: a late "no session" answer does not show the sign-in screen over an account that signed in meanwhile', async () => {
+  const hold = deferred(); const app = await bootApp({ sessionUser: null, gates: { session: hold.promise } });
+  await app.handle('SIGNED_IN', { user: { id: 'b', email: 'b@example.test' } }); const mark = app.log.length;
+  hold.open(); await tick(20);
+  assert.equal(since(app, mark).some(entry => entry.startsWith('auth.show')), false); assert.equal(since(app, mark).includes('workspaces.clear'), false);
+});
+
+test('R2: without any later event the startup session answer still activates the user', async () => {
+  const hold = deferred(); const app = await bootApp({ gates: { session: hold.promise } });
+  assert.equal(app.log.some(entry => entry === 'receipt.load:a'), false); hold.open(); await tick(20);
+  assert.ok(app.log.includes('receipt.load:a') && app.log.includes('monthly.load:a') && app.log.includes('navigation.start'));
+});
+
+test('R4: password recovery ends both controllers\' sessions and dismisses open prompts, and recovery-mode sign-in events stay ignored until the sign-out', async () => {
+  const app = await bootApp(); const mark = app.log.length;
+  await app.handle('PASSWORD_RECOVERY', { user: { id: 'a' } });
+  assert.deepEqual(since(app, mark).filter(entry => /clear|dialog\.close|showRecovery/.test(entry)), ['dialog.close:false', 'receipt.clear', 'monthly.clear', 'workspaces.clear', 'auth.showRecovery'], 'receipts, Monthly Filing and Quick are all cleared on entry to recovery');
+  const afterRecovery = app.log.length; await app.handle('SIGNED_IN', { user: { id: 'z' } }); await app.handle('TOKEN_REFRESHED', { user: { id: 'a' } });
+  assert.deepEqual(since(app, afterRecovery), [], 'recovery-mode events are ignored');
+  await app.handle('SIGNED_OUT', null); assert.ok(app.log.slice(afterRecovery).includes('auth.show::clearPasswords'));
 });
 
 test('AUTH-10 (app.js): any open confirmation dialog is dismissed when the account ends or changes, but not on a same-account token refresh', async () => {

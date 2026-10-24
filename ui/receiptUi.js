@@ -1497,12 +1497,26 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   // Review (Snapshot A) happens before the confirmation dialog opens; the final read (Snapshot B) happens when the user confirms.
   let exportReviewPending = false;
   let exportSession = null; // { selection, entries, baseline } while the confirmation dialog is open
-  const newExportRunner = () => createReceiptExportRunner({
-    fetchSnapshot: ids => receiptService.loadReceiptsByIds(ids),
-    generateWorkbook: rows => downloadSelectedReceipts(rows),
-    consume: ids => receiptService.consumeReceipts(ids)
-  });
+  // A runner belongs to the session that created it (Issue #27): once that session has ended, none of its steps may start a read, generate a workbook or send a
+  // status update. A step already sent cannot be recalled; its answer is ignored by the continuation, and its server-side effect stays owner-scoped.
+  const newExportRunner = () => {
+    const generation = sessionGeneration; const live = () => generation === sessionGeneration;
+    const ended = () => new Error('The signed-in account changed, so this export was stopped.');
+    return createReceiptExportRunner({
+      fetchSnapshot: async ids => { if (!live()) throw ended(); const rows = await receiptService.loadReceiptsByIds(ids); if (!live()) throw ended(); return rows; },
+      generateWorkbook: rows => { if (!live()) throw ended(); return downloadSelectedReceipts(rows); },
+      consume: async ids => { if (!live()) throw ended(); return receiptService.consumeReceipts(ids); }
+    });
+  };
   let exportRunner = newExportRunner();
+  // Everything an earlier account's review, export and dialogs left behind. Every new session runs it BEFORE its first await, so nothing of the previous account
+  // (an open Review & Arrange or Edit dialog, a pending export or review, a manual selection) is ever visible, or blocking, under the next one.
+  const endTransientAccountState = () => {
+    exportPending = false; exportReviewPending = false; editSavePending = false; exportSession = null; exportRunner = newExportRunner();
+    exportMode = 'best-match'; knownMissingIds.clear(); setManualIds([]); setManualFeedback(''); applyExportModeView();
+    if (!elements.editModal.hidden) closeEditModal(); // only an open dialog is closed: an idle one has nothing to hand focus back from
+    if (!elements.exportConfirmModal.hidden) closeExportConfirmation({ force: true });
+  };
   const errorText = error => String(error?.message || 'Unknown error').replace(/[.\s]+$/, '');
   const rowForSelectionEntry = entry => [...elements.list.children].find(row => selectionEntryMatchesRow(entry, row));
   const exportEntries = () => exportSource().entries.map(({ dbId, label, used }) => ({ dbId, label, used }));
@@ -1566,6 +1580,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     if (!local.ok) return blockForEncoding(local.problems);
     const reviewed = source;
     const mode = exportMode; // the mode and selection this review belongs to: checked again after every await
+    const generation = sessionGeneration; // and the session: an answer for an earlier account opens nothing and says nothing
     const button = exportButton();
     const entries = exportEntries();
     exportReviewPending = true;
@@ -1573,7 +1588,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     try {
       let baseline;
       try { baseline = await exportRunner.loadBaseline(entries.map(entry => entry.dbId)); }
-      catch (error) { return setExportFeedback(`Could not load the latest saved receipt values: ${errorText(error)}. Nothing was exported.`, '', mode); }
+      catch (error) { if (generation !== sessionGeneration) return; return setExportFeedback(`Could not load the latest saved receipt values: ${errorText(error)}. Nothing was exported.`, '', mode); }
+      if (generation !== sessionGeneration) return;
       if (exportMode !== mode || exportSource() !== reviewed) return setExportFeedback('The selection changed while the receipts were being checked. Nothing was exported; choose Export Selected again.', '', mode);
       const reference = new Map(storeSourceReceipts.map(receipt => [receipt.dbId, receipt]));
       const verdict = classifyExportSnapshot({ entries, snapshotRows: baseline.rows, reference });
@@ -1594,8 +1610,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       modalFocus?.open(elements.exportConfirmModal, { trigger: button, fallback: mode === 'manual' ? elements.manualSelectShown : elements.calculate, onEscape: escapeReview });
       (exportSession.needsAck ? elements.exportReviewAckInput : elements.confirmExport).focus();
     } finally {
-      exportReviewPending = false;
-      button.removeAttribute('aria-busy');
+      if (generation === sessionGeneration) { exportReviewPending = false; button.removeAttribute('aria-busy'); }
     }
   };
   const exportAndConsume = async () => {
@@ -1615,7 +1630,9 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     const byId = new Map(session.entries.map(entry => [entry.dbId, entry]));
     const arrangement = arrangements[session.mode];
     const confirmedOrder = arrangement && arrangement.selection === session.selection && sameMembers(arrangement.order, session.entries.map(entry => entry.dbId)) ? arrangement.order : session.entries.map(entry => entry.dbId);
+    const generation = sessionGeneration;
     const result = await exportRunner.run({ entries: confirmedOrder.map(id => byId.get(id)), baseline: session.baseline });
+    if (generation !== sessionGeneration) return; // the account changed while this export ran: nothing is applied, announced or unlocked for the next account
     if (result.state === 'busy') return stop('An export is already in progress.');
     if (result.state === 'verification-required') return stop('Receipt status changed since this review. Choose Export Selected again so the receipts are verified with the database first. Nothing was exported.');
     if (result.state === 'snapshot-failed') return stop(`Could not verify the latest saved receipt values: ${errorText(result.error)}. Nothing was exported or marked Consumed.`);
@@ -1698,14 +1715,16 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     const parsedAmount = parseMoneyAmount(values.amount);
     if (parsedAmount.valid === false) return setFeedback(elements.editFeedback, `Could not save correction: ${parsedAmount.message}`, 'error');
     editSavePending = true;
+    const generation = sessionGeneration; const owner = currentUser;
     const submitButton = event.submitter;
     if (submitButton) submitButton.disabled = true;
     if (row.dataset.receiptDbId && currentUser) {
       try {
-        const saved = await receiptService.updateReceipt(row.dataset.receiptDbId, values, currentUser.id);
+        const saved = await receiptService.updateReceipt(row.dataset.receiptDbId, values, owner.id);
+        if (generation !== sessionGeneration) { if (submitButton) submitButton.disabled = false; return; } // an earlier account's correction: nothing is applied or said under the next one
         if (saved.updatedAt) row.dataset.receiptUpdatedAt = saved.updatedAt;
         upsertStoreSourceReceipt(saved);
-      } catch (error) { setFeedback(elements.editFeedback, `Could not save correction: ${error.message}`, 'error'); editSavePending = false; if (submitButton) submitButton.disabled = false; return; }
+      } catch (error) { if (generation !== sessionGeneration) { if (submitButton) submitButton.disabled = false; return; } setFeedback(elements.editFeedback, `Could not save correction: ${error.message}`, 'error'); editSavePending = false; if (submitButton) submitButton.disabled = false; return; }
     }
     cancelCalculation('changed'); // a correction to any receipt stales a calculation that is still running
     // A correction to a receipt in the current Find Best Match result makes that result stale: clear it and say why, rather than exporting different values.
@@ -1745,6 +1764,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       cancelCalculation();
       resetSaveState();
       const generation = ++sessionGeneration;
+      endTransientAccountState();
       currentUser = user;
       elements.list.replaceChildren(); storeSourceReceipts = []; sharedStoreProfiles = []; rebuildStoreProfiles(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty();
       let receipts;
@@ -1779,7 +1799,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     },
     setWorkspace,
     setModuleVisible,
-    clearForLogout() { cancelCalculation(); sessionGeneration += 1; resetSaveState(); currentUser = undefined; sharedStoreProfiles = []; toolbarState = defaultOptimizationToolbarState(); encodingDisplayState = { compartment: 'all' }; storeSourceReceipts = []; rebuildStoreProfiles(); syncToolbarControls(); elements.encodingAmountCompartment.value = 'all'; setActiveStrategy(optimizationStrategies.closest, { persist: false }); elements.list.replaceChildren(); elements.target.value = ''; exportRunner = newExportRunner(); exportMode = 'best-match'; knownMissingIds.clear(); setManualIds([]); setManualFeedback(''); applyExportModeView(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); closeEditModal(); closeExportConfirmation({ force: true }); },
+    clearForLogout() { cancelCalculation(); sessionGeneration += 1; resetSaveState(); currentUser = undefined; sharedStoreProfiles = []; toolbarState = defaultOptimizationToolbarState(); encodingDisplayState = { compartment: 'all' }; storeSourceReceipts = []; rebuildStoreProfiles(); syncToolbarControls(); elements.encodingAmountCompartment.value = 'all'; setActiveStrategy(optimizationStrategies.closest, { persist: false }); elements.list.replaceChildren(); elements.target.value = ''; endTransientAccountState(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); closeEditModal(); closeExportConfirmation({ force: true }); },
     importLegacyDraft,
     start() {
       renderEncodingAmountCompartmentOptions();
