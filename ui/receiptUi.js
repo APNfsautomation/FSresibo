@@ -823,6 +823,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   };
   const setWorkspace = workspace => {
     const encoding = workspace !== 'optimization';
+    if (encoding) cancelCalculation('left'); // the calculation belongs to Receipt Optimization: leaving it for Encoding stops it
     elements.encodingWorkspace.hidden = !encoding;
     elements.optimizationWorkspace.hidden = encoding;
     elements.encodingTab.setAttribute('aria-selected', String(encoding));
@@ -1007,7 +1008,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     const storeInput = row.querySelector('.receipt-store');
     row.querySelectorAll('input, select').forEach(field => {
       const refreshView = () => { clearSaveSummary(); if (!row.hidden) pinReceipt(row); refreshSummary(row); clearSelection(); refreshEncodingCards(); refreshOptimizationCards(); };
-      field.addEventListener('input', field === storeInput ? () => { clearSaveSummary(); if (!row.hidden) pinReceipt(row); refreshSummary(row); refreshAvailableSummary(); } : refreshView);
+      // Typing in Store keeps the existing "no clearSelection until blur" behavior, but it must still stop a calculation that is running on the old values.
+      field.addEventListener('input', field === storeInput ? () => { cancelCalculation('changed'); clearSaveSummary(); if (!row.hidden) pinReceipt(row); refreshSummary(row); refreshAvailableSummary(); } : refreshView);
       field.addEventListener('change', refreshView);
     });
     row.addEventListener('toggle', () => { refreshToggle(row); if (!row.open && row.dataset.filterPinned) releasePinAfterCollapse(row); });
@@ -1306,7 +1308,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     unavailable: 'Exact result cannot be computed safely on this device: it cannot run the background calculation this many receipts need. No recommendation was produced.'
   };
   // The signature of everything a long-pool answer depends on: the account, the strategy, the target, and every receipt's identity, status and amount.
-  const poolSignature = () => [currentUser?.id ?? '', getActiveStrategy(), elements.target.value.trim(), ...[...elements.list.children].map(row => `${row.dataset.receiptDbId ?? ''}|${row.dataset.receiptId ?? ''}|${receiptStatus(row)}|${amountCents(row)}`)].join('\n');
+  // Every workbook-relevant value of every row (the raw amount text included), so a metadata edit that fires no stop event is still caught.
+  const poolSignature = () => [currentUser?.id ?? '', getActiveStrategy(), elements.target.value.trim(), ...[...elements.list.children].map(row => `${row.dataset.receiptDbId ?? ''}|${row.dataset.receiptId ?? ''}|${receiptStatus(row)}|${JSON.stringify(rowValues(row))}`)].join('\n');
   const setCalculationBusy = (busy, fraction = 0) => {
     elements.calculate.disabled = busy;
     if (busy) elements.calculate.setAttribute?.('aria-busy', 'true'); else elements.calculate.removeAttribute?.('aria-busy');
@@ -1351,7 +1354,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     const run = { generation: ++calculationGeneration, signature: poolSignature(), user: currentUser, announced: 0, cancel: () => {} };
     calculationRun = run;
     elements.resultTitle.textContent = 'Calculating the exact best match…';
-    elements.difference.textContent = `Searching all ${receipts.length} Available receipts. Changing a receipt or a setting, or leaving this page, stops the calculation.`;
+    elements.difference.textContent = `Searching all ${receipts.length} Available receipts. Changing a receipt or a setting, or leaving Receipt Optimization, stops the calculation.`;
     const hadFocus = document.activeElement === elements.calculate;
     setCalculationBusy(true);
     if (hadFocus) elements.cancelCalculation?.focus?.({ preventScroll: true });
@@ -1698,6 +1701,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
         upsertStoreSourceReceipt(saved);
       } catch (error) { setFeedback(elements.editFeedback, `Could not save correction: ${error.message}`, 'error'); editSavePending = false; if (submitButton) submitButton.disabled = false; return; }
     }
+    cancelCalculation('changed'); // a correction to any receipt stales a calculation that is still running
     // A correction to a receipt in the current Find Best Match result makes that result stale: clear it and say why, rather than exporting different values.
     const staleResultLabel = bestIncludesRow(row) ? `Receipt ${row.dataset.receiptId}` : '';
     Object.entries(values).forEach(([key, value]) => { row.querySelector(`.receipt-${key}`).value = value; });

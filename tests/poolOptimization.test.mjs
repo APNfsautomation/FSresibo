@@ -78,7 +78,8 @@ test('33 to 70 receipts agree with the independent oracle for all three strategi
     }
   }
   assert.ok(cases > 500 && usedHighIndex > 100, `cases ${cases}, results using receipt #33 or later ${usedHighIndex}`);
-  assert.deepEqual([...paths].sort(), ['all-positive', 'complement', 'dp'], 'every exact path was exercised');
+  for (const path of ['all-positive', 'complement', 'dp']) assert.ok(paths.has(path), `the ${path} path was exercised`);
+  assert.ok([...paths].every(path => ['all-positive', 'complement', 'dp', 'none'].includes(path)), 'and nothing else');
 });
 
 test('a pool of up to 32 receipts padded with unusable receipts (zero or above the cap) at random positions equals the existing engine on the core pool', () => {
@@ -209,4 +210,33 @@ test('an allocation failure becomes an over-budget status instead of a crash', (
     const outcome = solve(Array.from({ length: 40 }, (_, index) => 100000 + index), 2_000_000, 'closest');
     assert.equal(outcome.status, 'over-budget'); assert.equal(outcome.plan.reason, 'allocation');
   } finally { globalThis.Uint32Array = original; }
+});
+
+// ---- Round 1 review of PR #30 -----------------------------------------------------------------------------------------------------------------------
+test('R1: the Fewest complement path honours every budget (work, memory, range) and refuses before any work', () => {
+  const amounts = Array(33).fill(100); // pool 3,300 centavos, target above the pool, Fewest: the omitted-receipt (complement) path
+  const control = planPoolOptimization(pool(amounts), 4000, 'fewest');
+  assert.equal(control.path, 'complement'); assert.ok(control.cells > 5 && control.withinBudget, 'within the default budget');
+  for (const [limits, reason] of [[{ maxCells: 5 }, 'work'], [{ maxBytes: 1024 }, 'memory'], [{ maxRangeUnits: 1 }, 'range']]) {
+    const budget = { ...poolBudget, ...limits };
+    const plan = planPoolOptimization(pool(amounts), 4000, 'fewest', budget);
+    assert.deepEqual([plan.path, plan.withinBudget, plan.reason], ['complement', false, reason], reason);
+    let progressed = 0; const outcome = solvePoolOptimization(pool(amounts), 4000, 'fewest', { budget, onProgress: () => { progressed++; } });
+    assert.equal(outcome.status, 'over-budget', reason); assert.equal(outcome.plan.reason, reason);
+    assert.ok(progressed <= 1, 'no search step ran');
+  }
+  assert.equal(solve(amounts, 4000, 'fewest').status, 'exact', 'the default budget still computes it');
+});
+
+test('R3: when no positive receipt can take part the plan is an exact finite "none", for every strategy', () => {
+  const amounts = Array(33).fill(10000); // every receipt is above target + PHP 50 (and above the target)
+  for (const strategy of strategies) {
+    const plan = planPoolOptimization(pool(amounts), 10, strategy);
+    assert.deepEqual([plan.path, plan.cells, plan.bytes, plan.kept, plan.rangeUnits, plan.withinBudget], ['none', 0, 0, 0, 0, true], strategy);
+    assert.ok([plan.cells, plan.bytes, plan.unit, plan.rangeUnits].every(Number.isFinite), 'no NaN in the cost preview');
+    assert.deepEqual(solve(amounts, 10, strategy), { status: 'exact', path: 'none', result: null }, strategy);
+    assert.equal(oracleBest(buildOracle(amounts), 10, strategy), null, 'the independent oracle also finds nothing');
+  }
+  const noExceed = planPoolOptimization(pool(Array(40).fill(5000)), 4999, 'without-exceeding'); // above the strict target only
+  assert.deepEqual([noExceed.path, noExceed.cells, noExceed.withinBudget], ['none', 0, true]);
 });

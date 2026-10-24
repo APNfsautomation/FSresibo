@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { createPoolOptimizerClient, mainThreadFallbackCells } from '../ui/poolOptimizerClient.js';
+import { createPoolOptimizerClient, directSolveCells, mainThreadFallbackCells } from '../ui/poolOptimizerClient.js';
 import { poolBudget, solvePoolOptimization } from '../services/poolOptimizationService.js';
 
 const read = path => readFile(new URL(path, import.meta.url), 'utf8');
@@ -119,4 +119,29 @@ test('the progress block is accessible markup that starts hidden, with a keyboar
   const rules = css.match(/\.calculation-progress[^{]*\{[^}]*\}/g).join('\n');
   assert.doesNotMatch(rules, /#[0-9a-fA-F]{3,8}\b|rgb\(|hsl\(/, 'colours come from tokens only');
   assert.match(css, /\.calculation-progress\[hidden\] \{ display: none; \}/);
+});
+
+// ---- Round 1 review of PR #30 -----------------------------------------------------------------------------------------------------------------------
+test('R1: a complement-path pool over a (small, injected) budget is refused with no Worker and no synchronous solve', async () => {
+  let solved = 0; const h = harness({ client: { budget: { ...poolBudget, maxCells: 5 }, solve: (...args) => { solved++; return solvePoolOptimization(...args); } }, createWorker: () => { throw new Error('must not be called'); } });
+  const outcome = await run(h, Array(33).fill(100), 4000, 'fewest').promise;
+  assert.equal(outcome.status, 'over-budget'); assert.equal(outcome.plan.path, 'complement'); assert.equal(outcome.plan.reason, 'work'); assert.equal(solved, 0);
+});
+
+test('R1: a complement problem above the cheap ceiling runs in the Worker, a small one runs directly', async () => {
+  const big = Array.from({ length: 2500 }, (_, i) => 1 + i % 4999), total = big.reduce((a, b) => a + b, 0);
+  let solved = 0; let h = harness({ client: { solve: (...args) => { solved++; return solvePoolOptimization(...args); } } });
+  const job = run(h, big, total + 1000, 'fewest');
+  assert.equal(h.workers.length, 1, 'about 12 million cells go to the Worker'); assert.equal(solved, 0); job.cancel();
+  h = harness({ client: { solve: (...args) => { solved++; return solvePoolOptimization(...args); } } });
+  const small = await run(h, Array(33).fill(100), 4000, 'fewest').promise;
+  assert.deepEqual([small.status, small.path, h.workers.length, solved], ['exact', 'complement', 0, 1]);
+  assert.ok(directSolveCells >= 33 * 50 && directSolveCells <= 5e6, 'the direct ceiling is a small, explicit number');
+});
+
+test('R3: a pool with no eligible receipt is answered directly as "nothing qualifies": no Worker, no recommendation', async () => {
+  for (const strategy of ['closest', 'fewest', 'without-exceeding']) {
+    const h = harness({ createWorker: () => { throw new Error('must not be called'); } });
+    assert.deepEqual(await run(h, Array(33).fill(10000), 10, strategy).promise, { status: 'exact', path: 'none', result: null }, strategy);
+  }
 });

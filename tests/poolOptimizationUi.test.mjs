@@ -2,7 +2,7 @@
 // Covers the visible states, progress, Cancel, the session/stale-result safeguards, over-budget honesty, and the unchanged export lifecycle.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { solvePoolOptimization } from '../services/poolOptimizationService.js';
+import { poolBudget, solvePoolOptimization } from '../services/poolOptimizationService.js';
 import { createPoolOptimizerClient } from '../ui/poolOptimizerClient.js';
 import { receiptFixture, settle } from './helpers/receiptUiFixture.mjs';
 
@@ -209,4 +209,62 @@ test('unsaved edited amounts may take part in a long-pool calculation but still 
   assert.equal(f.elements.resultAmount.textContent.replace(/\s/g, ''), '₱77.77');
   await f.click(f.elements.exportSelected); await f.click(f.elements.confirmExport);
   assert.equal(f.calls.download.length, 0); assert.equal(f.calls.update.length + f.calls.create.length, 0, 'calculating and the refused export wrote nothing');
+});
+
+// ---- Round 1 review of PR #30 -----------------------------------------------------------------------------------------------------------------------
+test('R2: typing in the Store field (which only fires "input" until blur) stops a running calculation', () => stale(async f => { await f.type(f.rows()[2], 'store', 'Typed while calculating'); }));
+
+test('R2: a metadata-only correction saved through the Edit dialog stops a running calculation and the late answer is discarded', async () => {
+  const optimizer = controlled({ resolveOnCancel: false }); const f = await receiptFixture({ loaded: hundreds(40, 55.55), viaServiceMapping: true, poolOptimizer: optimizer });
+  await calculate(f, '55.55');
+  const row = f.rows()[4];
+  f.elements.editModal.dataset.receiptIndex = '4'; f.elements.editAmount.value = f.field(row, 'amount').value; // the centavos do not change
+  for (const [key, field] of Object.entries({ editReceiptDate: 'receiptDate', editVat: 'vat', editInvoice: 'invoice', editAddress: 'address', editTin: 'tin' })) f.elements[key].value = f.field(row, field).value;
+  f.elements.editStore.value = 'Renamed in the dialog'; f.elements.editModal.hidden = false;
+  await f.elements.editForm.emit('submit', { submitter: null }); await settle();
+  assert.equal(f.calls.update.length, 1, 'the correction itself was saved, as before');
+  assert.equal(optimizer.runs[0].cancelled, true); assert.match(f.elements.difference.textContent, /stopped because your receipts or settings changed/);
+  assert.deepEqual(busy(f), { disabled: false, progressHidden: true, ariaBusy: null });
+  optimizer.runs[0].settle(result(5555, [39])); await settle();
+  assert.equal(f.elements.exportSelected.disabled, true, 'the late answer is not applied'); assert.equal(f.calls.create.length + f.calls.download.length + f.calls.consume.length, 0);
+});
+
+test('R2: every workbook field, and the raw amount text, is part of the pool signature even when no event fires', async () => {
+  for (const [field, value] of [['store', 'Other store'], ['address', 'New address'], ['tin', '123-456'], ['invoice', 'INV-1'], ['vat', 'VAT'], ['receiptDate', '2026-09-09'], ['amount', '55.550']]) {
+    const optimizer = controlled(); const f = await receiptFixture({ loaded: hundreds(40, 55.55), viaServiceMapping: true, poolOptimizer: optimizer });
+    await calculate(f, '55.55');
+    f.field(f.rows()[5], field).value = value; // programmatic change: only the signature can notice (55.550 is the same centavos as 55.55)
+    optimizer.runs[0].settle(result(5555, [39])); await settle();
+    assert.match(f.elements.difference.textContent, /receipts or settings changed/, field); assert.equal(f.elements.exportSelected.disabled, true, field);
+  }
+});
+
+test('R3: more than 32 receipts of which none can take part: no Worker, no recommendation, receipts untouched, for every strategy', async () => {
+  for (const strategy of ['closest', 'fewest', 'without-exceeding']) {
+    let workers = 0; const f = await receiptFixture({ loaded: hundreds(40, 100), viaServiceMapping: true, poolOptimizer: createPoolOptimizerClient({ createWorker: () => { workers++; return null; } }) });
+    await calculate(f, '0.10', strategy); await settle();
+    assert.equal(workers, 0, strategy); assert.equal(f.elements.resultTitle.textContent, strategy === 'without-exceeding' ? 'No non-zero match without exceeding' : 'No valid match found', strategy); // the existing no-match wording of each strategy
+    assert.equal(f.elements.exportSelected.disabled, true); assert.equal(busy(f).disabled, false);
+    assert.deepEqual([f.calls.create.length, f.calls.update.length, f.calls.consume.length, f.calls.download.length], [0, 0, 0, 0]); assert.equal(f.rows().length, 40);
+  }
+});
+
+test('R1: through the page, a complement-path pool over a small budget shows the over-budget message and starts nothing', async () => {
+  let workers = 0; const client = createPoolOptimizerClient({ budget: { ...poolBudget, maxCells: 5 }, createWorker: () => { workers++; return null; } });
+  const f = await receiptFixture({ loaded: hundreds(40, 1), viaServiceMapping: true, poolOptimizer: client });
+  await calculate(f, '5000', 'fewest'); await settle();
+  assert.equal(f.elements.difference.textContent, 'Exact result cannot be computed safely with these values on this device; no recommendation was produced.'); assert.equal(workers, 0);
+});
+
+test('R4: switching from Receipt Optimization to Encoding stops the calculation; staying on Optimization does not', async () => {
+  const optimizer = controlled({ resolveOnCancel: false }); const f = await receiptFixture({ loaded: hundreds(40, 55.55), viaServiceMapping: true, poolOptimizer: optimizer });
+  await calculate(f, '55.55'); f.ui.setWorkspace('optimization');
+  assert.equal(optimizer.runs[0].cancelled, false, 'a route refresh of the same workspace is not leaving it'); assert.equal(f.elements.calculate.disabled, true);
+  f.ui.setWorkspace('encoding');
+  assert.equal(optimizer.runs[0].cancelled, true); assert.match(f.elements.difference.textContent, /stopped when you left Receipt Optimization/); assert.equal(busy(f).disabled, false);
+  optimizer.runs[0].settle(result(5555, [39])); await settle();
+  assert.equal(f.elements.exportSelected.disabled, true, 'the late answer is not applied');
+  const quiet = await receiptFixture({ loaded: hundreds(20, 55.55), viaServiceMapping: true, poolOptimizer: controlled() });
+  quiet.ui.setWorkspace('encoding'); quiet.ui.setWorkspace('optimization'); await calculate(quiet, '55.55');
+  assert.equal(quiet.elements.resultAmount.textContent.replace(/\s/g, ''), '₱55.55', 'small-pool navigation and calculation are unchanged');
 });

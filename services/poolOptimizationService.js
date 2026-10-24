@@ -43,6 +43,16 @@ function validatePool(receipts, targetCents) {
 }
 const normalizeStrategy = strategy => strategy === optimizationStrategies.fewest || strategy === optimizationStrategies.withoutExceeding ? strategy : optimizationStrategies.closest;
 
+// One verdict for every search path (the DP and the complement table alike): finite cost, then size, index range, work and predicted memory.
+function applyBudget(plan, budget, { limitCount = false } = {}) {
+  if (!Number.isFinite(plan.cells) || !Number.isFinite(plan.bytes) || !Number.isFinite(plan.rangeUnits)) { plan.withinBudget = false; plan.reason = 'size'; }
+  else if (limitCount && plan.kept >= INF) { plan.withinBudget = false; plan.reason = 'size'; } // counts are stored in 15 bits
+  else if (plan.rangeUnits > budget.maxRangeUnits) { plan.withinBudget = false; plan.reason = 'range'; }
+  else if (plan.cells > budget.maxCells) { plan.withinBudget = false; plan.reason = 'work'; }
+  else if (plan.bytes > budget.maxBytes) { plan.withinBudget = false; plan.reason = 'memory'; }
+  return plan;
+}
+
 // Everything the solver needs, derived without allocating anything proportional to the target.
 function analyse(receipts, targetCents, rawStrategy, budget) {
   const strategy = normalizeStrategy(rawStrategy);
@@ -67,12 +77,14 @@ function analyse(receipts, targetCents, rawStrategy, budget) {
       const rangeUnits = eligible.length ? Math.floor(limit / unit) : 0;
       Object.assign(plan, { kept: eligible.length, unit: unit || 1, rangeUnits, cells: eligible.length * rangeUnits });
       plan.bytes = Math.ceil(eligible.length * (wordsFor(rangeUnits) * 4 + 24) + rangeUnits * 4) + FIXED_OVERHEAD_BYTES;
+      applyBudget(plan, budget);
       return done('complement', { eligible, limit, unit: unit || 1 });
     }
   }
   // General case: dense DP over centavo sums. Receipts above the cap can never take part in a qualifying total.
   const cap = strategy === optimizationStrategies.withoutExceeding ? targetCents : targetCents + MAXIMUM_EXCESS_CENTS;
   const kept = positives.filter(index => receipts[index].cents <= cap);
+  if (!kept.length) return done('none'); // every positive receipt is above the cap: nothing can qualify, and there is no cost to plan
   let unit = 0, keptTotal = 0;
   for (const index of kept) { unit = gcd(unit, receipts[index].cents); keptTotal += receipts[index].cents; }
   const rangeUnits = Math.floor(Math.min(cap, keptTotal) / unit);
@@ -80,10 +92,7 @@ function analyse(receipts, targetCents, rawStrategy, budget) {
   const cells = kept.length * rangeUnits + kept.length * words; // count table plus the word-parallel reachability pass
   const bytes = Math.ceil((words * 4 + 2 * (rangeUnits + 1) + kept.length * (words * 4 + 24) + n * 16) * 1.1) + FIXED_OVERHEAD_BYTES;
   Object.assign(plan, { kept: kept.length, unit, rangeUnits, cells, bytes });
-  if (kept.length >= INF) { plan.withinBudget = false; plan.reason = 'size'; } // counts are stored in 15 bits
-  else if (rangeUnits > budget.maxRangeUnits) { plan.withinBudget = false; plan.reason = 'range'; }
-  else if (cells > budget.maxCells) { plan.withinBudget = false; plan.reason = 'work'; }
-  else if (bytes > budget.maxBytes) { plan.withinBudget = false; plan.reason = 'memory'; }
+  applyBudget(plan, budget, { limitCount: true });
   return done('dp', { kept, unit, rangeUnits });
 }
 
@@ -191,7 +200,7 @@ export function solvePoolOptimization(receipts, targetCents, strategy = optimiza
     if (plan.path === 'none') return { status: 'exact', path: plan.path, result: null };
     if (plan.path === 'all-positive') return { status: 'exact', path: plan.path, result: { total: analysis.total, items: analysis.positives.slice() } };
     if (plan.path === 'complement') {
-      if (plan.bytes > budget.maxBytes) return { status: 'over-budget', plan: { ...plan, withinBudget: false, reason: 'memory' } };
+      if (!plan.withinBudget) return { status: 'over-budget', plan };
       return { status: 'exact', path: plan.path, result: solveComplement(receipts, analysis.positives, analysis.eligible, analysis.limit, analysis.unit, analysis.total, poll) };
     }
     if (!plan.withinBudget) return { status: 'over-budget', plan };

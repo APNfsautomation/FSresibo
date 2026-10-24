@@ -8,6 +8,8 @@ import { planPoolOptimization, poolBudget, solvePoolOptimization } from '../serv
 
 // Work the page thread may do itself when no Worker can be created (about 0.2 s of dynamic programming).
 export const mainThreadFallbackCells = 5e7;
+// Planned work the page thread may always do directly (a few milliseconds): the engine, the fast paths and small complement tables. Anything more goes to the Worker.
+export const directSolveCells = 2e6;
 
 // new URL(..., import.meta.url) resolves next to this module, so the Worker is found under any base path (GitHub Pages serves /FSresibo/).
 const defaultCreateWorker = () => typeof Worker === 'undefined' ? null : new Worker(new URL('../services/poolOptimizationWorker.js', import.meta.url), { type: 'module' });
@@ -35,8 +37,9 @@ export function createPoolOptimizerClient({
       let preview;
       try { preview = plan(receipts, target, strategy, budget); } catch (error) { finish({ status: 'error', message: String(error?.message || error) }); return { promise, cancel: () => finish({ status: 'cancelled' }) }; }
       const cancel = () => finish({ status: 'cancelled' });
-      if (preview.path === 'dp' && !preview.withinBudget) { finish({ status: 'over-budget', plan: preview }); return { promise, cancel }; }
-      if (preview.path !== 'dp') { // engine, complement and fast paths cost almost nothing: compute them directly
+      // Every search path is judged by the same preflight, before a Worker is created or anything large is allocated.
+      if (!preview.withinBudget) { finish({ status: 'over-budget', plan: preview }); return { promise, cancel }; }
+      if (preview.path !== 'dp' && preview.cells <= directSolveCells) { // engine, nothing-qualifies, all-positive and small complement problems cost almost nothing
         try { finish(solve(receipts, target, strategy, { budget, timeoutMs })); } catch (error) { finish({ status: 'error', message: String(error?.message || error) }); }
         return { promise, cancel };
       }
