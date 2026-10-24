@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { receiptFixture, settle } from './helpers/receiptUiFixture.mjs';
 
-const gate = () => { let open; const promise = new Promise(resolve => { open = resolve; }); return { promise, open }; };
+const gate = () => { let open, fail; const promise = new Promise((resolve, reject) => { open = resolve; fail = reject; }); return { promise, open, fail }; };
 const row = (dbId, store, amount = 100) => ({ dbId, store, amount, receiptDate: '2026-08-01' });
 const stores = f => f.rows().map(item => f.field(item, 'store').value);
 const setTable = (f, rows) => { f.db.clear(); rows.forEach(item => f.db.set(item.dbId, { amount: '', receiptDate: '', vat: '', invoice: '', store: '', address: '', tin: '', status: 'available', updatedAt: f.stamp(), ...item })); };
@@ -171,4 +171,120 @@ test('R3: a correction saved for A that answers after the switch neither cancels
   await bestMatch(f, '1000'); assert.equal(runs.length, 1, 'B\'s long-pool calculation is running'); assert.equal(f.elements.calculate.disabled, true);
   saveHold.open(); await saving; await settle();
   assert.equal(runs[0].cancelled, false, 'A\'s late correction did not stop B\'s calculation'); assert.equal(f.elements.calculate.disabled, true);
+});
+
+// ---- Round 2 review of PR #31: R5 (every remaining asynchronous Receipt Encoding continuation) and R6 (the shared Edit submit button) -------------------------------
+const consumedA = () => ({ ...row('a1', 'A-CONFIDENTIAL-STORE', 100), address: 'A-PRIVATE-ADDRESS 12 Secret Street', tin: 'A-TIN-999', status: 'consumed' });
+const isSecret = text => /A-CONFIDENTIAL|A-PRIVATE|A-TIN|Secret Street/.test(text);
+// What B's personal "My receipt history" autocomplete offers for what B types in its first receipt's Store field.
+async function suggestionsFor(f, typed) {
+  const first = f.rows()[0]; await f.type(first, 'store', typed);
+  return first.part('.store-suggestions').children.flatMap(item => item.children ?? []).map(option => [option.children?.[0]?.textContent, option.children?.[1]?.textContent].join(' '));
+}
+const quiet = (f, pattern) => assert.doesNotMatch([f.elements.encodingFeedback.textContent, f.elements.difference.textContent, f.elements.manualFeedback.textContent].join(' | '), pattern);
+
+for (const mode of ['sign-out then sign-in', 'direct switch']) {
+  test(`R5 (${mode}): a Restore (Mark Available) that answers after the switch puts nothing of A into B's receipt-history suggestions, and says nothing on B's screen (${mode})`, async () => {
+    const f = await receiptFixture({ loaded: [consumedA()] });
+    const hold = gate(); f.fails.restoreGate = hold.promise; const restoring = f.rows()[0].part('.restore-receipt').emit('click'); await settle();
+    assert.equal(f.db.get('a1').status, 'available', 'the status update was sent before the switch: this cannot be recalled');
+    await startB(f, mode); f.fails.restoreGate = null;
+    assert.deepEqual((await suggestionsFor(f, 'A-')).filter(isSecret), [], 'nothing of A before the late answer');
+    hold.open(); await restoring; await settle();
+    assert.deepEqual((await suggestionsFor(f, 'A-')).filter(isSecret), [], 'A\'s store, address and TIN do not appear in B\'s suggestions after the late answer');
+    assert.deepEqual((await suggestionsFor(f, 'B-Store')).length > 0, true, 'B\'s own history is still offered');
+    quiet(f, /marked as Available|restore this receipt/i);
+  });
+
+  test(`R5 (${mode}): a Delete that answers after the switch neither clears B's Best Match selection nor speaks on B's screen (${mode})`, async () => {
+    const f = await receiptFixture({ loaded: threeForA() });
+    const hold = gate(); f.fails.deleteGate = hold.promise; const deleting = f.rows()[0].part('.delete-receipt').emit('click'); await settle();
+    assert.deepEqual(f.calls.deleted, ['r1'], 'the delete was sent before the switch');
+    await startB(f, mode); f.fails.deleteGate = null; await bestMatch(f, '300');
+    assert.equal(f.elements.exportSelected.textContent, 'Export Selected (2)');
+    hold.open(); await deleting; await settle();
+    assert.equal(f.elements.exportSelected.textContent, 'Export Selected (2)', 'B\'s selection is intact'); assert.equal(f.elements.exportSelected.disabled, false);
+    quiet(f, /delete/i);
+  });
+
+  test(`R5 (${mode}): a permanent Consumed delete that answers after the switch changes nothing on B's screen (${mode})`, async () => {
+    const f = await receiptFixture({ loaded: [consumedA()] });
+    const hold = gate(); f.fails.deleteGate = hold.promise; const deleting = f.rows()[0].part('.delete-consumed').emit('click'); await settle();
+    assert.deepEqual(f.calls.deleted, ['a1']);
+    await startB(f, mode); f.fails.deleteGate = null; await bestMatch(f, '300');
+    hold.open(); await deleting; await settle();
+    assert.equal(f.elements.exportSelected.textContent, 'Export Selected (2)'); quiet(f, /deleted permanently|Consumed receipt/i);
+  });
+
+  test(`R5 (${mode}): a Company Directory contribution from a receipt card that answers late (success or failure) says nothing on B's screen (${mode})`, async () => {
+    for (const outcome of ['success', 'failure']) {
+      const hold = gate(); const sharedStore = { listActiveSharedStores: async () => [], contributeSharedStore: async () => { await hold.promise; if (outcome === 'failure') throw new Error('directory refused A'); return { id: 's1', storeName: 'A-Contrib' }; } };
+      const f = await receiptFixture({ loaded: [{ ...row('a1', 'A-Contrib', 100), address: 'A address' }], sharedStore });
+      const contributing = f.rows()[0].part('.contribute-store').emit('click'); await settle();
+      await startB(f, mode);
+      hold.open(); await contributing.catch(() => {}); await settle();
+      quiet(f, /Company Store Directory|could not add this store|directory refused A/i);
+    }
+  });
+
+  test(`R5 (${mode}): after A's save, a Company Directory prompt open at the switch is not followed by prompts for A's other stores or messages on B's screen (${mode})`, async () => {
+    const answer = gate(); const prompts = [];
+    const f = await receiptFixture({ loaded: [], confirm: async options => { prompts.push(options.message ?? options.title); return options.title === 'Add store to Company Directory?' ? answer.promise : true; } });
+    for (const [store, address] of [['A-Fresh-One', '1 Alpha Street'], ['A-Fresh-Two', '2 Beta Street']]) {
+      await f.click(f.elements.floatingAdd); const blank = f.rows().at(-1);
+      await f.type(blank, 'store', store); await f.type(blank, 'address', address); await f.type(blank, 'amount', '10');
+    }
+    const saving = f.elements.saveDraft.emit('click'); await settle(); await settle();
+    assert.equal(prompts.filter(text => /A-Fresh-One/.test(text)).length, 1, 'the first prompt is open');
+    await startB(f, mode); answer.open(false); await saving; await settle(); await settle();
+    assert.equal(prompts.filter(text => /A-Fresh-Two/.test(text)).length, 0, 'A\'s second store is never offered to B');
+    quiet(f, /kept in My Receipt History|Company Directory|A-Fresh/i);
+  });
+}
+
+for (const mode of ['sign-out then sign-in', 'direct switch']) {
+  test(`R5 (${mode}): a contribution sent from A's post-save prompt that answers after the switch is not followed by prompts for A's other stores (${mode})`, async () => {
+    const hold = gate(); const prompts = [];
+    const sharedStore = { listActiveSharedStores: async () => [], contributeSharedStore: async () => { await hold.promise; return { id: 's1', storeName: 'A-Fresh-One' }; } };
+    const f = await receiptFixture({ loaded: [], sharedStore, confirm: async options => { prompts.push(options.message ?? options.title); return true; } });
+    for (const [store, address] of [['A-Fresh-One', '1 Alpha Street'], ['A-Fresh-Two', '2 Beta Street']]) {
+      await f.click(f.elements.floatingAdd); const blank = f.rows().at(-1);
+      await f.type(blank, 'store', store); await f.type(blank, 'address', address); await f.type(blank, 'amount', '10');
+    }
+    const saving = f.elements.saveDraft.emit('click'); await settle(); await settle();
+    assert.equal(prompts.filter(text => /A-Fresh-One/.test(text)).length, 1, 'the first prompt was answered Yes and its contribution is in flight');
+    await startB(f, mode); hold.open(); await saving; await settle(); await settle();
+    assert.equal(prompts.filter(text => /A-Fresh-Two/.test(text)).length, 0, 'A\'s second store is never offered to B');
+    quiet(f, /Company Directory|A-Fresh/i);
+  });
+}
+
+test('R5 (audit): an OCR scan that finishes after the switch fills only A\'s own card and shows or adds nothing under B', async () => {
+  const hold = gate(); let scanned;
+  const scan = async (file, rowElement, done) => { scanned = rowElement; await hold.promise; rowElement.part('.receipt-store').value = 'A-OCR-STORE'; rowElement.part('.receipt-tin').value = 'A-OCR-TIN'; done(rowElement); };
+  const f = await receiptFixture({ loaded: threeForA(), scan });
+  const photo = f.rows()[0].part('.receipt-photo'); photo.files = [{ name: 'receipt.jpg' }]; await photo.emit('change'); await settle();
+  assert.ok(scanned, 'the scan started for A\'s card');
+  await startB(f, 'direct switch'); const before = [f.elements.availableTotal.textContent, f.elements.encodingUnsavedText.textContent];
+  hold.open(); await settle(); await settle();
+  assert.deepEqual([f.elements.availableTotal.textContent, f.elements.encodingUnsavedText.textContent], before, 'B\'s totals and unsaved count are untouched');
+  assert.deepEqual(stores(f), ['B-Store-1', 'B-Store-2']); assert.deepEqual((await suggestionsFor(f, 'A-OCR')).filter(text => /A-OCR/.test(text)), []);
+});
+
+test('R6: a stale correction answer (late success or late failure) never re-enables the shared Save correction button while B\'s own correction is pending', async () => {
+  for (const aOutcome of ['late success', 'late failure']) {
+    const f = await receiptFixture({ loaded: threeForA() });
+    const submit = { disabled: false }; f.elements.editForm.querySelector = selector => /submit/.test(selector) ? submit : null; // the one shared button of the Edit dialog
+    const fill = (index, store) => { const target = f.rows()[index]; f.elements.editModal.dataset.receiptIndex = String(index); f.elements.editAmount.value = f.field(target, 'amount').value; f.elements.editStore.value = store; for (const [key, field] of Object.entries({ editReceiptDate: 'receiptDate', editVat: 'vat', editInvoice: 'invoice', editAddress: 'address', editTin: 'tin' })) f.elements[key].value = f.field(target, field).value; f.elements.editModal.hidden = false; };
+    const aGate = gate(); f.fails.saveGate = aGate.promise; fill(0, 'A-corrected'); const aSaving = f.elements.editForm.emit('submit', { submitter: submit }); await settle();
+    assert.equal(submit.disabled, true, 'A\'s correction is pending');
+    await startB(f, 'direct switch'); assert.equal(submit.disabled, false, 'the new session starts with a free button');
+    const bGate = gate(); f.fails.saveGate = bGate.promise; fill(0, 'B-corrected'); const bSaving = f.elements.editForm.emit('submit', { submitter: submit }); await settle();
+    assert.equal(submit.disabled, true, 'B\'s own correction is pending');
+    if (aOutcome === 'late success') aGate.open(); else aGate.fail(new Error('A update failed'));
+    await aSaving; await settle();
+    assert.equal(submit.disabled, true, `${aOutcome}: A's answer did not touch B's button`); assert.doesNotMatch(f.elements.editFeedback.textContent, /A update failed/);
+    bGate.fail(new Error('B update failed')); await bSaving; await settle();
+    assert.equal(submit.disabled, false, 'B\'s own completion releases its own button'); assert.match(f.elements.editFeedback.textContent, /B update failed/);
+  }
 });

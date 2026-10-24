@@ -209,7 +209,7 @@ export function buildOptimizationView(entries, state) {
 }
 export const availableOptimizerReceipts = receipts => receipts.filter(receipt => normalizeReceiptStatus(receipt.status) === 'available' && receipt.cents > 0);
 
-export function createReceiptDeleteHandler({ row, triggerFallback, getCurrentUser, getReceiptStatus, hasDraftContent, confirmAction, deleteReceipt, removeStoreSourceReceipt, clearSelection, refreshReceiptIds, refreshEncodingCards, refreshOptimizationCards, setFeedback, feedbackTarget }) {
+export function createReceiptDeleteHandler({ row, triggerFallback, getSession = () => 0, getCurrentUser, getReceiptStatus, hasDraftContent, confirmAction, deleteReceipt, removeStoreSourceReceipt, clearSelection, refreshReceiptIds, refreshEncodingCards, refreshOptimizationCards, setFeedback, feedbackTarget }) {
   let deletePending = false;
   return async event => {
     const trigger = event.currentTarget;
@@ -217,13 +217,16 @@ export function createReceiptDeleteHandler({ row, triggerFallback, getCurrentUse
     const id = row.dataset.receiptDbId;
     if (getReceiptStatus() === 'consumed') return;
     const nextFocus = row.nextElementSibling || row.previousElementSibling;
+    const session = getSession(); // the session this delete belongs to (Issue #27): an answer for an earlier one changes nothing under the next account
     deletePending = true;
     try {
       if (id && getCurrentUser()) {
         if (!await confirmAction({ title: 'Delete saved receipt?', message: 'This cannot be undone.', confirmLabel: 'Delete receipt', cancelLabel: 'Keep receipt', danger: true, trigger })) return;
+        if (getSession() !== session) return;
         trigger.disabled = true;
         setFeedback(feedbackTarget);
         await deleteReceipt(id);
+        if (getSession() !== session) return;
       } else if (hasDraftContent() && !await confirmAction({ title: 'Discard unfinished receipt?', message: 'Its entered details will be lost.', confirmLabel: 'Discard receipt', cancelLabel: 'Keep editing', danger: true, trigger })) return;
       row.remove();
       if (id) removeStoreSourceReceipt(id);
@@ -233,6 +236,7 @@ export function createReceiptDeleteHandler({ row, triggerFallback, getCurrentUse
       refreshOptimizationCards();
       (nextFocus?.querySelector('summary') || triggerFallback).focus({ preventScroll: true });
     } catch (error) {
+      if (getSession() !== session) return;
       setFeedback(feedbackTarget, `Could not delete this receipt: ${error.message}`, 'error');
     } finally {
       deletePending = false;
@@ -241,7 +245,7 @@ export function createReceiptDeleteHandler({ row, triggerFallback, getCurrentUse
   };
 }
 // Permanent deletion of a saved Consumed receipt. The row stays in the list until the database has confirmed the deletion.
-export function createConsumedDeleteHandler({ row, triggerFallback, getCurrentUser, getReceiptStatus, confirmAction, deleteConsumedReceipt, removeStoreSourceReceipt, clearSelection, refreshReceiptIds, refreshEncodingCards, refreshOptimizationCards, setFeedback, feedbackTarget }) {
+export function createConsumedDeleteHandler({ row, triggerFallback, getSession = () => 0, getCurrentUser, getReceiptStatus, confirmAction, deleteConsumedReceipt, removeStoreSourceReceipt, clearSelection, refreshReceiptIds, refreshEncodingCards, refreshOptimizationCards, setFeedback, feedbackTarget }) {
   let deletePending = false;
   const visibleNeighbour = (start, step) => { let node = start; while (node && node.hidden) node = node[step]; return node; };
   return async event => {
@@ -250,12 +254,15 @@ export function createConsumedDeleteHandler({ row, triggerFallback, getCurrentUs
     const id = row.dataset.receiptDbId;
     if (!id || !getCurrentUser() || getReceiptStatus() !== 'consumed') return;
     const nextFocus = visibleNeighbour(row.nextElementSibling, 'nextElementSibling') || visibleNeighbour(row.previousElementSibling, 'previousElementSibling');
+    const session = getSession();
     deletePending = true;
     try {
       if (!await confirmAction({ title: 'Permanently delete this Consumed receipt?', message: 'This permanently deletes the saved receipt. It cannot be undone. Receipts you already exported are not affected.', confirmLabel: 'Delete permanently', cancelLabel: 'Keep receipt', danger: true, trigger })) return;
+      if (getSession() !== session) return;
       trigger.disabled = true;
       setFeedback(feedbackTarget);
       await deleteConsumedReceipt(id);
+      if (getSession() !== session) return;
       row.remove();
       removeStoreSourceReceipt(id);
       clearSelection();
@@ -265,6 +272,7 @@ export function createConsumedDeleteHandler({ row, triggerFallback, getCurrentUs
       setFeedback(feedbackTarget, 'Consumed receipt deleted permanently.', 'success');
       (nextFocus?.querySelector('summary') || triggerFallback)?.focus?.({ preventScroll: true });
     } catch (error) {
+      if (getSession() !== session) return;
       setFeedback(feedbackTarget, `Could not delete this Consumed receipt: ${String(error?.message || 'Unknown error').replace(/[.\s]+$/, '')}. It was not removed from your list.`, 'error');
     } finally {
       deletePending = false;
@@ -955,10 +963,11 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     row.dataset.receiptStatus = normalizeReceiptStatus(values.status);
     if (values.dbId) row.dataset.persistedStoreFingerprint = persistedStoreFingerprint(values);
     for (const [key, value] of Object.entries(values)) { const field = row.querySelector(`.receipt-${key}`); if (field) field.value = value; }
-    row.querySelector('.receipt-photo').addEventListener('change', event => { const file = event.currentTarget.files[0]; if (file) scanPrintedDetails(file, row, target => { refreshSummary(target); refreshAvailableSummary(); }); }); // the scan fills fields after it returns: refresh the unsaved flag and count then
+    row.querySelector('.receipt-photo').addEventListener('change', event => { const file = event.currentTarget.files[0]; if (file) { const session = sessionGeneration; scanPrintedDetails(file, row, target => { if (session !== sessionGeneration) return; refreshSummary(target); refreshAvailableSummary(); }); } }); // the scan fills fields after it returns: refresh the unsaved flag and count then
     row.querySelector('.delete-receipt').addEventListener('click', createReceiptDeleteHandler({
       row,
       triggerFallback: elements.floatingAdd,
+      getSession: () => sessionGeneration,
       getCurrentUser: () => currentUser,
       getReceiptStatus: () => receiptStatus(row),
       hasDraftContent: () => Object.values(rowValues(row)).some(value => String(value || '').trim()) || row.querySelector('.receipt-photo').files.length > 0,
@@ -981,12 +990,17 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       if (resolution.status === 'existing') return setFeedback(elements.encodingFeedback, 'This store already exists in the Company Store Directory.', 'info');
       if (resolution.status === 'ambiguous') return setFeedback(elements.encodingFeedback, 'Multiple Company profiles match. Add an Address or TIN before contributing.', 'warning');
       event.currentTarget.disabled = true;
+      const generation = sessionGeneration; // an answer for an earlier session says nothing under the next account
+      const contributor = currentUser;
       try {
-        await sharedStoreService.contributeSharedStore(candidate, currentUser.id);
-        await reloadSharedStores();
+        await sharedStoreService.contributeSharedStore(candidate, contributor.id);
+        if (generation !== sessionGeneration) return;
+        await reloadSharedStores(generation);
+        if (generation !== sessionGeneration) return;
         setFeedback(elements.encodingFeedback, 'Store added to the Company Store Directory.', 'success');
       } catch (error) {
-        if (error?.name === 'SharedStoreDuplicateError') { await reloadSharedStores(); resolveSharedContributionCandidate(candidate, sharedStoreProfiles); setFeedback(elements.encodingFeedback, 'This store was already added to the Company Store Directory.', 'info'); }
+        if (generation !== sessionGeneration) return;
+        if (error?.name === 'SharedStoreDuplicateError') { await reloadSharedStores(generation); if (generation !== sessionGeneration) return; resolveSharedContributionCandidate(candidate, sharedStoreProfiles); setFeedback(elements.encodingFeedback, 'This store was already added to the Company Store Directory.', 'info'); }
         else setFeedback(elements.encodingFeedback, `Could not add this store: ${error.message}`, 'error');
       } finally { event.currentTarget.disabled = false; }
     });
@@ -994,6 +1008,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     row.querySelector('.delete-consumed').addEventListener('click', createConsumedDeleteHandler({
       row,
       triggerFallback: elements.receiptStatusFilter,
+      getSession: () => sessionGeneration,
       getCurrentUser: () => currentUser,
       getReceiptStatus: () => receiptStatus(row),
       confirmAction,
@@ -1044,22 +1059,28 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     const details = [candidate.address && `Address: ${candidate.address}`, candidate.tin && `TIN: ${candidate.tin}`].filter(Boolean);
     return `“${candidate.storeName}” is not currently in the Company Directory. Adding it will make its store details available to other users.${details.length ? ` ${details.join(' · ')}` : ''}`;
   };
-  const contributeAfterReceiptSave = async candidate => {
+  // The save's own user and liveness check (mine) are passed in: a prompt, contribution or message that belongs to an ended session never reaches the next account.
+  const contributeAfterReceiptSave = async (candidate, user, mine) => {
     try {
-      await sharedStoreService.contributeSharedStore(candidate, currentUser.id);
+      await sharedStoreService.contributeSharedStore(candidate, user.id);
+      if (!mine()) return;
       await reloadSharedStores();
+      if (!mine()) return;
       setFeedback(elements.encodingFeedback, 'Receipt saved. Store added to the Company Directory.', 'success');
     } catch (error) {
+      if (!mine()) return;
       if (error?.name === 'SharedStoreDuplicateError') {
         await reloadSharedStores();
+        if (!mine()) return;
         setFeedback(elements.encodingFeedback, 'Receipt saved. This store is already in the Company Directory.', 'success');
       } else {
         setFeedback(elements.encodingFeedback, `Receipt saved, but the store could not be added to the Company Directory: ${error.message}`, 'warning');
       }
     }
   };
-  const processPostSaveDirectoryCandidates = async candidates => {
+  const processPostSaveDirectoryCandidates = async (candidates, user, mine) => {
     for (const decision of deduplicateDirectoryCandidates(candidates)) {
+      if (!mine()) return;
       if (decision.status === 'ambiguous') {
         setFeedback(elements.encodingFeedback, 'Receipt saved. Multiple Company profiles match this store; add more identifying information before adding it to the directory.', 'warning');
         continue;
@@ -1072,11 +1093,12 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
         cancelLabel: 'Keep in My Receipt History',
         trigger: elements.saveDraft
       });
+      if (!mine()) return;
       if (!confirmed) {
         setFeedback(elements.encodingFeedback, 'Receipt saved. Store kept in My Receipt History.', 'success');
         continue;
       }
-      await contributeAfterReceiptSave(decision.candidate);
+      await contributeAfterReceiptSave(decision.candidate, user, mine);
     }
   };
   // ---- Save: dirty-only persistence with real progress (Issue #24) ----
@@ -1222,7 +1244,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       refreshOptimizationCards();
       const nowHidden = releasedHiddenNotice(released.filter(row => row.hidden).map(row => row.dataset.receiptId || ''));
       setFeedback(elements.encodingFeedback, `Receipt changes saved.${nowHidden ? ` ${nowHidden}` : ''}${notices ? ` ${notices}` : ''}`, 'success');
-      await processPostSaveDirectoryCandidates(candidates);
+      await processPostSaveDirectoryCandidates(candidates, user, mine);
     } catch (error) { if (!mine()) return; refreshEncodingCards(); refreshOptimizationCards(); setFeedback(elements.encodingFeedback, `Could not save receipt changes: ${error.message}`, 'error'); }
     finally { if (mine()) { savePending = false; elements.saveDraft.disabled = false; elements.saveDraft.removeAttribute?.('aria-busy'); } } // a stale save never touches a newer save's controls
   };
@@ -1514,6 +1536,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   const endTransientAccountState = () => {
     exportPending = false; exportReviewPending = false; editSavePending = false; exportSession = null; exportRunner = newExportRunner();
     exportMode = 'best-match'; knownMissingIds.clear(); setManualIds([]); setManualFeedback(''); applyExportModeView();
+    const editSubmit = elements.editForm?.querySelector?.('button[type="submit"]'); if (editSubmit) editSubmit.disabled = false; // the shared button belongs to the session that disabled it: a new session starts with it free
     if (!elements.editModal.hidden) closeEditModal(); // only an open dialog is closed: an idle one has nothing to hand focus back from
     if (!elements.exportConfirmModal.hidden) closeExportConfirmation({ force: true });
   };
@@ -1691,10 +1714,13 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   const restoreReceipt = async (index, trigger) => {
     const row = elements.list.children[index];
     if (!row || receiptStatus(row) !== 'consumed' || !row.dataset.receiptDbId) return;
+    const generation = sessionGeneration; // an answer for an earlier session must not put its receipt into the next account's history, or speak on its screen (Issue #27)
     if (!await confirmAction({ title: 'Mark receipt Available?', message: 'It will return to normal editing and optimization.', confirmLabel: 'Mark Available', cancelLabel: 'Keep Consumed', trigger })) return;
+    if (generation !== sessionGeneration) return;
     if (trigger) trigger.disabled = true;
     try {
       const saved = await receiptService.updateReceiptStatus(row.dataset.receiptDbId, 'available');
+      if (generation !== sessionGeneration) return;
       row.dataset.receiptStatus = saved.status;
       row.dataset.receiptUpdatedAt = saved.updatedAt || '';
       applyReceiptStatusState(row);
@@ -1702,7 +1728,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       refreshEncodingCards();
       refreshOptimizationCards();
       setFeedback(elements.encodingFeedback, 'Receipt marked as Available.', 'success');
-    } catch (error) { setFeedback(elements.encodingFeedback, `Could not restore this receipt: ${error.message}`, 'error'); if (trigger) trigger.disabled = false; }
+    } catch (error) { if (generation !== sessionGeneration) return; setFeedback(elements.encodingFeedback, `Could not restore this receipt: ${error.message}`, 'error'); if (trigger) trigger.disabled = false; }
   };
   const saveModalCorrection = async event => {
     event.preventDefault();
@@ -1721,10 +1747,10 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     if (row.dataset.receiptDbId && currentUser) {
       try {
         const saved = await receiptService.updateReceipt(row.dataset.receiptDbId, values, owner.id);
-        if (generation !== sessionGeneration) { if (submitButton) submitButton.disabled = false; return; } // an earlier account's correction: nothing is applied or said under the next one
+        if (generation !== sessionGeneration) return; // an earlier account's correction: nothing is applied or said under the next one, and the shared button is not touched (the new session reset it)
         if (saved.updatedAt) row.dataset.receiptUpdatedAt = saved.updatedAt;
         upsertStoreSourceReceipt(saved);
-      } catch (error) { if (generation !== sessionGeneration) { if (submitButton) submitButton.disabled = false; return; } setFeedback(elements.editFeedback, `Could not save correction: ${error.message}`, 'error'); editSavePending = false; if (submitButton) submitButton.disabled = false; return; }
+      } catch (error) { if (generation !== sessionGeneration) return; setFeedback(elements.editFeedback, `Could not save correction: ${error.message}`, 'error'); editSavePending = false; if (submitButton) submitButton.disabled = false; return; }
     }
     cancelCalculation('changed'); // a correction to any receipt stales a calculation that is still running
     // A correction to a receipt in the current Find Best Match result makes that result stale: clear it and say why, rather than exporting different values.
