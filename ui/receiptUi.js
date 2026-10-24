@@ -228,6 +228,7 @@ export function createReceiptDeleteHandler({ row, triggerFallback, getSession = 
         await deleteReceipt(id);
         if (getSession() !== session) return;
       } else if (hasDraftContent() && !await confirmAction({ title: 'Discard unfinished receipt?', message: 'Its entered details will be lost.', confirmLabel: 'Discard receipt', cancelLabel: 'Keep editing', danger: true, trigger })) return;
+      if (getSession() !== session) return; // a late Yes from an earlier session removes nothing, clears nothing and moves no focus under the next account
       row.remove();
       if (id) removeStoreSourceReceipt(id);
       clearSelection();
@@ -733,7 +734,9 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   };
   const clearManualSelection = async event => {
     if (!manualIds.length) return;
+    const session = sessionGeneration; // the confirmation belongs to the session that asked (Issue #27): a late Yes never clears another account's selection
     if (manualIds.length >= 25 && !await confirmAction({ title: 'Clear the manual selection?', message: `This deselects all ${manualIds.length} receipts. Your receipts themselves are not changed.`, confirmLabel: 'Clear selection', cancelLabel: 'Keep selection', danger: true, trigger: event?.currentTarget })) return;
+    if (session !== sessionGeneration) return;
     setManualIds([]);
     setManualFeedback('Manual selection cleared.');
     refreshOptimizationCards();
@@ -1849,7 +1852,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       elements.exportConfirmBackdrop.addEventListener('click', closeExportConfirmation);
       elements.saveDraft.addEventListener('click', saveDraft);
       elements.clearAll.addEventListener('click', async event => {
-        if (!elements.list.children.length || await confirmAction({ title: 'Clear receipts from this form?', message: 'Saved receipts remain in your account and return after a refresh.', confirmLabel: 'Clear form', cancelLabel: 'Keep receipts', danger: true, trigger: event.currentTarget })) { elements.list.replaceChildren(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); }
+        const session = sessionGeneration; // a late Yes from an earlier session never erases the next account's form
+        if (!elements.list.children.length || await confirmAction({ title: 'Clear receipts from this form?', message: 'Saved receipts remain in your account and return after a refresh.', confirmLabel: 'Clear form', cancelLabel: 'Keep receipts', danger: true, trigger: event.currentTarget })) { if (session !== sessionGeneration) return; elements.list.replaceChildren(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); }
       });
       elements.floatingAdd.addEventListener('click', addReceiptForEncoding);
       elements.editForm.addEventListener('submit', saveModalCorrection);

@@ -288,3 +288,59 @@ test('R6: a stale correction answer (late success or late failure) never re-enab
     assert.equal(submit.disabled, false, 'B\'s own completion releases its own button'); assert.match(f.elements.editFeedback.textContent, /B update failed/);
   }
 });
+
+// ---- Round 3 review of PR #31, R7: a late confirmation from A must not change B's receipts, selections, feedback or focus ------------------------------------------------
+// The shared prompt is dismissed (answer false) by app.js when an account ends or changes; these tests use the harder case, an alternate or delayed confirmation that
+// still answers TRUE after B's session is in place, so the controller must not trust the prompt.
+const manyFor = (prefix, count) => Array.from({ length: count }, (_, i) => row(`${prefix}${i + 1}`, `${prefix}-Store-${i + 1}`, 10 + i));
+const heldConfirm = title => { const answer = gate(); const asked = []; return { answer, asked, confirm: async options => { if (options.title !== title) return true; asked.push(options.title); return answer.promise; } }; };
+const selectAllShown = async f => { f.elements.exportModeManual.checked = true; f.elements.exportModeBestMatch.checked = false; await f.elements.exportModeManual.emit('change'); await f.click(f.elements.manualSelectShown); };
+const feedbackOf = f => [f.elements.encodingFeedback.textContent, f.elements.manualFeedback.textContent, f.elements.difference.textContent].join(' | ');
+
+for (const mode of ['sign-out then sign-in', 'direct switch']) {
+  test(`R7 (${mode}): a late "Clear the manual selection?" confirmation from A does not clear B's manual selection, feedback or focus (${mode})`, async () => {
+    const held = heldConfirm('Clear the manual selection?');
+    const f = await receiptFixture({ loaded: manyFor('a', 30), confirm: held.confirm });
+    await selectAllShown(f); assert.equal(f.elements.manualSelectedCount.textContent.startsWith('30'), true, 'A has 30 selected');
+    const clearing = f.elements.manualClearSelection.emit('click'); await settle(); assert.equal(held.asked.length, 1, 'the confirmation is open for A');
+    endModes[mode](f); setTable(f, manyFor('b', 30)); await f.ui.loadForUser({ id: 'B' }); await selectAllShown(f);
+    const selected = f.elements.manualSelectedCount.textContent, feedbackBefore = feedbackOf(f), focusBefore = f.focusLog.length;
+    assert.equal(selected.startsWith('30'), true, 'B has its own 30 selected');
+    held.answer.open(true); await clearing; await settle();
+    assert.equal(f.elements.manualSelectedCount.textContent, selected, 'B\'s selection is intact'); assert.equal(feedbackOf(f), feedbackBefore); assert.doesNotMatch(feedbackOf(f), /Manual selection cleared/);
+    assert.equal(f.focusLog.length, focusBefore, 'no focus moved in B\'s screen');
+    await f.click(f.elements.manualClearSelection); // same-session behavior: B can still clear its own selection after confirming
+  });
+
+  test(`R7 (${mode}): a late "Clear receipts from this form?" confirmation from A does not erase B's form, unsaved edits, selection or focus (${mode})`, async () => {
+    const held = heldConfirm('Clear receipts from this form?');
+    const f = await receiptFixture({ loaded: threeForA(), confirm: held.confirm });
+    const clearing = f.elements.clearAll.emit('click'); await settle(); assert.equal(held.asked.length, 1);
+    endModes[mode](f); setTable(f, twoForB()); await f.ui.loadForUser({ id: 'B' });
+    await f.type(f.rows()[0], 'store', 'B-unsaved-edit'); await bestMatch(f, '300');
+    const exportLabel = f.elements.exportSelected.textContent, feedbackBefore = feedbackOf(f), focusBefore = f.focusLog.length;
+    held.answer.open(true); await clearing; await settle();
+    assert.equal(f.rows().length, 2, 'B\'s form is intact'); assert.equal(f.field(f.rows()[0], 'store').value, 'B-unsaved-edit', 'B\'s unsaved edit survives');
+    assert.equal(f.elements.exportSelected.textContent, exportLabel, 'B\'s Best Match selection survives'); assert.equal(feedbackOf(f), feedbackBefore); assert.equal(f.focusLog.length, focusBefore);
+  });
+
+  test(`R7 (${mode}): a late "Discard unfinished receipt?" confirmation from A removes nothing of B's and clears no selection or focus of B (${mode})`, async () => {
+    const held = heldConfirm('Discard unfinished receipt?');
+    const f = await receiptFixture({ loaded: [], confirm: held.confirm });
+    await f.click(f.elements.floatingAdd); const draft = f.rows()[0]; await f.type(draft, 'store', 'A-draft-store');
+    const discarding = draft.part('.delete-receipt').emit('click'); await settle(); assert.equal(held.asked.length, 1, 'the discard question is open for A');
+    endModes[mode](f); setTable(f, twoForB()); await f.ui.loadForUser({ id: 'B' }); await bestMatch(f, '300');
+    const exportLabel = f.elements.exportSelected.textContent, feedbackBefore = feedbackOf(f), focusBefore = f.focusLog.length;
+    held.answer.open(true); await discarding; await settle();
+    assert.equal(f.rows().length, 2); assert.deepEqual(stores(f), ['B-Store-1', 'B-Store-2']); assert.equal(f.elements.exportSelected.textContent, exportLabel, 'B\'s selection survives');
+    assert.equal(feedbackOf(f), feedbackBefore); assert.equal(f.focusLog.length, focusBefore, 'no focus moved');
+  });
+}
+
+test('R7: in the same session, confirming still clears the manual selection, the form and an unfinished receipt', async () => {
+  const f = await receiptFixture({ loaded: manyFor('a', 30) }); // the default confirmation answers Yes
+  await selectAllShown(f); await f.click(f.elements.manualClearSelection); assert.equal(f.elements.manualFeedback.textContent, 'Manual selection cleared.');
+  await f.click(f.elements.floatingAdd); const draft = f.rows().at(-1); await f.type(draft, 'store', 'draft'); const before = f.rows().length;
+  await f.click(draft.part('.delete-receipt')); assert.equal(f.rows().length, before - 1, 'the unfinished receipt was discarded');
+  await f.click(f.elements.clearAll); assert.equal(f.rows().length, 0, 'the form was cleared');
+});
