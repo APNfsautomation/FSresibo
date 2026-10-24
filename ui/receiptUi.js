@@ -329,6 +329,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   // Every sign-in, sign-out or account change starts a new save session: a save still in flight from an earlier one can no longer show progress, change the cache or
   // the controls, or clear state that belongs to a newer save.
   let saveGeneration = 0;
+  // Advanced by every sign-in and sign-out: a load or import that started under an earlier value belongs to an ended session and is inert (Issue #27).
+  let sessionGeneration = 0;
   // New receipts whose write failed: the database may have committed them even though the answer was lost, so they are checked before being created again.
   let uncertainCreates = new WeakMap();
   const resetSaveState = () => {
@@ -362,9 +364,9 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   const sharedProfile = profile => ({ ...profile, storeName: profile.storeName || profile.store, address: profile.address || '', tin: profile.tin || '' });
   const profileIdentity = sharedProfileIdentity;
   const combinedStoreProfiles = () => combineStoreProfiles(sharedStoreProfiles, storeProfiles);
-  const reloadSharedStores = async () => {
-    try { sharedStoreProfiles = await sharedStoreService.listActiveSharedStores(); return true; }
-    catch { setFeedback(elements.encodingFeedback, 'Company Store Directory is temporarily unavailable. Your receipt history is still available.', 'warning'); return false; }
+  const reloadSharedStores = async (generation = sessionGeneration) => {
+    try { const loaded = await sharedStoreService.listActiveSharedStores(); if (generation !== sessionGeneration) return false; sharedStoreProfiles = loaded; return true; }
+    catch { if (generation !== sessionGeneration) return false; setFeedback(elements.encodingFeedback, 'Company Store Directory is temporarily unavailable. Your receipt history is still available.', 'warning'); return false; }
   };
   const upsertStoreSourceReceipt = receipt => {
     if (!receipt?.dbId) return;
@@ -1398,16 +1400,20 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     if (!draft || localStorage.getItem(migrationKey)) return false;
     let data;
     try { data = JSON.parse(draft); } catch { return false; }
+    const generation = sessionGeneration;
     if (!data.receipts?.length || !await confirmAction({ title: 'Import saved browser receipts?', message: `Import ${data.receipts.length} saved browser receipt${data.receipts.length === 1 ? '' : 's'} into your account? Your local draft will be kept as a backup.`, confirmLabel: 'Import receipts', cancelLabel: 'Not now', trigger: document.activeElement })) return false;
+    if (generation !== sessionGeneration) return false; // the account changed while the question was open: nothing is imported for it
     importPending = true;
     try {
       const imported = await receiptService.importReceipts(data.receipts, user.id);
-      localStorage.setItem(migrationKey, 'true');
+      localStorage.setItem(migrationKey, 'true'); // the import itself happened for that account, so it is recorded as done for that account only
+      if (generation !== sessionGeneration) return false; // ...but its receipts are never drawn under the next account
       if (data.target) elements.target.value = data.target;
       imported.forEach(receipt => { addReceipt(receipt); upsertStoreSourceReceipt(receipt); });
       setFeedback(elements.encodingFeedback, 'Import completed. Your original browser draft was kept as a backup.', 'success');
       return true;
     } catch (error) {
+      if (generation !== sessionGeneration) return false;
       setFeedback(elements.encodingFeedback, `Could not import saved browser receipts: ${error.message}`, 'error');
       return false;
     } finally { importPending = false; }
@@ -1733,14 +1739,21 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     refreshOptimizationCards();
   };
   return {
+    // Every sign-in is a new session (the same account again included). Whatever an earlier session left on screen is wiped first, and an earlier session's late
+    // answers (its load, its Company Directory list, its legacy import) are stale: they render nothing and say nothing under the next account (Issue #27, AUTH-10).
     async loadForUser(user) {
       cancelCalculation();
       resetSaveState();
+      const generation = ++sessionGeneration;
       currentUser = user;
-      const receipts = await receiptService.loadReceipts();
+      elements.list.replaceChildren(); storeSourceReceipts = []; sharedStoreProfiles = []; rebuildStoreProfiles(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty();
+      let receipts;
+      try { receipts = await receiptService.loadReceipts(); } catch (error) { if (generation !== sessionGeneration) return; throw error; }
+      if (generation !== sessionGeneration) return;
       storeSourceReceipts = receipts;
       rebuildStoreProfiles();
-      await reloadSharedStores();
+      await reloadSharedStores(generation);
+      if (generation !== sessionGeneration) return;
       elements.list.replaceChildren();
       exportRunner = newExportRunner(); exportSession = null;
       exportMode = 'best-match'; knownMissingIds.clear(); setManualIds([]); setManualFeedback(''); applyExportModeView(); // a different user starts with nothing selected
@@ -1766,7 +1779,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     },
     setWorkspace,
     setModuleVisible,
-    clearForLogout() { cancelCalculation(); resetSaveState(); currentUser = undefined; sharedStoreProfiles = []; toolbarState = defaultOptimizationToolbarState(); encodingDisplayState = { compartment: 'all' }; storeSourceReceipts = []; rebuildStoreProfiles(); syncToolbarControls(); elements.encodingAmountCompartment.value = 'all'; setActiveStrategy(optimizationStrategies.closest, { persist: false }); elements.list.replaceChildren(); elements.target.value = ''; exportRunner = newExportRunner(); exportMode = 'best-match'; knownMissingIds.clear(); setManualIds([]); setManualFeedback(''); applyExportModeView(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); closeEditModal(); closeExportConfirmation({ force: true }); },
+    clearForLogout() { cancelCalculation(); sessionGeneration += 1; resetSaveState(); currentUser = undefined; sharedStoreProfiles = []; toolbarState = defaultOptimizationToolbarState(); encodingDisplayState = { compartment: 'all' }; storeSourceReceipts = []; rebuildStoreProfiles(); syncToolbarControls(); elements.encodingAmountCompartment.value = 'all'; setActiveStrategy(optimizationStrategies.closest, { persist: false }); elements.list.replaceChildren(); elements.target.value = ''; exportRunner = newExportRunner(); exportMode = 'best-match'; knownMissingIds.clear(); setManualIds([]); setManualFeedback(''); applyExportModeView(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); closeEditModal(); closeExportConfirmation({ force: true }); },
     importLegacyDraft,
     start() {
       renderEncodingAmountCompartmentOptions();

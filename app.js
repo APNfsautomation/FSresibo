@@ -77,6 +77,11 @@ const authPanel = createAuthPanel(authElements, {
 });
 let activeUserId;
 let activatingUserId;
+// Advanced by every new activation, sign-out, recovery event and missing session. An activation that started under an earlier value is stale: after each await it
+// stops, so it can never load another module, start navigation, or mark itself (or any account) active once the account has changed (Issue #27, AUTH-10).
+let activationEpoch = 0;
+// A confirmation prompt belongs to the account that opened it: it is dismissed when that account ends or changes.
+const endAccountPrompts = () => confirmationDialog.close(false);
 let recoveryMode = hasPasswordRecoveryIntent();
 let recoverySessionEstablished = false;
 let recoveryCompleted = false;
@@ -89,21 +94,31 @@ const clearRecoveryUrl = () => {
 
 async function showAuthenticatedUser(user) {
   if (activeUserId === user.id || activatingUserId === user.id) return;
+  const epoch = ++activationEpoch;
+  const current = () => epoch === activationEpoch;
+  endAccountPrompts();
+  monthlyFilingUi.clearForLogout(); // a new activation ends the previous account's Monthly Filing session and screen at once, before any slow load can leave them visible
   applicationWorkspaces.setUser(user.id);
   activatingUserId = user.id;
   try {
     authPanel.hide();
     authElements.userEmail.textContent = user.email;
     await receiptUi.loadForUser(user);
+    if (!current()) return;
     await monthlyFilingUi.loadForUser(user);
+    if (!current()) return;
     await receiptUi.importLegacyDraft(user);
+    if (!current()) return;
     navigationController.start({ fallbackRoute: receiptUi.consumeLegacyWorkspace() === 'optimization' ? receiptRoutes.optimization : receiptRoutes.encoding });
     activeUserId = user.id;
-  } finally { activatingUserId = undefined; }
+  } catch (error) {
+    if (current()) throw error; // a failure of an ended activation is inert
+  } finally { if (current()) activatingUserId = undefined; }
 }
 
 async function handleAuthState(event, nextSession) {
   if (event === 'PASSWORD_RECOVERY') {
+    activationEpoch += 1; activatingUserId = undefined; endAccountPrompts();
     applicationWorkspaces.clearForLogout();
     recoveryMode = true;
     recoverySessionEstablished = Boolean(nextSession?.user);
@@ -114,6 +129,7 @@ async function handleAuthState(event, nextSession) {
   }
   if (recoveryMode && event !== 'SIGNED_OUT') return;
   if (event === 'SIGNED_OUT') {
+    activationEpoch += 1; endAccountPrompts();
     activeUserId = undefined;
     activatingUserId = undefined;
     receiptUi.clearForLogout();
@@ -128,6 +144,7 @@ async function handleAuthState(event, nextSession) {
   }
   if (nextSession?.user) await showAuthenticatedUser(nextSession.user);
   else {
+    activationEpoch += 1; endAccountPrompts();
     activeUserId = undefined;
     activatingUserId = undefined;
     receiptUi.clearForLogout();

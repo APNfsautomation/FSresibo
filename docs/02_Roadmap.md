@@ -109,7 +109,7 @@ The earlier C3E-2 follow-up (the "Go to Encoding" action in the unsaved-changes 
 - Email confirmation link redirect (an obsolete Synology address was observed) and the password-recovery flow (links entered the app without a reset) need live Supabase configuration and a functional retest. Unit tests do not resolve them.
 - Confirm hosted public sign-up is refused.
 - Dependency pinning and integrity for CDN-loaded libraries (Supabase client, Tesseract.js).
-- Monthly Filing session isolation defect (Issue #27): recommended HIGH and a release blocker for `main`, pending Product Owner triage; also probe overlapping account activation for Receipt Encoding.
+- Monthly Filing session isolation (Issue #27, HIGH): fixed and automated-tested in its pull request (with the confirmed AUTH-10 overlapping-activation fix); remains a `main` release blocker until reviewed, deployed and accepted in the Product Owner's two-account live-browser UAT.
 - Pre-production data reset and maintenance runbook.
 
 ## Future

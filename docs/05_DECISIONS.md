@@ -516,3 +516,25 @@ Real saved pools exceed 32 receipts, and the 32-receipt limit comes from 32-bit 
 - Exact for every pool inside the budget, identical to the existing engine for up to 32 receipts, and refused rather than approximated outside it. Cost grows with receipts × target (in gcd units), not with the number of subsets: on the development machine (Node 24, Intel Core i7-14700HX) about 3 ns per cell, for example 400 typical receipts at a PHP 20,000 target in about 2.4 s and about 100 MiB, and whole-peso pools 100 times cheaper. Targets above the pool cost almost nothing. A target between half the pool and the pool is not specially accelerated.
 - Quick Optimizer keeps its separately specified 32 entered amounts and top-three results; Manual Selection keeps its 100-selected cap; bulk saving of hundreds of new receipts remains deferred. No schema, RLS, Auth, version or `main` change.
 - Mobile performance is not measured; WebAssembly acceleration and a user-chosen candidate scope are deferred and would each need a separate decision.
+
+# Decision 020
+
+## Session-Scoped Asynchronous Operations
+
+**Status**
+
+Accepted (Product Owner authorized implementation of Issue #27 on 2026-10-25). Implemented in the Issue #27 pull request; independent review and the Product Owner's two-account live-browser UAT are pending.
+
+### Decision
+
+Every asynchronous operation that can change what a signed-in user sees belongs to a session. A session is replaced by every sign-in (the same account signing in again included), sign-out, recovery event and missing session. An operation captures its session when it starts and treats its result, error and `finally` as inert once the session is no longer current: it renders nothing, says nothing, prompts nothing, sends nothing further, and releases only its own session's guards. Guards (busy flag, mutation guard, archive-uncertainty lifecycle) are part of the session, so a new session starts with free guards even if an earlier request never finishes. App-level activation uses an epoch checked after every await, and a confirmation prompt is dismissed when its account ends or changes.
+
+### Reason
+
+A previous account's Monthly Filing financial data could appear inside the next account's authenticated screen, and the next account's controls could stay disabled behind a request that never answered. Overlapping activation was confirmed by reproduction in Receipt Encoding's load and in `app.js`.
+
+### Consequences
+
+- The successful same-session flows (save, directory decision, workbook snapshot, archive, single mutation restriction, archive-uncertainty reconciliation, Active/Archived behavior) are unchanged. Same-account token refreshes are still de-duplicated by `app.js` and never start a new session.
+- A request already sent to the database before the switch cannot be recalled: a workbook already generated, an archive or Company Directory contribution already requested keep their server-side effect, which stays owner-scoped by RLS. Only the on-screen effect is suppressed.
+- No schema, RLS, Auth, dependency, feature or version change; automated tests use fake services and are not live hosted evidence.

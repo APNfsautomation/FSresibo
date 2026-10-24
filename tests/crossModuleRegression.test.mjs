@@ -33,10 +33,10 @@ async function bootApp({ sessionUser = { id: 'a', email: 'a@example.test' }, gat
   let subscription; let logoutCalls = 0;
   const receipt = {
     setModuleVisible: () => {}, setWorkspace: () => {}, start: record('receipt.start'), clearForLogout: record('receipt.clear'),
-    loadForUser: async user => { log.push(`receipt.load:${user.id}`); if (gates.receiptLoad) await gates.receiptLoad; },
+    loadForUser: async user => { log.push(`receipt.load:${user.id}`); if (gates.receiptLoad) await gates.receiptLoad; if (gates.receiptByUser?.[user.id]) await gates.receiptByUser[user.id]; },
     importLegacyDraft: async user => { log.push(`receipt.importLegacy:${user.id}`); }, consumeLegacyWorkspace: () => 'encoding'
   };
-  const monthly = { setVisible: () => {}, start: record('monthly.start'), clearForLogout: record('monthly.clear'), loadForUser: async user => { log.push(`monthly.load:${user.id}`); } };
+  const monthly = { setVisible: () => {}, start: record('monthly.start'), clearForLogout: record('monthly.clear'), loadForUser: async user => { log.push(`monthly.load:${user.id}`); if (gates.monthlyByUser?.[user.id]) await gates.monthlyByUser[user.id]; } };
   const auth = { show: (message, options) => log.push(`auth.show:${message ?? ''}:${options?.clearPasswords ? 'clearPasswords' : ''}`), hide: record('auth.hide'), setMessage: () => {}, showRecovery: record('auth.showRecovery'), showRecoveryUnavailable: record('auth.showRecoveryUnavailable') };
   const dependencies = {
     document, window, isSupabaseConfigured: () => true, supabaseConfig: {}, appMetadata: { name: 'FSResibo', version: '3.6.0-beta.1' },
@@ -46,7 +46,7 @@ async function bootApp({ sessionUser = { id: 'a', email: 'a@example.test' }, gat
     register: () => {}, requestPasswordReset: () => {}, updatePassword: () => {}, scanPrintedDetails: () => {},
     downloadExpenseDetailedReport: () => {}, downloadSelectedReceipts: () => {}, findBest: () => {}, optimizationStrategies: {}, toCents: () => {},
     receiptService: {}, monthlyFilingService: {}, sharedStoreService: {}, renderApplicationIdentity: () => {}, renderApplicationName: () => {},
-    createAuthPanel: () => auth, createConfirmationDialog: () => ({ confirm: () => {} }), createModalFocus: () => ({ open: () => {}, close: () => {} }),
+    createAuthPanel: () => auth, createConfirmationDialog: () => ({ confirm: () => {}, close: record('dialog.close') }), createModalFocus: () => ({ open: () => {}, close: () => {} }),
     createNavigationController: () => ({ start: () => { log.push('navigation.start'); }, setDrawer: () => {} }),
     receiptRoutes, createReceiptUi: () => receipt, createMonthlyFilingUi: () => monthly,
     createQuickOptimizerUi: () => createQuickOptimizerUi({ nextFrame: async () => {} }),
@@ -100,12 +100,12 @@ test('AUTH-4: sign-out, a missing session and a signed-out start each clear rece
   const app = await bootApp();
   app.quickOptimizerUi.setTarget('777');
   let mark = app.log.length; await app.handle('SIGNED_OUT', null);
-  assert.deepEqual(since(app, mark), ['receipt.clear', 'monthly.clear', 'workspaces.clear', 'auth.show::clearPasswords']);
+  assert.deepEqual(since(app, mark), ['dialog.close:false', 'receipt.clear', 'monthly.clear', 'workspaces.clear', 'auth.show::clearPasswords'], 'any open prompt of the ended account is dismissed first');
   assert.equal(app.quickOptimizerUi.getState().target, '');
   await app.handle('SIGNED_IN', { user: { id: 'a' } }); // the same account may sign in again after signing out and is loaded afresh
   assert.equal(app.log.filter(entry => entry === 'receipt.load:a').length, 2); assert.equal(app.log.filter(entry => entry === 'monthly.load:a').length, 2);
   app.quickOptimizerUi.setTarget('888'); mark = app.log.length; await app.handle('INITIAL_SESSION', null);
-  assert.deepEqual(since(app, mark), ['receipt.clear', 'monthly.clear', 'workspaces.clear', 'auth.show::']);
+  assert.deepEqual(since(app, mark), ['dialog.close:false', 'receipt.clear', 'monthly.clear', 'workspaces.clear', 'auth.show::']);
   assert.equal(app.quickOptimizerUi.getState().target, '');
 });
 
@@ -129,13 +129,67 @@ test('AUTH-6: Quick Optimizer use triggers no receipt, Monthly Filing or directo
   assert.deepEqual(since(app, mark), []); assert.equal(app.logoutCalls(), 0);
 });
 
-// ---- 1b. Known gap: Monthly Filing requests that belong to a signed-out account (reported as a separate bug; asserted as the intended behavior) ----
-// The receipt save is session-scoped (savePerformance.test.mjs R2). Monthly Filing save, export and load are not: a late answer for account A lands on account B's screen.
-// `todo` keeps CI green while the defect awaits Product Owner triage. When it is fixed these start passing and the flag can be removed.
-const MONTHLY_SESSION_BUG = 'Known defect: Monthly Filing requests are not session-scoped (see the separate bug issue linked from docs/07_Regression_Coverage_Matrix.md)';
+// ---- AUTH-10: overlapping activation in the real app.js bootstrap (Issue #27) -------------------------------------------------------------------------------
+const deferred = () => { let open; const promise = new Promise(resolve => { open = resolve; }); return { promise, open }; };
+const activations = app => app.log.filter(entry => /^(receipt\.load|monthly\.load|receipt\.importLegacy|navigation\.start|auth\.hide)/.test(entry));
+
+test('AUTH-10 (app.js): an older account\'s activation that resumes after the next account\'s finished loads nothing more, shows nothing, and does not take over', async () => {
+  const hold = deferred(); const app = await bootApp({ sessionUser: null, gates: { receiptByUser: { a: hold.promise } } });
+  const first = app.handle('SIGNED_IN', { user: { id: 'a', email: 'a@example.test' } }); await tick();
+  await app.handle('SIGNED_IN', { user: { id: 'b', email: 'b@example.test' } });
+  assert.equal(app.nodes.get('#userEmail').textContent, 'b@example.test');
+  hold.open(); await first; await tick();
+  assert.deepEqual(activations(app), ['auth.hide', 'receipt.load:a', 'auth.hide', 'receipt.load:b', 'monthly.load:b', 'receipt.importLegacy:b', 'navigation.start'], 'a\'s activation stopped right after its receipt load');
+  assert.equal(app.nodes.get('#userEmail').textContent, 'b@example.test');
+  const mark = app.log.length; await app.handle('TOKEN_REFRESHED', { user: { id: 'b' } });
+  assert.deepEqual(since(app, mark), [], 'b is the active account: a refresh reloads nothing (a did not overwrite it)');
+});
+
+test('AUTH-10 (app.js): an activation that resumes after a sign-out never reopens the application or loads any module', async () => {
+  const hold = deferred(); const app = await bootApp({ sessionUser: null, gates: { receiptByUser: { a: hold.promise } } });
+  const first = app.handle('SIGNED_IN', { user: { id: 'a', email: 'a@example.test' } }); await tick();
+  await app.handle('SIGNED_OUT', null); const mark = app.log.length;
+  hold.open(); await first; await tick();
+  assert.deepEqual(since(app, mark), [], 'nothing runs after the sign-out');
+  assert.equal(app.log.some(entry => entry === 'monthly.load:a' || entry === 'navigation.start'), false);
+  await app.handle('SIGNED_IN', { user: { id: 'a' } }); assert.ok(app.log.slice(mark).includes('receipt.load:a'), 'a fresh sign-in of the same account is a new activation');
+});
+
+test('AUTH-10 (app.js): an older account\'s activation held at the Monthly Filing load does not import, navigate or take over after the switch', async () => {
+  const hold = deferred(); const app = await bootApp({ sessionUser: null, gates: { monthlyByUser: { a: hold.promise } } });
+  const first = app.handle('SIGNED_IN', { user: { id: 'a' } }); await tick();
+  await app.handle('SIGNED_IN', { user: { id: 'b' } }); hold.open(); await first; await tick();
+  assert.deepEqual(activations(app), ['auth.hide', 'receipt.load:a', 'monthly.load:a', 'auth.hide', 'receipt.load:b', 'monthly.load:b', 'receipt.importLegacy:b', 'navigation.start']);
+  const mark = app.log.length; await app.handle('TOKEN_REFRESHED', { user: { id: 'b' } }); assert.deepEqual(since(app, mark), []);
+});
+
+test('AUTH-10 (app.js): a recovery event during an activation also ends it', async () => {
+  const hold = deferred(); const app = await bootApp({ sessionUser: null, gates: { receiptByUser: { a: hold.promise } } });
+  const first = app.handle('SIGNED_IN', { user: { id: 'a' } }); await tick(); await app.handle('PASSWORD_RECOVERY', { user: { id: 'a' } }); const mark = app.log.length;
+  hold.open(); await first; await tick();
+  assert.equal(since(app, mark).some(entry => /monthly\.load|importLegacy|navigation\.start/.test(entry)), false);
+});
+
+test('AUTH-10 (app.js): a direct account switch ends the previous account\'s Monthly Filing session at once, before the new account\'s loads are awaited', async () => {
+  const hold = deferred(); const app = await bootApp({ gates: { receiptByUser: { b: hold.promise } } });
+  const mark = app.log.length; const switching = app.handle('SIGNED_IN', { user: { id: 'b' } }); await tick();
+  assert.deepEqual(since(app, mark).filter(entry => /dialog\.close|monthly\.|receipt\.load|setUser/.test(entry)), ['dialog.close:false', 'monthly.clear', 'workspaces.setUser:b', 'receipt.load:b'], 'while b\'s receipts load, a\'s Monthly Filing screen is already gone');
+  hold.open(); await switching;
+});
+
+test('AUTH-10 (app.js): any open confirmation dialog is dismissed when the account ends or changes, but not on a same-account token refresh', async () => {
+  const app = await bootApp(); let mark = app.log.length;
+  await app.handle('TOKEN_REFRESHED', { user: { id: 'a' } }); assert.equal(since(app, mark).includes('dialog.close:false'), false);
+  mark = app.log.length; await app.handle('SIGNED_IN', { user: { id: 'b' } }); assert.ok(since(app, mark).includes('dialog.close:false'), 'switching account closes a prompt that belonged to the previous one');
+  mark = app.log.length; await app.handle('SIGNED_OUT', null); assert.ok(since(app, mark).includes('dialog.close:false'), 'sign-out closes any prompt');
+  mark = app.log.length; await app.handle('INITIAL_SESSION', null); assert.ok(since(app, mark).includes('dialog.close:false'));
+});
+
+// ---- 1b. Monthly Filing requests that belong to a signed-out account (Issue #27, fixed): they never touch, block or speak into the next account's screen ----
+// The broader gated-promise matrix (late export, directory prompts, delete, return, clear, A-B-A) is in monthlySessionIsolation.test.mjs.
 const owner = card => card.querySelector('.monthly-store').value;
 
-test('AUTH-7 (known defect): a Monthly Filing save still running when account A signs out never changes account B\'s screen', { todo: MONTHLY_SESSION_BUG }, async () => {
+test('AUTH-7: a Monthly Filing save still running when account A signs out never changes account B\'s screen', async () => {
   const f = monthlyFixture();
   await f.ui.loadForUser({ id: 'A' }); await f.click(f.elements.add);
   await f.edit(f.cards()[0], 'store', 'A-SECRET'); await f.edit(f.cards()[0], 'amount', '123');
@@ -148,7 +202,7 @@ test('AUTH-7 (known defect): a Monthly Filing save still running when account A 
   assert.deepEqual(f.cards().map(owner), ['B-store'], 'account A\'s receipt must not appear on B\'s screen');
 });
 
-test('AUTH-8 (known defect): account B can save while account A\'s earlier save is still unanswered', { todo: MONTHLY_SESSION_BUG }, async () => {
+test('AUTH-8: account B can save while account A\'s earlier save is still unanswered', async () => {
   const f = monthlyFixture();
   await f.ui.loadForUser({ id: 'A' }); await f.click(f.elements.add);
   await f.edit(f.cards()[0], 'store', 'A-pending');
@@ -160,7 +214,7 @@ test('AUTH-8 (known defect): account B can save while account A\'s earlier save 
   assert.equal(f.elements.save.disabled, false, 'B\'s Save must not stay disabled behind A\'s request');
 });
 
-test('AUTH-9 (known defect): a slow Monthly Filing load for account A that resolves after account B\'s load does not replace B\'s receipts', { todo: MONTHLY_SESSION_BUG }, async () => {
+test('AUTH-9: a slow Monthly Filing load for account A that resolves after account B\'s load does not replace B\'s receipts', async () => {
   const f = monthlyFixture({ records: [savedMonthly('a1', { store: 'A-ONE' })] });
   let release; f.gates.load = new Promise(resolve => { release = resolve; });
   const slow = f.ui.loadForUser({ id: 'A' }); await tick();

@@ -1,6 +1,6 @@
 # Product Owner Integration UAT Checklist (CP10-C3E-5)
 
-Build: `FSResibo v3.6.0-beta.1` on the UAT deployment. Record the deployed commit below. This is a **focused sample of 14 end-to-end checks (plus the deferred 11b)**, not a repeat of the 700+ automated tests or of earlier accepted UAT. Automated tests do not fill in any status here.
+Build: `FSResibo v3.6.0-beta.1` on the UAT deployment. Record the deployed commit below. This is a **focused sample of 15 end-to-end checks (plus the optional 8b and the deferred 11b)**, not a repeat of the 700+ automated tests or of earlier accepted UAT. Automated tests do not fill in any status here.
 
 | Field | Value |
 |---|---|
@@ -17,7 +17,7 @@ Build: `FSResibo v3.6.0-beta.1` on the UAT deployment. Record the deployed commi
 - Use **two test accounts**, called **A** and **B**, and **disposable data only**. Name every disposable receipt with a `UAT-` prefix (for example store `UAT-Alpha`).
 - **The Shared Company Store Directory is not disposable data.** It is a company-wide master table with no user delete or deactivate, and deleting a `UAT-` receipt does **not** delete its directory entry. On the existing shared company project **never create a new directory profile** as part of this checklist. Decline every Company Directory contribution prompt unless you are on an isolated throwaway staging project or an administrator has approved a disposable profile and its cleanup.
 - **Two kinds of store suggestion exist; do not confuse them.** A *shared Company Directory* entry is the company-wide master record. A *personal receipt-history* suggestion is built from the signed-in account's own saved receipts, so a store you saved on a receipt is legitimately suggested to **that account** again, even after a reload and even after you declined the directory prompt. A history suggestion is **not** evidence that a directory entry was created, and its absence for another account is not evidence that nothing was contributed.
-- **Account switching:** do not switch accounts while a save, export or load is still running (Issue #27), and reload the page before trusting what a switched-to account shows.
+- **Account switching:** until Issue #27 is accepted in the two-account check below, do not switch accounts while a save, export or load is still running, and reload the page before trusting what a switched-to account shows.
 - Do not clear, delete or export real long-term receipts or real Monthly Filing entries. Use **Clear Archived** only when every Archived entry is a `UAT-` entry.
 - Do not enter real passwords anywhere in test notes. Do not use production accounts for the sign-up or recovery tests (those are in the CP10-C4 section, not this list).
 - Results here come from the real Supabase-backed UAT site. The automated suite uses fakes, and its results are kept separately in `07_Regression_Coverage_Matrix.md`.
@@ -42,6 +42,7 @@ Build: `FSResibo v3.6.0-beta.1` on the UAT deployment. Record the deployed commi
 | 12 | Quick Optimizer | Enter 32 amounts, then try a 33rd. Enter decimals such as `0.10` and `0.20`. Calculate with each strategy. Open DevTools Network and calculate again. | The 33rd is refused with capacity feedback. Totals are exact to the centavo. Ranked options appear and selecting one highlights its rows. Navigation keeps the state. Refresh and logout clear it. The Network panel shows **no requests** caused by calculating. | | |
 | 13 | Narrow phone layout | On a phone or a 375px-wide window: open the drawer, use Encoding, Optimization and Monthly Filing, scroll with the action bar visible, switch Light and Dark. | The drawer opens and closes. The sticky action bar stays reachable. **No horizontal scrolling**. Text is readable in both themes. | | |
 | 14 | Desktop keyboard and dialogs | On desktop: Ctrl+Enter adds a receipt, Ctrl+S saves, open an export confirmation, press Tab repeatedly, press Escape. | Tab stays inside the dialog. Escape closes only the top dialog. Focus returns to the control that opened it. The saving progress is readable. | | |
+| 15 | Two-account switching (Issue #27 retest) | Use two disposable accounts A and B, each with a few `UAT-` Monthly Filing receipts. As A: start **Export & Archive** and, before it finishes (use a throttled network in DevTools, or press Save with several new receipts), sign out and sign in as B. Repeat once with a long **Save**, and once leaving a Company Directory or delete confirmation open when you sign out. Then sign in as A again. | B never sees any of A's receipts, totals, messages or prompts; B's Save, Export, Add and Clear buttons work at once; B's own save and export complete normally; a prompt that was open when you signed out is closed. A's own data is still correct when A signs in again, and no extra download or archive happens for B. A request A had already started before signing out may still complete on the server for A (a workbook already downloaded stays downloaded). | | Disposable accounts only. Note the network throttling used. |
 
 ## Deferred (not part of this phase's mandatory execution)
 
@@ -63,7 +64,7 @@ These are recorded here so they are not forgotten. They need a separate live con
 
 ## Known defect (do not use these checks to certify)
 
-Issue #27: a Monthly Filing save, export or load still running when one account signs out can show the previous account's Monthly Filing financial data inside the next account's signed-in screen. It needs a slow or lost network answer, so it is not part of the checklist above, and the checks must not be used to certify it. Database writes remain user-scoped by RLS. The recommended severity is **HIGH**, and the recommendation is to fix it before any `main` promotion or broad shared-browser rollout; triage is the Product Owner's decision. Until it is fixed, do not switch accounts while a Monthly Filing save, export or load is still running, and reload the page before trusting a view after an account switch.
+Issue #27 (Monthly Filing session isolation, HIGH, production-release blocker) is **fixed in its pull request and automated-tested, but not accepted**: it stays open until the fix is reviewed, merged, deployed and the Product Owner accepts check 15 below. The earlier workaround stays in force until then. Whether Receipt Encoding shows an account's data to the next account during an overlapping activation (AUTH-10) was confirmed by reproduction and fixed in the same pull request; it has no separate live check beyond check 15. The fix cannot recall a request already sent to the database (a workbook already generated, an archive or contribution already requested): its server-side effect stays owner-scoped by RLS.
 
 Whether Receipt Encoding shows an account's data to the next account when a load is still running at the switch (overlapping activation) is **unverified** and is not covered by the automated tests (matrix AUTH-10).
 
@@ -71,6 +72,6 @@ Whether Receipt Encoding shows an account's data to the next account when a load
 
 | Mandatory checks | PASS | FAIL | PARTIAL | NOT RUN |
 |---|---|---|---|---|
-| 1-14 | | | | |
+| 1-15 | | | | |
 
-Acceptance of this regression and documentation checkpoint is separate from production release readiness. Open CP10-C4 items and Issue #27 (recommended HIGH, release-blocking) may block promotion to `main` even if all fourteen checks pass. Check 8b is optional and check 11b is deferred; neither is counted among the 14. Check 8 is the retest of the check that failed on the 32-receipt limit.
+Acceptance of this regression and documentation checkpoint is separate from production release readiness. Open CP10-C4 items may block promotion to `main` even if all fifteen checks pass, and Issue #27 (HIGH, release-blocking) stays open until check 15 passes on the deployed build. Check 8b is optional and check 11b is deferred; neither is counted among the 15. Check 8 was the retest of the check that failed on the 32-receipt limit (accepted); check 15 is the Issue #27 retest.
