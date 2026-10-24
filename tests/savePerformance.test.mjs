@@ -117,7 +117,7 @@ test('B08: a failure after K of N writes shows K of N, keeps only the confirmed 
   f.fails.saveAfter = null;
   await save(f);
   assert.equal(f.db.size, 3, 'each receipt exists exactly once'); assert.equal(f.calls.create.length, 4, 'Alpha once, Beta (failed + retried) twice, Gamma once');
-  assert.equal(progress(f), 'Saved 2 receipts');
+  assert.equal(progress(f), 'Saved 2 receipts (a check of your account just now found no matching copy of Receipt 2, so it was saved again)');
   assert.equal(prompts.length, 1, 'the store of the receipt saved before the failure still gets its directory prompt on the retry'); assert.match(prompts[0], /Alpha Mart/);
   assert.deepEqual(kinds(f), ['', '', '']);
 });
@@ -191,9 +191,16 @@ test('B11/B12: Consumed receipts and blank placeholders are never written, and t
 const holdFirstWrite = f => { let release; f.fails.saveGateOnce = new Promise(resolve => { release = resolve; }); return release; };
 const dbIdOf = row => row.dataset.receiptDbId;
 
-test('R1: a create whose answer is lost after the insert committed is NOT inserted a second time on the next Save; the earlier write is adopted', async () => {
-  const prompts = [];
-  const f = await receiptFixture({ loaded: [], confirm: async options => { prompts.push(options.message); return false; } });
+// Records every confirmation dialog and answers each one from a script (a function of the dialog's options).
+const dialogs = answer => { const seen = []; return { seen, confirm: async options => { seen.push(options); return answer(options); } }; };
+const isLink = options => /^Link Receipt/.test(options.confirmLabel);
+const isSaveNew = options => options.confirmLabel === 'Save as a new receipt';
+const isDirectory = options => options.title === 'Add store to Company Directory?';
+const lostThenReady = async (f, row) => { f.fails.createResponseLost = new Error('connection reset'); await save(f); f.fails.createResponseLost = null; return row; };
+
+test('R1: a create whose answer is lost after the insert committed is not inserted again: the user is asked and links it to the committed receipt', async () => {
+  const { seen, confirm } = dialogs(options => isLink(options) || false);
+  const f = await receiptFixture({ loaded: [], confirm });
   const row = await newReceipt(f, 'Lost Mart', '10', { address: '1 Main Street' });
   f.fails.createResponseLost = new Error('connection reset');
   await save(f);
@@ -202,59 +209,123 @@ test('R1: a create whose answer is lost after the insert committed is NOT insert
   assert.match(feedback(f), /The outcome of a failed new receipt could not be confirmed/); assert.deepEqual(kinds(f), ['New, unsaved']); assert.equal(dbIdOf(row), undefined);
   f.fails.createResponseLost = null;
   await save(f);
+  assert.equal(seen[0].title, 'Is this the same receipt?'); assert.match(seen[0].message, /may be the earlier attempt, or it may be a separate identical receipt/);
   assert.equal(f.calls.create.length, 1, 'no second INSERT'); assert.equal(f.db.size, 1);
-  assert.equal(dbIdOf(row), 'new-1', 'the row now points at the receipt the first attempt created');
+  assert.equal(dbIdOf(row), 'new-1', 'only after the user chose "link" does the row point at that receipt');
   assert.deepEqual(kinds(f), ['']); assert.equal(counter(f), '');
-  assert.equal(progress(f), '1 receipt already saved by an earlier attempt'); assert.match(f.elements.saveProgressLive.textContent, /Receipt 1 was already saved by an earlier attempt, so it was not saved twice\./);
-  assert.equal(prompts.length, 1, 'the Company Directory decision for that store is still offered'); assert.match(prompts[0], /Lost Mart/);
+  assert.equal(progress(f), '1 receipt linked to the matching saved receipt'); assert.match(f.elements.saveProgressLive.textContent, /Receipt 1 was linked to the matching receipt already in your account, as you chose, so it was not saved twice\./);
+  assert.equal(seen.filter(isDirectory).length, 1, 'the Company Directory decision for that store is still offered'); assert.match(seen.find(isDirectory).message, /Lost Mart/);
   await save(f); assert.equal(f.calls.create.length, 1); assert.equal(feedback(f), 'No changes to save.');
 });
 
-test('R1: a definite failure before the commit stays retriable: one check of the database, then the receipt is created once', async () => {
-  const f = await receiptFixture({ loaded: [] });
+test('R1: a definite failure before the commit stays retriable: one check shows no copy, the receipt is saved again, and the screen says exactly what the check established', async () => {
+  const { seen, confirm } = dialogs(() => true);
+  const f = await receiptFixture({ loaded: [], confirm });
   const row = await newReceipt(f, 'Rejected Mart', '10');
   f.fails.save = new Error('rejected before commit');
   await save(f); assert.equal(f.db.size, 0);
   f.fails.save = null; const loadsBefore = f.calls.load.length;
   await save(f);
-  assert.equal(f.calls.load.length, loadsBefore + 1, 'exactly one read to prove nothing was committed');
+  assert.equal(f.calls.load.length, loadsBefore + 1, 'exactly one read');
+  assert.deepEqual(seen, [], 'no match, no question');
   assert.equal(f.calls.create.length, 2); assert.equal(f.db.size, 1); assert.equal(dbIdOf(row), 'new-1');
-  assert.deepEqual(kinds(f), ['']); assert.equal(feedback(f), 'Receipt changes saved.', 'no "already saved" claim when nothing had been committed');
+  assert.deepEqual(kinds(f), ['']); assert.equal(feedback(f), 'Receipt changes saved.');
+  assert.equal(progress(f), 'Saved 1 receipt (a check of your account just now found no matching copy of Receipt 1, so it was saved again)', 'it states what the read found, not that nothing was ever committed');
   await newReceipt(f, 'Second', '5'); const loads = f.calls.load.length; await save(f);
   assert.equal(f.calls.load.length, loads, 'with no unconfirmed create there is no extra read');
 });
 
-test('R1: text edited after an unconfirmed create is kept: the adopted receipt is updated, not inserted again', async () => {
-  const f = await receiptFixture({ loaded: [] });
+test('R1: text edited after the user linked an unconfirmed create is kept: the linked receipt is updated, not inserted again', async () => {
+  const f = await receiptFixture({ loaded: [], confirm: async options => isLink(options) });
   const row = await newReceipt(f, 'Lost Mart', '10');
-  f.fails.createResponseLost = new Error('timeout'); await save(f); f.fails.createResponseLost = null;
+  await lostThenReady(f, row);
   await f.type(row, 'store', 'Lost Mart (edited)');
   await save(f);
   assert.equal(f.calls.create.length, 1); assert.deepEqual(f.calls.update.map(([id, values]) => [id, values.store]), [['new-1', 'Lost Mart (edited)']]);
   assert.equal(f.db.size, 1); assert.deepEqual(kinds(f), ['']);
 });
 
-test('R1: if the database check cannot be made, nothing is written; and several identical candidates are never guessed', async () => {
+test('R1: if the database check cannot be made, nothing is written', async () => {
   const f = await receiptFixture({ loaded: [] });
   await newReceipt(f, 'Twin Mart', '10');
   f.fails.createResponseLost = new Error('timeout'); await save(f); f.fails.createResponseLost = null;
   f.fails.load = new Error('offline'); const writes = f.calls.create.length + f.calls.update.length;
   await save(f);
   assert.match(feedback(f), /^Could not check whether an earlier attempt already saved a new receipt: offline\. Nothing was saved; try again\.$/);
-  assert.equal(f.calls.create.length + f.calls.update.length, writes); f.fails.load = null;
-  const twin = { ...f.db.get('new-1'), dbId: 'other', updatedAt: f.stamp() }; f.db.set('other', twin); // a second identical receipt appeared meanwhile
-  await save(f);
-  assert.match(feedback(f), /2 receipts in your account look identical to it\. Nothing was saved\./);
-  assert.equal(f.calls.create.length, 1); assert.equal(f.calls.update.length, 0); assert.deepEqual(kinds(f), ['New, unsaved']);
+  assert.equal(f.calls.create.length + f.calls.update.length, writes);
 });
 
-test('R1: only receipts this session does not already know are candidates: an identical receipt that is on screen is never adopted', async () => {
-  const f = await receiptFixture({ loaded: [saved('a', 10, 'Same Mart')] });
+test('R1: several identical receipts are never linked: only "save as a new receipt" or "leave unsaved" is offered', async () => {
+  const { seen, confirm } = dialogs(() => false);
+  const f = await receiptFixture({ loaded: [], confirm });
+  const row = await newReceipt(f, 'Twin Mart', '10');
+  await lostThenReady(f, row);
+  f.db.set('other', { ...f.db.get('new-1'), dbId: 'other', updatedAt: f.stamp() }); // a second identical receipt appeared meanwhile
+  await save(f);
+  assert.equal(seen.length, 1, 'no "link" question when the match is not unique'); assert.equal(seen[0].title, 'Save as a new receipt?'); assert.match(seen[0].message, /2 receipts in your account look identical to it/);
+  assert.match(feedback(f), /^Nothing was saved\. Receipt 1 is still unsaved/);
+  assert.equal(f.calls.create.length, 1); assert.equal(f.calls.update.length, 0); assert.deepEqual(kinds(f), ['New, unsaved']); assert.equal(dbIdOf(row), undefined);
+  const yes = dialogs(() => true); const g = await receiptFixture({ loaded: [], confirm: yes.confirm });
+  const grow = await newReceipt(g, 'Twin Mart', '10'); await lostThenReady(g, grow);
+  g.db.set('other', { ...g.db.get('new-1'), dbId: 'other', updatedAt: g.stamp() }); await save(g);
+  assert.equal(g.db.size, 3, 'saved as a new receipt, because the user said so'); assert.equal(dbIdOf(grow), 'new-2');
+});
+
+test('R1: an identical receipt that is already on screen is never a candidate', async () => {
+  const f = await receiptFixture({ loaded: [saved('a', 10, 'Same Mart')], confirm: async options => isLink(options) });
   const row = await newReceipt(f, 'Same Mart', '10'); // a genuinely new receipt that looks like the saved one
-  f.fails.createResponseLost = new Error('timeout'); await save(f); f.fails.createResponseLost = null;
+  await lostThenReady(f, row);
   assert.equal(f.db.size, 2);
   await save(f);
-  assert.equal(dbIdOf(row), 'new-1', 'it adopted its own earlier write, not the receipt that was already there'); assert.equal(f.calls.create.length, 1); assert.equal(f.db.size, 2);
+  assert.equal(dbIdOf(row), 'new-1', 'it linked to its own earlier write, never to the receipt that was already there'); assert.equal(f.calls.create.length, 1); assert.equal(f.db.size, 2);
+});
+
+test('R1 follow-up (a): a failed create followed by an independent identical receipt from another session is never silently adopted or overwritten', async () => {
+  const other = { dbId: 'from-b', amount: 10, store: 'Shared Mart', receiptDate: '', address: '', tin: '', vat: '', invoice: '', status: 'available' };
+  // The user declines both questions: nothing is written, the entry stays on screen, the other session's receipt is untouched, and the question returns at the next Save.
+  const declineAll = dialogs(() => false); const f = await receiptFixture({ loaded: [], confirm: declineAll.confirm });
+  const row = await newReceipt(f, 'Shared Mart', '10');
+  f.fails.save = new Error('rejected before commit'); await save(f); f.fails.save = null;
+  f.db.set('from-b', { ...other, updatedAt: f.stamp() });
+  const untouchedAt = f.db.get('from-b').updatedAt;
+  await save(f);
+  assert.deepEqual(declineAll.seen.map(options => options.title), ['Is this the same receipt?', 'Save as a new receipt?']);
+  assert.match(declineAll.seen[0].message, /may be a separate identical receipt/); assert.match(feedback(f), /^Nothing was saved\./);
+  assert.equal(f.calls.create.length, 1, 'no insert'); assert.equal(f.calls.update.length, 0, 'the other receipt is not updated'); assert.equal(f.db.size, 1);
+  assert.equal(dbIdOf(row), undefined); assert.deepEqual(kinds(f), ['New, unsaved']); assert.equal(f.db.get('from-b').updatedAt, untouchedAt);
+  await save(f); assert.equal(declineAll.seen.length, 4, 'the receipt is still unconfirmed, so it is asked about again');
+  // "Do not link", then "Save as a new receipt": the user's separate receipt is created and the other receipt is left exactly as it was.
+  const separate = dialogs(options => isSaveNew(options)); const g = await receiptFixture({ loaded: [], confirm: separate.confirm });
+  const grow = await newReceipt(g, 'Shared Mart', '10'); g.fails.save = new Error('rejected before commit'); await save(g); g.fails.save = null;
+  g.db.set('from-b', { ...other, updatedAt: g.stamp() }); const before = { ...g.db.get('from-b') };
+  await save(g);
+  assert.equal(g.db.size, 2); assert.deepEqual(g.db.get('from-b'), before); assert.equal(dbIdOf(grow), 'new-1', 'a new receipt of its own'); assert.notEqual(dbIdOf(grow), 'from-b'); assert.equal(g.calls.update.length, 0);
+  // Only when the user explicitly chooses "link" is the other receipt bound to the row.
+  const link = dialogs(options => isLink(options)); const h = await receiptFixture({ loaded: [], confirm: link.confirm });
+  const hrow = await newReceipt(h, 'Shared Mart', '10'); h.fails.save = new Error('rejected before commit'); await save(h); h.fails.save = null;
+  h.db.set('from-b', { ...other, updatedAt: h.stamp() }); await save(h);
+  assert.equal(dbIdOf(hrow), 'from-b'); assert.equal(h.calls.create.length, 1); assert.equal(h.db.size, 1);
+});
+
+test('R1 follow-up (b): a committed create that another session has since marked Consumed is never linked, never shown as Available, and never updated', async () => {
+  const { seen, confirm } = dialogs(options => isSaveNew(options));
+  const f = await receiptFixture({ loaded: [], confirm });
+  const row = await newReceipt(f, 'Used Mart', '10');
+  await lostThenReady(f, row);
+  f.db.set('new-1', { ...f.db.get('new-1'), status: 'consumed', updatedAt: f.stamp() }); // exported and consumed elsewhere before the retry
+  const consumedAt = f.db.get('new-1').updatedAt;
+  await f.type(row, 'store', 'Used Mart'); // no change in values
+  await save(f);
+  assert.deepEqual(seen.map(options => options.title), ['Save as a new receipt?'], 'no "link" question is offered for a Consumed match');
+  assert.match(seen[0].message, /An identical receipt in your account is Consumed\. It cannot be linked or edited from here\./);
+  assert.equal(f.calls.update.length, 0, 'the Consumed receipt is never updated'); assert.equal(f.db.get('new-1').status, 'consumed'); assert.equal(f.db.get('new-1').updatedAt, consumedAt);
+  assert.equal(dbIdOf(row), 'new-2', 'the user chose to save a new receipt; it is a different, Available receipt'); assert.equal(f.db.get('new-2').status, 'available');
+  assert.equal(row.dataset.receiptStatus, 'available'); assert.equal(f.db.size, 2);
+  // Declining leaves the entry unsaved and the Consumed receipt alone.
+  const keep = dialogs(() => false); const g = await receiptFixture({ loaded: [], confirm: keep.confirm });
+  const grow = await newReceipt(g, 'Used Mart', '10'); await lostThenReady(g, grow);
+  g.db.set('new-1', { ...g.db.get('new-1'), status: 'consumed', updatedAt: g.stamp() }); await save(g);
+  assert.equal(dbIdOf(grow), undefined); assert.equal(g.calls.update.length, 0); assert.equal(g.calls.create.length, 1); assert.deepEqual(kinds(g), ['New, unsaved']);
 });
 
 test('R2: sign out during a save, sign in as someone else: the new session starts clean, can save while the old request is pending, and the old answer changes nothing', async () => {

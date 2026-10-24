@@ -1094,32 +1094,51 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     });
     return { work, directoryOnly };
   };
-  // A failed create may still have been committed (the answer can be lost after the insert). Before such a receipt is created again, look at the database: an identical
-  // receipt this session does not know about is that earlier write, so it is adopted instead of being inserted twice. Nothing is read when no create is uncertain.
+  // A failed create may still have been committed (the answer can be lost after the insert), so before such a receipt is created again the account is read once.
+  // Equal content is NOT proof that a receipt in the account is this one: it could be a separate identical receipt added elsewhere. So a receipt is never linked silently:
+  //   - nothing matches: the check found no copy at that moment, and the receipt is saved again (said plainly afterwards);
+  //   - exactly one Available match: the user is asked whether it is the same receipt (link) or a separate one (save as new), or to leave it unsaved;
+  //   - several matches, or a match that is not Available (Consumed or another status): it is never linked or edited; the user may only save a new receipt or leave it.
+  // A receipt the user leaves unsaved stays unconfirmed and is asked about again at the next Save.
   const reconcileUncertainCreates = async mine => {
     const pending = [...elements.list.children].filter(row => uncertainCreates.has(row) && !row.dataset.receiptDbId);
-    if (!pending.length) return { ok: true, adopted: [] };
+    if (!pending.length) return { ok: true, adopted: [], recreated: [] };
     let everything;
-    try { everything = await receiptService.loadReceipts(); } catch (error) { return { ok: false, message: `Could not check whether an earlier attempt already saved a new receipt: ${String(error?.message || 'Unknown error').replace(/[.\s]+$/, '')}. Nothing was saved; try again.` }; }
+    try { everything = await receiptService.loadReceipts(); } catch (error) { return { ok: false, severity: 'error', message: `Could not check whether an earlier attempt already saved a new receipt: ${String(error?.message || 'Unknown error').replace(/[.\s]+$/, '')}. Nothing was saved; try again.` }; }
     if (!mine()) return { aborted: true };
-    const known = new Set(storeSourceReceipts.map(receipt => receipt.dbId)); const claimed = new Set(); const adopted = [];
+    const known = new Set(storeSourceReceipts.map(receipt => receipt.dbId)); const claimed = new Set(); const adopted = []; const recreated = []; const decidedNew = [];
+    const stop = (row, why) => ({ ok: false, severity: 'warning', message: `Nothing was saved. Receipt ${row.dataset.receiptId} is still unsaved${why ? ` (${why})` : ''}; save again when you are ready to decide.` });
     for (const row of pending) {
+      const label = `Receipt ${row.dataset.receiptId}`;
       const values = uncertainCreates.get(row);
       const matches = everything.filter(candidate => !known.has(candidate.dbId) && !claimed.has(candidate.dbId) && changedWorkbookFields(candidate, values, { includeUpdatedAt: false }).length === 0);
-      if (matches.length > 1) return { ok: false, message: `Receipt ${row.dataset.receiptId}: an earlier attempt to save it may have reached the server, and ${matches.length} receipts in your account look identical to it. Nothing was saved. Refresh the page to review your saved receipts before saving again.` };
-      if (matches.length === 1) {
-        const [match] = matches; claimed.add(match.dbId);
-        row.dataset.receiptDbId = match.dbId;
-        if (match.updatedAt) row.dataset.receiptUpdatedAt = match.updatedAt;
-        upsertStoreSourceReceipt(match);
-        applyUnsavedKind(row, unsavedKind(row));
-        adopted.push(row.dataset.receiptId);
+      if (!matches.length) { recreated.push(row.dataset.receiptId); decidedNew.push(row); continue; }
+      const onlyAvailable = matches.length === 1 && matches[0].status === 'available';
+      if (onlyAvailable) {
+        const link = await confirmAction({ title: 'Is this the same receipt?', message: `An earlier attempt to save ${label} did not report success. Your account already holds a receipt with exactly the same details that this page did not know about. It may be the earlier attempt, or it may be a separate identical receipt (for example added from another device). Link ${label} to it, or save ${label} as a new receipt.`, confirmLabel: `Link ${label} to the saved receipt`, cancelLabel: 'Do not link', trigger: elements.saveDraft });
+        if (!mine()) return { aborted: true };
+        if (link) {
+          const [match] = matches; claimed.add(match.dbId);
+          row.dataset.receiptDbId = match.dbId;
+          if (match.updatedAt) row.dataset.receiptUpdatedAt = match.updatedAt;
+          upsertStoreSourceReceipt(match);
+          applyUnsavedKind(row, unsavedKind(row));
+          uncertainCreates.delete(row);
+          adopted.push(row.dataset.receiptId);
+          continue;
+        }
       }
-      uncertainCreates.delete(row); // either adopted or proven absent: it is an ordinary receipt again
+      const reason = onlyAvailable ? 'it matches a receipt already in your account' : matches.length > 1 ? `${matches.length} receipts in your account look identical to it` : `an identical receipt in your account is ${matches[0].status === 'consumed' ? 'Consumed' : 'not Available'}`;
+      const saveNew = await confirmAction({ title: 'Save as a new receipt?', message: `${label}: ${reason.charAt(0).toUpperCase()}${reason.slice(1)}. ${onlyAvailable ? '' : 'It cannot be linked or edited from here. '}Saving it as a new receipt will create another receipt with the same details; leaving it unsaved keeps your entry on screen and changes nothing in your account.`, confirmLabel: 'Save as a new receipt', cancelLabel: 'Leave unsaved', trigger: elements.saveDraft });
+      if (!mine()) return { aborted: true };
+      if (!saveNew) return stop(row, reason);
+      decidedNew.push(row);
     }
-    return { ok: true, adopted };
+    decidedNew.forEach(row => uncertainCreates.delete(row)); // only now: a Save the user abandoned part-way leaves every undecided receipt unconfirmed
+    return { ok: true, adopted, recreated };
   };
-  const adoptedNotice = adopted => adopted.length ? `${adopted.length === 1 ? `Receipt ${adopted[0]} was` : `Receipts ${adopted.join(', ')} were`} already saved by an earlier attempt, so ${adopted.length === 1 ? 'it was' : 'they were'} not saved twice.` : '';
+  const adoptedNotice = adopted => adopted.length ? `${adopted.length === 1 ? `Receipt ${adopted[0]} was` : `Receipts ${adopted.join(', ')} were`} linked to ${adopted.length === 1 ? 'the matching receipt' : 'the matching receipts'} already in your account, as you chose, so ${adopted.length === 1 ? 'it was' : 'they were'} not saved twice.` : '';
+  const recreatedNotice = recreated => recreated.length ? `A check of your account just now found no matching copy of ${recreated.length === 1 ? `Receipt ${recreated[0]}` : `Receipts ${recreated.join(', ')}`}, so ${recreated.length === 1 ? 'it was' : 'they were'} saved again.` : '';
   const removedNotice = count => count ? `${count === 1 ? 'A receipt you removed from the list was' : `${count} receipts you removed from the list were`} already being saved and ${count === 1 ? 'was' : 'were'} saved anyway; refresh the page to see ${count === 1 ? 'it' : 'them'}.` : '';
   const saveDraft = async () => {
     if (savePending) return;
@@ -1139,7 +1158,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       }
       const reconciled = await reconcileUncertainCreates(mine);
       if (reconciled.aborted || !mine()) return;
-      if (!reconciled.ok) { showSaveProgress(''); setFeedback(elements.encodingFeedback, reconciled.message, 'error'); return; }
+      if (!reconciled.ok) { showSaveProgress(''); setFeedback(elements.encodingFeedback, reconciled.message, reconciled.severity || 'error'); return; }
       const { work, directoryOnly } = planSave();
       const total = work.length;
       if (!total && !directoryOnly.length) {
@@ -1172,7 +1191,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
         return { row, fingerprint, decision: postSaveDirectoryDecision({ values: item.values, previousFingerprint: item.previousFingerprint, profiles: sharedStoreProfiles }) };
       });
       if (!mine()) return; // the session changed: nothing here may touch the new session's screen
-      const notices = [adoptedNotice(reconciled.adopted), removedNotice(orphaned)].filter(Boolean).join(' ');
+      const notices = [adoptedNotice(reconciled.adopted), removedNotice(orphaned)].filter(Boolean).join(' '); // the feedback line keeps its wording; what the check established is stated in the progress status
       if (error) {
         // Earlier rows may already be saved: refresh the saved total, count and unsaved indicator (edit pins and drafts stay as they are).
         refreshEncodingCards();
@@ -1187,8 +1206,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       }
       finalizeDirectoryPromptFingerprints([...persisted, ...directoryOnly]);
       candidates.push(...directoryOnly.map(result => result.decision));
-      if (total) showSaveProgress(`Saved ${pluralReceipts(completed - orphaned)}`, { speak: `Saved ${pluralReceipts(completed)}.` });
-      else if (reconciled.adopted.length) showSaveProgress(`${pluralReceipts(reconciled.adopted.length)} already saved by an earlier attempt`, { speak: adoptedNotice(reconciled.adopted) }); // stays visible even if a Company Directory prompt replaces the message below
+      if (total) showSaveProgress(`Saved ${pluralReceipts(completed - orphaned)}${reconciled.recreated.length ? ` (${recreatedNotice(reconciled.recreated).replace(/\.$/, '').replace(/^A check/, 'a check')})` : ''}`, { speak: `Saved ${pluralReceipts(completed)}.${reconciled.recreated.length ? ` ${recreatedNotice(reconciled.recreated)}` : ''}` });
+      else if (reconciled.adopted.length) showSaveProgress(`${pluralReceipts(reconciled.adopted.length)} linked to the matching saved receipt`, { speak: adoptedNotice(reconciled.adopted) }); // stays visible even if a Company Directory prompt replaces the message below
       const released = releaseEditPins();
       refreshEncodingCards();
       refreshOptimizationCards();
