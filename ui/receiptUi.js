@@ -989,8 +989,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     installStoreAutocomplete(row);
     const storeInput = row.querySelector('.receipt-store');
     row.querySelectorAll('input, select').forEach(field => {
-      const refreshView = () => { if (!row.hidden) pinReceipt(row); refreshSummary(row); clearSelection(); refreshEncodingCards(); refreshOptimizationCards(); };
-      field.addEventListener('input', field === storeInput ? () => { if (!row.hidden) pinReceipt(row); refreshSummary(row); refreshAvailableSummary(); } : refreshView);
+      const refreshView = () => { clearSaveSummary(); if (!row.hidden) pinReceipt(row); refreshSummary(row); clearSelection(); refreshEncodingCards(); refreshOptimizationCards(); };
+      field.addEventListener('input', field === storeInput ? () => { clearSaveSummary(); if (!row.hidden) pinReceipt(row); refreshSummary(row); refreshAvailableSummary(); } : refreshView);
       field.addEventListener('change', refreshView);
     });
     row.addEventListener('toggle', () => { refreshToggle(row); if (!row.open && row.dataset.filterPinned) releasePinAfterCollapse(row); });
@@ -1058,6 +1058,30 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       await contributeAfterReceiptSave(decision.candidate);
     }
   };
+  // ---- Save: dirty-only persistence with real progress (Issue #24) ----
+  // The Save progress is shown twice: a visible counter that follows every real write, and a screen-reader line that only speaks at the start, at each quarter and at the end.
+  const pluralReceipts = count => `${count} receipt${count === 1 ? '' : 's'}`;
+  const showSaveProgress = (text, { speak = '', busy = false } = {}) => {
+    if (elements.saveProgress) { elements.saveProgress.hidden = !text; elements.saveProgress.dataset.busy = busy ? '1' : ''; if (elements.saveProgressText) elements.saveProgressText.textContent = text; }
+    if (speak && elements.saveProgressLive) elements.saveProgressLive.textContent = speak;
+    elements.saveDraft.setAttribute?.('aria-busy', String(Boolean(savePending && text)));
+  };
+  const clearSaveSummary = () => { if (!savePending && elements.saveProgress && !elements.saveProgress.hidden) showSaveProgress(''); };
+  // What Save must write: modified saved receipts and new receipts with content, judged by the same authoritative comparison as the unsaved flags and the export preflight
+  // (unsavedKind). A saved receipt whose saved record is unknown cannot be proven unchanged, so it is written. Unchanged, blank and Consumed receipts are never written.
+  // Saved receipts that are unchanged but whose store details were never offered to the Company Directory (an earlier batch failed before its prompts) still get a decision.
+  const planSave = () => {
+    const work = []; const directoryOnly = [];
+    [...elements.list.children].forEach(row => {
+      if (receiptStatus(row) === 'consumed' || isBlankUnsavedReceipt(row)) return;
+      const dbId = row.dataset.receiptDbId;
+      const values = rowValues(row); // an immutable snapshot: edits made while the save runs are never written by this save, and stay flagged as unsaved
+      if (!dbId || !savedReceiptFor(row) || unsavedKind(row)) { work.push({ row, values, dbId, previousFingerprint: row.dataset.persistedStoreFingerprint }); return; }
+      const decision = postSaveDirectoryDecision({ values, previousFingerprint: row.dataset.persistedStoreFingerprint, profiles: sharedStoreProfiles });
+      if (decision.status === 'new' || decision.status === 'ambiguous') directoryOnly.push({ row, fingerprint: decision.fingerprint, decision });
+    });
+    return { work, directoryOnly };
+  };
   const saveDraft = async () => {
     if (savePending) return;
     if (!currentUser) return setFeedback(elements.encodingFeedback, 'Please sign in before saving receipts.', 'warning');
@@ -1072,26 +1096,47 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
         (invalidRow.hidden ? elements.receiptStatusFilter : invalidRow.querySelector('.receipt-amount')).focus?.({ preventScroll: false });
         return;
       }
-      const { persisted, candidates, error } = await persistReceiptsBeforeDirectoryPrompts([...elements.list.children], async row => {
-        if (receiptStatus(row) === 'consumed') return undefined;
-        const receipt = rowValues(row);
-        if (isBlankUnsavedReceipt(row)) return undefined;
-        const previousFingerprint = row.dataset.persistedStoreFingerprint;
-        const saved = row.dataset.receiptDbId ? await receiptService.updateReceipt(row.dataset.receiptDbId, receipt, currentUser.id) : await receiptService.createReceipt(receipt, currentUser.id);
+      const user = currentUser; // a save belongs to the account that started it
+      const { work, directoryOnly } = planSave();
+      const total = work.length;
+      if (!total && !directoryOnly.length) {
+        showSaveProgress('');
+        setFeedback(elements.encodingFeedback, 'No changes to save.', 'info');
+        return;
+      }
+      const itemByRow = new Map(work.map(item => [item.row, item]));
+      let completed = 0; let removed = 0; let nextAnnouncement = Math.max(1, Math.ceil(total / 4));
+      if (total) showSaveProgress(`Saving 0 of ${total}`, { speak: `Saving ${pluralReceipts(total)}.`, busy: true });
+      const { persisted, candidates, error } = await persistReceiptsBeforeDirectoryPrompts(work.map(item => item.row), async row => {
+        const item = itemByRow.get(row);
+        if (currentUser !== user) throw new Error('You were signed out or switched accounts, so the remaining receipts were not saved.');
+        if (![...elements.list.children].includes(row)) { removed += 1; return undefined; } // taken off the list while saving: never write it
+        const saved = item.dbId ? await receiptService.updateReceipt(item.dbId, item.values, user.id) : await receiptService.createReceipt(item.values, user.id);
+        if (currentUser !== user) throw new Error('You were signed out or switched accounts while saving; the remaining receipts were not saved.'); // never apply this answer to another account's list
         row.dataset.receiptDbId = saved.dbId;
         if (saved.updatedAt) row.dataset.receiptUpdatedAt = saved.updatedAt;
         upsertStoreSourceReceipt(saved);
-        const fingerprint = persistedStoreFingerprint(receipt);
-        return { row, fingerprint, decision: postSaveDirectoryDecision({ values: receipt, previousFingerprint, profiles: sharedStoreProfiles }) };
+        completed += 1;
+        applyUnsavedKind(row, unsavedKind(row)); // only a write the database confirmed clears this card; edits made meanwhile keep it flagged
+        showSaveProgress(`Saving ${completed} of ${total}`, { busy: true, ...(completed >= nextAnnouncement && completed < total ? { speak: `Saved ${completed} of ${total}.` } : {}) });
+        if (completed >= nextAnnouncement) nextAnnouncement += Math.max(1, Math.ceil(total / 4));
+        const fingerprint = persistedStoreFingerprint(item.values);
+        return { row, fingerprint, decision: postSaveDirectoryDecision({ values: item.values, previousFingerprint: item.previousFingerprint, profiles: sharedStoreProfiles }) };
       });
+      if (currentUser !== user) return; // the session changed: nothing here may touch the new session's screen
       if (error) {
         // Earlier rows may already be saved: refresh the saved total, count and unsaved indicator (edit pins and drafts stay as they are).
         refreshEncodingCards();
         refreshOptimizationCards();
+        const left = total - completed - removed;
+        // The counts live in the progress status (visible and spoken); the error line keeps its exact wording and never says "saved".
+        showSaveProgress(`Saved ${completed} of ${total} · ${left} still unsaved`, { speak: `Saved ${completed} of ${total}. ${pluralReceipts(left)} still unsaved.` });
         setFeedback(elements.encodingFeedback, `Could not save receipt changes: ${error.message}`, 'error');
         return;
       }
-      finalizeDirectoryPromptFingerprints(persisted);
+      finalizeDirectoryPromptFingerprints([...persisted, ...directoryOnly]);
+      candidates.push(...directoryOnly.map(result => result.decision));
+      if (total) showSaveProgress(`Saved ${pluralReceipts(completed)}`, { speak: `Saved ${pluralReceipts(completed)}.` });
       const released = releaseEditPins();
       refreshEncodingCards();
       refreshOptimizationCards();
@@ -1099,7 +1144,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       setFeedback(elements.encodingFeedback, `Receipt changes saved.${nowHidden ? ` ${nowHidden}` : ''}`, 'success');
       await processPostSaveDirectoryCandidates(candidates);
     } catch (error) { refreshEncodingCards(); refreshOptimizationCards(); setFeedback(elements.encodingFeedback, `Could not save receipt changes: ${error.message}`, 'error'); }
-    finally { savePending = false; elements.saveDraft.disabled = false; }
+    finally { savePending = false; elements.saveDraft.disabled = false; elements.saveDraft.removeAttribute?.('aria-busy'); }
   };
   // Keyboard-first encoding (CP10-C3E-3K): Ctrl+Enter = Add receipt, Ctrl+S = Save changes, nothing else. The listener sits on the Receipt Encoding workspace
   // only, so it never sees keys typed in other workspaces or in dialogs (those are outside this element), and it reuses the buttons' own handlers.

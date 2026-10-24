@@ -549,7 +549,7 @@ test('REVIEW-05: a partial save keeps the successful write, refreshes the saved 
   assert.equal(f.elements.encodingFeedback.dataset.severity, 'error'); assert.match(f.elements.encodingFeedback.textContent, /^Could not save receipt changes: network unavailable$/);
   failB = false;
   await f.click(f.elements.saveDraft);
-  assert.equal(f.calls.update.filter(([id]) => id === 'a').length, 2, 'no automatic retry earlier; the manual Save re-sends unchanged rows as before (idempotent update)');
+  assert.equal(f.calls.update.filter(([id]) => id === 'a').length, 1, 'Issue #24: the retry writes only what is still unsaved; receipt 1 was confirmed saved and is not sent again');
   assert.equal(f.calls.update.filter(([id]) => id === 'b').length, 1); assert.equal(f.calls.create.length, 0);
   assert.equal(f.money(f.elements.availableTotal), '₱1,100.00'); assert.equal(f.elements.encodingUnsavedIndicator.hidden, true);
   assert.equal(f.elements.encodingFeedback.dataset.severity, 'success');
