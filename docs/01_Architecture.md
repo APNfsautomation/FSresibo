@@ -93,12 +93,16 @@ Quick Optimizer has no Supabase, receipt-service, Monthly Filing-service, Compan
 
 One reusable Expense Detailed Report workbook builder preserves the official A:O mapping and grouped Supplier Details header. Each transaction workflow passes its own explicit snapshot array. The exporter never queries Supabase, and Quick Optimizer has no export.
 
+## Large-pool Receipt Optimization (Issue #29)
+
+`services/optimizationService.js` (32-bit subset masks, 32 receipts) is unchanged and still serves Quick Optimizer and pools of up to 32 Available receipts. Receipt Optimization over more than 32 Available receipts uses `services/poolOptimizationService.js`, an exact dynamic program over centavo sums with exact fast paths, a computation/memory budget checked before any large allocation, cancellation and a timeout (Decision 019). The page-side runner `ui/poolOptimizerClient.js` preflights the budget, runs the search in the module Worker `services/poolOptimizationWorker.js` (resolved with `new URL(..., import.meta.url)`, so it works under the GitHub Pages sub-path), forwards progress, and enforces a watchdog. `ui/receiptUi.js` applies a finished run only when it is still the current run for the same account and the same pool signature, target and strategy. A calculation never writes anything; the selection still flows through the unchanged review, snapshot and Consumed lifecycle.
+
 ## CP10 refinements on the UAT branch
 
 These changes live on the protected UAT branch `claude/ui-ux-refinement` (45 commits ahead of `main` at `2b1268c`). They add no table, migration or schema change. Evidence for each is in `07_Regression_Coverage_Matrix.md`.
 
 - **Receipt Encoding:** per-receipt "New, unsaved" and "Unsaved changes" indicators that agree with the export preflight; dirty-only saves (only changed receipts are written) with real progress, all-or-none amount validation, session-scoped saves, and explicit reconciliation of a create whose answer was lost (Issues #22 and #24, PRs #23 and #25). Consumed receipts are read-only.
-- **Receipt Optimization:** Manual Selection as a second export mode beside Best Match, each with its own selection and arrangement; a Select Shown that fills only the remaining capacity up to 100; a reviewable, reorderable export confirmation with a second snapshot check, so a changed, deleted or Consumed receipt blocks the export and nothing is marked Consumed unless it was exported.
+- **Receipt Optimization:** exact Best Match over pools of more than 32 Available receipts (Issue #29) with progress and Cancel; Manual Selection as a second export mode beside Best Match, each with its own selection and arrangement; a Select Shown that fills only the remaining capacity up to 100; a reviewable, reorderable export confirmation with a second snapshot check, so a changed, deleted or Consumed receipt blocks the export and nothing is marked Consumed unless it was exported.
 - **Monthly Filing:** numbered cards that match the workbook Item No., exact Active Total, aggregated directory feedback, and the lifecycle above.
 - **Workbooks and dates:** export filenames use the Philippine calendar date; Amount cells are numeric with a `#,##0.00` format, a blank amount is an empty cell and an explicit zero is numeric zero.
 - **Workflow safeguards:** keyboard shortcuts (Ctrl+Enter adds a receipt, Ctrl+S saves), in-app confirmation dialogs with focus containment, and a GitHub Actions `node-tests` check that a repository ruleset requires on pull requests to the UAT branch.

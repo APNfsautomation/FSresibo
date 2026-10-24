@@ -486,3 +486,32 @@ A fixed PHP 50 allowance matches the approved accounting workflow; a target-rela
 `findBestMatches()` returns exact ordered top-three combinations through compact meet-in-the-middle subsets and bounded merges; `findBest()` remains its one-result compatibility wrapper. Receipt Optimization retains transaction/export behavior. Quick Optimizer is an isolated amount-only workspace with explicit calculation, stable temporary labels, atomic newline bulk append, and no persistence or export. Navigation preserves its one-instance state; refresh, logout/account changes, and Clear Calculator reset it. Exact display formatting retains centavos. This extends Decision 015 without rewriting it or Decisions 012, 014, 016, and 017. Milestone acceptance, merge, and rollout are separate gates.
 
 ---
+
+# Decision 019
+
+## Exact Large-Pool Receipt Optimization
+
+**Status**
+
+Accepted (Product Owner authorized implementation of Issue #29 on 2026-10-24). Implemented in the Issue #29 pull request; Product Owner retest of UAT check #8 after deployment is pending. Decision 018 and its accounting rules are unchanged.
+
+### Decision
+
+Receipts → Optimization calculates over **all Available receipts**, with no first-32 or filtered subset. Pools of up to 32 receipts continue to use the unchanged `findBest()` engine. Pools of more than 32 use a separate **exact, pseudo-polynomial solver** (`services/poolOptimizationService.js`) that returns the single result Decision 018's rules define:
+
+- Dense dynamic programming over centavo sums: a bitset of reachable totals fixes the total; a minimum-count table with one decision bit per (receipt, sum) rebuilds the fewest-receipt set, and rebuilding from the first receipt upward reproduces the rule "of two sets with the same count, the one containing the smallest differing index wins". There is no 32-bit mask.
+- Exactness-preserving reductions: receipts above the cap (target plus PHP 50, or the target for Do Not Exceed) cannot take part and are dropped after the whole pool is validated; zero-amount receipts never improve a ranking; every amount is divided by the gcd of the kept amounts; the table is never wider than the pool total.
+- **Exact fast paths.** When the whole positive pool does not exceed the target, Closest and Do Not Exceed take every positive receipt, and so does Fewest when the pool equals the target. Fewest with the pool below the target is solved as an **omitted-receipt problem**: omit receipts totalling at most PHP 50 (and leaving at least PHP 0.01), maximizing the omitted count, then minimizing the omitted amount, then preferring not to omit the smaller index. Its table is at most 5,000 centavos wide.
+- **Budgets, checked before any large allocation:** about 1.5e9 DP cells, 256 MiB of predicted memory, a sum range under 2^30 units, and fewer than 32,767 kept receipts; a 45-second timeout inside the solver and a watchdog around it. These are provisional ceilings, not a latency or support guarantee.
+- **Over budget, cancelled, timed out or failed:** the app shows "Exact result cannot be computed safely with these values on this device; no recommendation was produced." (or the matching cancelled/timeout/error wording), keeps every receipt untouched, and never returns an approximation. It does not suggest exporting or consuming receipts to shrink the pool.
+- The long-pool search runs in a **module Web Worker** with visible progress and a Cancel button. A finished run is applied only if it is still the current run for the same account and the identical pool signature (every receipt's id, status and amount), target and strategy; edits, status changes, target or strategy changes, a newer calculation, sign-out, an account switch and leaving the Receipts module all stop it.
+
+### Reason
+
+Real saved pools exceed 32 receipts, and the 32-receipt limit comes from 32-bit identity masks and 2^(n/2) subset lists: deleting the guard silently corrupts results (a 33-receipt pool returned a total with no receipts) and needs gigabytes by the high 40s. Subset sums over integer centavos are pseudo-polynomial, so an exact answer is possible whenever the target range is bounded.
+
+### Consequences
+
+- Exact for every pool inside the budget, identical to the existing engine for up to 32 receipts, and refused rather than approximated outside it. Cost grows with receipts × target (in gcd units), not with the number of subsets: on the development machine (Node 24, Intel Core i7-14700HX) about 3 ns per cell, for example 400 typical receipts at a PHP 20,000 target in about 2.4 s and about 100 MiB, and whole-peso pools 100 times cheaper. Targets above the pool cost almost nothing. A target between half the pool and the pool is not specially accelerated.
+- Quick Optimizer keeps its separately specified 32 entered amounts and top-three results; Manual Selection keeps its 100-selected cap; bulk saving of hundreds of new receipts remains deferred. No schema, RLS, Auth, version or `main` change.
+- Mobile performance is not measured; WebAssembly acceleration and a user-chosen candidate scope are deferred and would each need a separate decision.

@@ -95,7 +95,8 @@ Work proceeds on the protected branch `claude/ui-ux-refinement` through pull req
 | UAT branch protection, Issue #20 | Ruleset requiring a pull request and `node-tests` | Active |
 | U01-A, Issue #22 / PR #23 | Unsaved indicators, capped Select Shown, reachable Expand/Collapse | Accepted by the Product Owner: 18 PASS, 1 DEFERRED (A7) |
 | U01-B, Issue #24 / PR #25 | Dirty-only saves, real progress, edit/session safety | Merged; Product Owner UAT PASS at milestone level |
-| C3E-5, Issue #26 | Regression coverage map, documentation alignment, Product Owner checklist | In review (tests and documentation only) |
+| C3E-5, Issue #26 | Regression coverage map, documentation alignment, Product Owner checklist | Merged (PR #28); Product Owner UAT 13/14 PASS, check #8 FAIL (more than 32 receipts) |
+| Issue #29 | Exact Receipt Optimization for more than 32 Available receipts (Worker, budgets, progress, Cancel) | In review; Product Owner retest of check #8 after deployment pending |
 | C4 | Authentication remediation and release gate (see below) | Not started |
 
 The earlier C3E-2 follow-up (the "Go to Encoding" action in the unsaved-changes export block) is delivered; it is covered by `reviewArrange.test.mjs`.
