@@ -9,6 +9,8 @@ import { parseMoneyAmount } from '../domain/moneyAmount.js';
 import { outsideRangeNotice, receiptHasUnsavedChanges, releasedHiddenNotice } from './encodingPresentation.js';
 import { changedWorkbookFields, classifyExportSnapshot, describeFieldChanges, moveId, partitionExportProblems, sameMembers, summarizeAmounts, workbookFields } from '../domain/exportArrangement.js';
 import { buildReviewRow, createExportReview } from './exportReview.js';
+import { ENGINE_RECEIPT_LIMIT } from '../services/poolOptimizationService.js';
+import { createPoolOptimizerClient } from './poolOptimizerClient.js';
 import { fillShown, fillShownMessage, hiddenSelectedCount, manualEligibility, manualLimitMessage, maximumManualSelection, pruneManual, summarizeManual, toggleManual } from '../domain/manualSelection.js';
 import { createReceiptExportRunner, preflightExport, preflightMessage, snapshotProblemMessage, unsavedValuesNotice } from './receiptExport.js';
 
@@ -288,12 +290,14 @@ export function combineStoreProfiles(sharedProfiles, historyProfiles) {
   return [...shared, ...historyProfiles.filter(profile => !sharedIds.has(identity(profile))).map(profile => ({ ...profile, source: 'history', normalizedStore: profile.normalizedStore || normalizeStoreText(profile.store) }))];
 }
 
-export function createReceiptUi({ elements, findBest, optimizationStrategies, toCents, scanPrintedDetails, downloadSelectedReceipts, receiptService, sharedStoreService = {}, confirmAction = async () => false, modalFocus = null }) {
+export function createReceiptUi({ elements, findBest, optimizationStrategies, toCents, scanPrintedDetails, downloadSelectedReceipts, receiptService, sharedStoreService = {}, confirmAction = async () => false, modalFocus = null, poolOptimizer = createPoolOptimizerClient() }) {
   let currentUser;
   // The optimizer result: { entries: [{ dbId, receiptId, label, used }] } in export order, or null. Saved receipts are identified by database id.
   // An unsaved draft has no id yet: it is kept (by its receipt number) so export can explain why it is blocked instead of silently dropping it.
   // `used` is what the optimizer calculated with (workbook fields), kept to detect that the result no longer applies.
   let selection = null;
+  // The exact large-pool Best Match calculation running in a Worker, if any (Issue #29). Its answer is applied only while this very run is still the current one.
+  let calculationRun = null; let calculationGeneration = 0;
   // The temporary export order for the current selection: { selection, initial: [ids], order: [ids] }. Memory only; never stored anywhere.
   // One temporary export arrangement per mode, in memory only: a mode's review never replaces the other's.
   const arrangements = { 'best-match': null, manual: null };
@@ -381,7 +385,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     notice.hidden = !text;
   };
   // Clearing the Best Match result never touches the manual selection (or its arrangement).
-  const clearSelection = () => { arrangements['best-match'] = null; selection = null; setUnsavedNotice(''); showExportBlockAction(null); updateExportAction(); };
+  const clearSelection = () => { cancelCalculation('changed'); arrangements['best-match'] = null; selection = null; setUnsavedNotice(''); showExportBlockAction(null); updateExportAction(); };
   const selectionEntryMatchesRow = (entry, row) => entry.dbId ? row.dataset.receiptDbId === entry.dbId : row.dataset.receiptId === entry.receiptId;
   const bestIncludesRow = row => Boolean(selection?.entries.some(entry => selectionEntryMatchesRow(entry, row)));
   const manualPosition = row => row.dataset.receiptDbId ? manualIds.indexOf(row.dataset.receiptDbId) + 1 : 0;
@@ -819,6 +823,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   };
   const setWorkspace = workspace => {
     const encoding = workspace !== 'optimization';
+    if (encoding) cancelCalculation('left'); // the calculation belongs to Receipt Optimization: leaving it for Encoding stops it
     elements.encodingWorkspace.hidden = !encoding;
     elements.optimizationWorkspace.hidden = encoding;
     elements.encodingTab.setAttribute('aria-selected', String(encoding));
@@ -826,6 +831,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     if (!encoding) refreshOptimizationCards();
   };
   const setModuleVisible = visible => {
+    if (!visible) cancelCalculation('left');
     elements.receiptWorkspaceSwitcher.hidden = !visible;
     elements.receiptStatusControl.hidden = !visible;
     if (!visible) { elements.encodingWorkspace.hidden = true; elements.optimizationWorkspace.hidden = true; }
@@ -1002,7 +1008,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     const storeInput = row.querySelector('.receipt-store');
     row.querySelectorAll('input, select').forEach(field => {
       const refreshView = () => { clearSaveSummary(); if (!row.hidden) pinReceipt(row); refreshSummary(row); clearSelection(); refreshEncodingCards(); refreshOptimizationCards(); };
-      field.addEventListener('input', field === storeInput ? () => { clearSaveSummary(); if (!row.hidden) pinReceipt(row); refreshSummary(row); refreshAvailableSummary(); } : refreshView);
+      // Typing in Store keeps the existing "no clearSelection until blur" behavior, but it must still stop a calculation that is running on the old values.
+      field.addEventListener('input', field === storeInput ? () => { cancelCalculation('changed'); clearSaveSummary(); if (!row.hidden) pinReceipt(row); refreshSummary(row); refreshAvailableSummary(); } : refreshView);
       field.addEventListener('change', refreshView);
     });
     row.addEventListener('toggle', () => { refreshToggle(row); if (!row.open && row.dataset.filterPinned) releasePinAfterCollapse(row); });
@@ -1230,16 +1237,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     if (key === 's') { if (!elements.saveDraft.disabled) void saveDraft(); return; }
     addReceiptForEncoding();
   };
-  const calculate = () => {
-    const targetCents = toCents(elements.target.value);
-    const invalidRow = [...elements.list.children].find(row => receiptStatus(row) === 'available' && amountProblem(row));
-    if (invalidRow) { clearSelection(); refreshOptimizationCards(); showEmpty(); elements.difference.textContent = `${rowAmountMessage(invalidRow, amountProblem(invalidRow))} Correct it before running Find Best Match.`; return; }
-    const rows = [...elements.list.children];
-    const receipts = availableOptimizerReceipts(rows.map((row, index) => ({ index, dbId: row.dataset.receiptDbId, receiptId: row.dataset.receiptId, label: `Receipt ${row.dataset.receiptId}`, cents: amountCents(row), status: receiptStatus(row), ...rowValues(row) })));
-    if (!targetCents || !receipts.length) { clearSelection(); refreshOptimizationCards(); showEmpty(); return; }
-    try {
-      const strategy = setActiveStrategy(getActiveStrategy());
-      const best = findBest(receipts, targetCents, strategy);
+  // Renders the one Best Match result (or the no-match state) exactly as before; used for small pools (synchronous) and finished long-pool runs.
+  const applyBestMatch = (best, { receipts, rows, targetCents, strategy }) => {
       // Informational only: unsaved values may take part in the calculation, but they can never be exported.
       const unsavedLabels = receipts.filter(receipt => rowHasUnsavedExportChanges(rows[receipt.index])).map(receipt => receipt.label);
       if (!best) {
@@ -1298,6 +1297,98 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       ['Strategy: ' + strategyMeta.label, 'Target: ' + format(targetCents), 'Difference: ' + (difference === 0 ? 'Exact' : format(Math.abs(difference)) + (difference > 0 ? ' over' : ' under')), rule].forEach(text => { const item = document.createElement('li'); item.textContent = text; rules.append(item); });
       elements.adminContent.append(details, rules);
       refreshOptimizationCards();
+  };
+  const poolStopMessages = {
+    changed: 'The calculation was stopped because your receipts or settings changed. No recommendation was produced. Run Find Best Match again.',
+    cancelled: 'Calculation cancelled. No recommendation was produced.',
+    left: 'The calculation was stopped when you left Receipt Optimization. No recommendation was produced. Run Find Best Match again.',
+    timeout: 'The calculation took too long and was stopped. No recommendation was produced.',
+    error: 'The calculation could not be completed. No recommendation was produced.',
+    overBudget: 'Exact result cannot be computed safely with these values on this device; no recommendation was produced.',
+    unavailable: 'Exact result cannot be computed safely on this device: it cannot run the background calculation this many receipts need. No recommendation was produced.'
+  };
+  // The signature of everything a long-pool answer depends on: the account, the strategy, the target, and every receipt's identity, status and amount.
+  // Every workbook-relevant value of every row (the raw amount text included), so a metadata edit that fires no stop event is still caught.
+  const poolSignature = () => [currentUser?.id ?? '', getActiveStrategy(), elements.target.value.trim(), ...[...elements.list.children].map(row => `${row.dataset.receiptDbId ?? ''}|${row.dataset.receiptId ?? ''}|${receiptStatus(row)}|${JSON.stringify(rowValues(row))}`)].join('\n');
+  const setCalculationBusy = (busy, fraction = 0) => {
+    elements.calculate.disabled = busy;
+    if (busy) elements.calculate.setAttribute?.('aria-busy', 'true'); else elements.calculate.removeAttribute?.('aria-busy');
+    if (elements.calculationProgress) elements.calculationProgress.hidden = !busy;
+    if (elements.calculationProgressBar) elements.calculationProgressBar.value = Math.round(fraction * 100);
+    if (elements.calculationProgressText) elements.calculationProgressText.textContent = busy ? 'Calculating the exact best match… 0%' : '';
+  };
+  const updateCalculationProgress = (run, fraction) => {
+    const percent = Math.max(0, Math.min(100, Math.floor(fraction * 100)));
+    if (elements.calculationProgressBar) elements.calculationProgressBar.value = percent;
+    // Announce in 10% steps only, so a screen reader is not flooded.
+    if (Math.floor(percent / 10) !== run.announced && elements.calculationProgressText) { run.announced = Math.floor(percent / 10); elements.calculationProgressText.textContent = `Calculating the exact best match… ${percent}%`; }
+  };
+  const showNoRecommendation = (reason, detail = '') => {
+    clearSelection(); showEmpty();
+    elements.resultTitle.textContent = 'No recommendation';
+    elements.difference.textContent = poolStopMessages[reason];
+    if (detail) elements.adminContent.textContent = detail;
+    refreshOptimizationCards();
+  };
+  const restoreFocusAfterCalculation = () => {
+    const active = document.activeElement;
+    if (!active || active === document.body || active === elements.cancelCalculation) elements.calculate.focus?.({ preventScroll: true });
+  };
+  const overBudgetDetail = plan => {
+    const million = value => `${Math.max(1, Math.round(value / 1e6)).toLocaleString('en-US')} million`;
+    const parts = [`Searching all ${plan.receipts} Available receipts exactly would need about ${million(plan.cells)} steps and ${Math.max(1, Math.round(plan.bytes / 1048576)).toLocaleString('en-US')} MB of memory on this device.`];
+    parts.push('That is above the safe limit, so nothing was calculated. Your receipts were not changed.');
+    return parts.join(' ');
+  };
+  // Stops the running long-pool calculation (if any). reason: shown to the user; omitted for a silent stop (a newer calculation, sign-in or sign-out).
+  const cancelCalculation = reason => {
+    if (!calculationRun) return false;
+    const run = calculationRun; calculationRun = null; calculationGeneration += 1;
+    run.cancel(); setCalculationBusy(false);
+    if (reason) { showNoRecommendation(reason); restoreFocusAfterCalculation(); }
+    return true;
+  };
+  const startPoolCalculation = context => {
+    const { receipts, targetCents, strategy } = context;
+    clearSelection(); showEmpty(); // a previous result must never stay on screen under a new calculation
+    const run = { generation: ++calculationGeneration, signature: poolSignature(), user: currentUser, announced: 0, cancel: () => {} };
+    calculationRun = run;
+    elements.resultTitle.textContent = 'Calculating the exact best match…';
+    elements.difference.textContent = `Searching all ${receipts.length} Available receipts. Changing a receipt or a setting, or leaving Receipt Optimization, stops the calculation.`;
+    const hadFocus = document.activeElement === elements.calculate;
+    setCalculationBusy(true);
+    if (hadFocus) elements.cancelCalculation?.focus?.({ preventScroll: true });
+    const job = poolOptimizer.run({ cents: receipts.map(receipt => receipt.cents), target: targetCents, strategy, onProgress: fraction => { if (calculationRun === run) updateCalculationProgress(run, fraction); } });
+    run.cancel = job.cancel;
+    job.promise.then(outcome => {
+      // Anything but the current run for the same account and the very same pool, target and strategy is discarded without a word on screen.
+      if (calculationRun !== run || run.generation !== calculationGeneration) return;
+      calculationRun = null; setCalculationBusy(false);
+      if (currentUser !== run.user || poolSignature() !== run.signature) { showNoRecommendation('changed'); restoreFocusAfterCalculation(); return; }
+      try {
+        if (outcome.status === 'exact') applyBestMatch(outcome.result, context);
+        else if (outcome.status === 'over-budget') showNoRecommendation('overBudget', overBudgetDetail(outcome.plan));
+        else if (outcome.status === 'unavailable') showNoRecommendation('unavailable', overBudgetDetail(outcome.plan));
+        else if (outcome.status === 'timeout') showNoRecommendation('timeout');
+        else if (outcome.status === 'cancelled') showNoRecommendation('cancelled');
+        else showNoRecommendation('error');
+      } catch (error) { elements.difference.textContent = error.message || 'Could not calculate a receipt combination.'; }
+      restoreFocusAfterCalculation();
+    });
+  };
+  const calculate = () => {
+    cancelCalculation(); // a newer calculation silently supersedes an earlier one
+    const targetCents = toCents(elements.target.value);
+    const invalidRow = [...elements.list.children].find(row => receiptStatus(row) === 'available' && amountProblem(row));
+    if (invalidRow) { clearSelection(); refreshOptimizationCards(); showEmpty(); elements.difference.textContent = `${rowAmountMessage(invalidRow, amountProblem(invalidRow))} Correct it before running Find Best Match.`; return; }
+    const rows = [...elements.list.children];
+    const receipts = availableOptimizerReceipts(rows.map((row, index) => ({ index, dbId: row.dataset.receiptDbId, receiptId: row.dataset.receiptId, label: `Receipt ${row.dataset.receiptId}`, cents: amountCents(row), status: receiptStatus(row), ...rowValues(row) })));
+    if (!targetCents || !receipts.length) { clearSelection(); refreshOptimizationCards(); showEmpty(); return; }
+    try {
+      const strategy = setActiveStrategy(getActiveStrategy());
+      const context = { receipts, rows, targetCents, strategy };
+      if (receipts.length > ENGINE_RECEIPT_LIMIT) return startPoolCalculation(context);
+      applyBestMatch(findBest(receipts, targetCents, strategy), context);
     } catch (error) { elements.difference.textContent = error.message || 'Could not calculate a receipt combination.'; }
   };
   const importLegacyDraft = async user => {
@@ -1610,6 +1701,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
         upsertStoreSourceReceipt(saved);
       } catch (error) { setFeedback(elements.editFeedback, `Could not save correction: ${error.message}`, 'error'); editSavePending = false; if (submitButton) submitButton.disabled = false; return; }
     }
+    cancelCalculation('changed'); // a correction to any receipt stales a calculation that is still running
     // A correction to a receipt in the current Find Best Match result makes that result stale: clear it and say why, rather than exporting different values.
     const staleResultLabel = bestIncludesRow(row) ? `Receipt ${row.dataset.receiptId}` : '';
     Object.entries(values).forEach(([key, value]) => { row.querySelector(`.receipt-${key}`).value = value; });
@@ -1642,6 +1734,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   };
   return {
     async loadForUser(user) {
+      cancelCalculation();
       resetSaveState();
       currentUser = user;
       const receipts = await receiptService.loadReceipts();
@@ -1673,11 +1766,16 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     },
     setWorkspace,
     setModuleVisible,
-    clearForLogout() { resetSaveState(); currentUser = undefined; sharedStoreProfiles = []; toolbarState = defaultOptimizationToolbarState(); encodingDisplayState = { compartment: 'all' }; storeSourceReceipts = []; rebuildStoreProfiles(); syncToolbarControls(); elements.encodingAmountCompartment.value = 'all'; setActiveStrategy(optimizationStrategies.closest, { persist: false }); elements.list.replaceChildren(); elements.target.value = ''; exportRunner = newExportRunner(); exportMode = 'best-match'; knownMissingIds.clear(); setManualIds([]); setManualFeedback(''); applyExportModeView(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); closeEditModal(); closeExportConfirmation({ force: true }); },
+    clearForLogout() { cancelCalculation(); resetSaveState(); currentUser = undefined; sharedStoreProfiles = []; toolbarState = defaultOptimizationToolbarState(); encodingDisplayState = { compartment: 'all' }; storeSourceReceipts = []; rebuildStoreProfiles(); syncToolbarControls(); elements.encodingAmountCompartment.value = 'all'; setActiveStrategy(optimizationStrategies.closest, { persist: false }); elements.list.replaceChildren(); elements.target.value = ''; exportRunner = newExportRunner(); exportMode = 'best-match'; knownMissingIds.clear(); setManualIds([]); setManualFeedback(''); applyExportModeView(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); closeEditModal(); closeExportConfirmation({ force: true }); },
     importLegacyDraft,
     start() {
       renderEncodingAmountCompartmentOptions();
       elements.calculate.addEventListener('click', calculate);
+      elements.cancelCalculation?.addEventListener('click', () => cancelCalculation('cancelled'));
+      // A different target or strategy would make a running answer stale: stop rather than apply it.
+      elements.target.addEventListener('input', () => cancelCalculation('changed'));
+      elements.optimizationStrategy.addEventListener('input', () => cancelCalculation('changed'));
+      elements.optimizationStrategy.addEventListener('change', () => cancelCalculation('changed'));
       reviewView.start();
       elements.exportGoToEncoding?.addEventListener('click', goToEncoding);
       elements.manualGoToEncoding?.addEventListener('click', goToEncoding);
