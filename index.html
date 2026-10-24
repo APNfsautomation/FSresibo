@@ -132,6 +132,11 @@
               <p id="optimizationStrategyHelper" class="strategy-helper">Finds the combination nearest to your target.</p>
               <button class="primary" id="calculate" type="button">Find best match</button>
               <button class="secondary export-selected" id="exportSelected" type="button" disabled>Export Selected (0)</button>
+              <div id="calculationProgress" class="calculation-progress" hidden>
+                <p id="calculationProgressText" class="calculation-progress-text" role="status" aria-live="polite"></p>
+                <progress id="calculationProgressBar" max="100" value="0" aria-label="Calculation progress"></progress>
+                <button class="secondary" id="cancelCalculation" type="button">Cancel calculation</button>
+              </div>
             </div>
             <aside class="panel result-panel" aria-live="polite">
               <p class="result-label">Recommendation</p><h2 id="resultTitle">Add receipts to begin</h2>

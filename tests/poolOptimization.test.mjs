@@ -131,7 +131,7 @@ test('target above the pool: Closest and Do Not Exceed take every positive recei
   for (const strategy of ['closest', 'without-exceeding']) {
     const outcome = solve(amounts, sum + 12345, strategy);
     assert.equal(outcome.path, 'all-positive'); assert.deepEqual(outcome.result, { total: sum, items: positives });
-    assert.deepEqual(exact(amounts, sum, strategy), { total: sum, items: positives }, 'target equal to the pool is exact');
+    assert.deepEqual(solve(amounts, sum, strategy), { status: 'exact', path: 'all-positive', result: { total: sum, items: positives } }, 'target equal to the pool is exact and needs no search');
   }
   assert.deepEqual(exact(amounts, sum, 'fewest'), { total: sum, items: positives });
   assert.deepEqual(solve(Array(40).fill(0), 100, 'closest'), { status: 'exact', path: 'none', result: null }, 'no positive receipt: no recommendation');

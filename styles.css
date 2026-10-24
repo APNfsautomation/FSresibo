@@ -495,6 +495,11 @@ button[aria-busy="true"] { cursor: progress; opacity: .8; }
 .target-card #calculate { grid-column: 3; grid-row: 2; width: auto; padding: 0 var(--space-5); }
 .target-card .export-selected { grid-column: 4; grid-row: 2; width: auto; white-space: nowrap; }
 .target-card .strategy-helper { grid-column: 1 / -1; grid-row: 3; min-height: 0; margin-top: var(--space-1); }
+/* Long-pool Best Match (Issue #29): visible progress with a Cancel button while the exact search runs in a Worker. */
+.calculation-progress { grid-column: 1 / -1; grid-row: 4; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-1) var(--space-3); margin-top: var(--space-2); }
+.calculation-progress[hidden] { display: none; }
+.calculation-progress-text { grid-column: 1 / -1; margin: 0; color: var(--text); font-size: var(--text-sm); font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; }
+.calculation-progress progress { width: 100%; height: 12px; accent-color: var(--primary); }
 .target-input { margin-bottom: 0; }
 .target-card .target-input input { font-size: 1.25rem; }
 .strategy-helper { margin: 0; color: var(--muted); font-size: var(--text-sm); line-height: 1.4; }
@@ -857,6 +862,7 @@ html[lang] body .receipt-summary:focus-visible { outline-offset: -3px; }
   .target-card #calculate { grid-column: 1; grid-row: 5; padding: 0 var(--space-2); white-space: nowrap; }
   .target-card .export-selected { grid-column: 2; grid-row: 5; padding: 0 var(--space-2); }
   .target-card .strategy-helper { grid-row: 6; }
+  .calculation-progress { grid-row: 7; grid-template-columns: minmax(0, 1fr); }
   .result-panel { grid-template-columns: 1fr; }
   .optimization-result-summary { grid-column: 1; grid-row: auto; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: var(--space-2); }
   .optimization-receipts-panel, .encoding-panel { padding: 0; }

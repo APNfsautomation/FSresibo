@@ -12,7 +12,7 @@ globalThis.Option = class { constructor(label, value) { this.label = label; this
 export const settle = () => new Promise(resolve => setTimeout(resolve, 5));
 // viaServiceMapping: every read goes through the REAL receipt service mapper (database row shape in, application receipt out), so a status the service
 // rewrites or drops is visible to the UI exactly as in production. The default keeps handing the UI ready-made receipts.
-export async function receiptFixture({ loaded = [], confirm = async () => true, modalFocus = null, viaServiceMapping = false, scan = null, latencyMs = 0 } = {}) {
+export async function receiptFixture({ loaded = [], confirm = async () => true, modalFocus = null, viaServiceMapping = false, scan = null, latencyMs = 0, poolOptimizer } = {}) {
   storage.clear(); // toolbar filters are kept in session storage per user: every fixture starts from a clean browser session
   globalThis.window = { addEventListener() {}, removeEventListener() {}, setTimeout, clearTimeout };
   globalThis.matchMedia = () => ({ matches: false });
@@ -69,7 +69,7 @@ export async function receiptFixture({ loaded = [], confirm = async () => true, 
     }
   };
   elements.exportConfirmModal.hidden = true; elements.editModal.hidden = true;
-  const ui = createReceiptUi({ elements, findBest, optimizationStrategies, toCents: value => Math.round(Number(String(value || 0).replace(/[^0-9.]/g, '')) * 100), scanPrintedDetails: scan ?? (async () => ({})), downloadSelectedReceipts: receipts => { if (fails.download) throw fails.download; calls.download.push(receipts.map(item => ({ ...item }))); fails.afterDownload?.(); }, receiptService, sharedStoreService: { listActiveSharedStores: async () => [] }, confirmAction: confirm, modalFocus });
+  const ui = createReceiptUi({ elements, findBest, optimizationStrategies, toCents: value => Math.round(Number(String(value || 0).replace(/[^0-9.]/g, '')) * 100), scanPrintedDetails: scan ?? (async () => ({})), downloadSelectedReceipts: receipts => { if (fails.download) throw fails.download; calls.download.push(receipts.map(item => ({ ...item }))); fails.afterDownload?.(); }, receiptService, sharedStoreService: { listActiveSharedStores: async () => [] }, confirmAction: confirm, modalFocus, ...(poolOptimizer ? { poolOptimizer } : {}) });
   ui.start(); await ui.loadForUser({ id: 'user-1' });
   const rows = () => list.children;
   const field = (row, name) => row.part(`.receipt-${name}`);
