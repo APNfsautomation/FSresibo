@@ -110,7 +110,7 @@ test('B08: a failure after K of N writes shows K of N, keeps only the confirmed 
   await newReceipt(f, 'Alpha Mart', '10', { address: '1 Main Street' }); await newReceipt(f, 'Beta Mart', '20'); await newReceipt(f, 'Gamma Mart', '30');
   f.fails.saveAfter = 1; // the first write succeeds, the second fails
   await save(f);
-  assert.equal(progress(f), 'Saved 1 of 3 · 2 still unsaved');
+  assert.equal(progress(f), 'Saved 1 of 3 · 2 still unsaved (1 new receipt may already be in your account; the next Save checks first)', 'a failed create is reported as unconfirmed, not as certainly absent');
   assert.deepEqual(kinds(f), ['', 'New, unsaved', 'New, unsaved']); assert.equal(counter(f), '2 unsaved receipts');
   assert.match(feedback(f), /^Could not save receipt changes: /); assert.doesNotMatch(feedback(f), /saved\./);
   assert.equal(f.db.size, 1); assert.deepEqual(prompts, [], 'no Company Directory prompt after a failed batch');
@@ -184,4 +184,121 @@ test('B11/B12: Consumed receipts and blank placeholders are never written, and t
   assert.deepEqual(f.calls.update.map(([id]) => id), ['a']); assert.equal(f.calls.create.length, 0);
   assert.deepEqual(prompts, ['Add store to Company Directory?']);
   assert.equal(f.db.get('u').status, 'consumed');
+});
+
+// ---- Review round 1 ------------------------------------------------------------------------------------------------------------------------
+// Holds only the FIRST write that arrives, so a second session can save while the first one's request is still pending.
+const holdFirstWrite = f => { let release; f.fails.saveGateOnce = new Promise(resolve => { release = resolve; }); return release; };
+const dbIdOf = row => row.dataset.receiptDbId;
+
+test('R1: a create whose answer is lost after the insert committed is NOT inserted a second time on the next Save; the earlier write is adopted', async () => {
+  const prompts = [];
+  const f = await receiptFixture({ loaded: [], confirm: async options => { prompts.push(options.message); return false; } });
+  const row = await newReceipt(f, 'Lost Mart', '10', { address: '1 Main Street' });
+  f.fails.createResponseLost = new Error('connection reset');
+  await save(f);
+  assert.equal(f.db.size, 1, 'the insert was committed although the save reported an error'); assert.equal(f.calls.create.length, 1);
+  assert.match(progress(f), /^Saved 0 of 1 · 1 still unsaved \(1 new receipt may already be in your account; the next Save checks first\)$/, 'the screen does not claim the receipt is certainly absent');
+  assert.match(feedback(f), /The outcome of a failed new receipt could not be confirmed/); assert.deepEqual(kinds(f), ['New, unsaved']); assert.equal(dbIdOf(row), undefined);
+  f.fails.createResponseLost = null;
+  await save(f);
+  assert.equal(f.calls.create.length, 1, 'no second INSERT'); assert.equal(f.db.size, 1);
+  assert.equal(dbIdOf(row), 'new-1', 'the row now points at the receipt the first attempt created');
+  assert.deepEqual(kinds(f), ['']); assert.equal(counter(f), '');
+  assert.equal(progress(f), '1 receipt already saved by an earlier attempt'); assert.match(f.elements.saveProgressLive.textContent, /Receipt 1 was already saved by an earlier attempt, so it was not saved twice\./);
+  assert.equal(prompts.length, 1, 'the Company Directory decision for that store is still offered'); assert.match(prompts[0], /Lost Mart/);
+  await save(f); assert.equal(f.calls.create.length, 1); assert.equal(feedback(f), 'No changes to save.');
+});
+
+test('R1: a definite failure before the commit stays retriable: one check of the database, then the receipt is created once', async () => {
+  const f = await receiptFixture({ loaded: [] });
+  const row = await newReceipt(f, 'Rejected Mart', '10');
+  f.fails.save = new Error('rejected before commit');
+  await save(f); assert.equal(f.db.size, 0);
+  f.fails.save = null; const loadsBefore = f.calls.load.length;
+  await save(f);
+  assert.equal(f.calls.load.length, loadsBefore + 1, 'exactly one read to prove nothing was committed');
+  assert.equal(f.calls.create.length, 2); assert.equal(f.db.size, 1); assert.equal(dbIdOf(row), 'new-1');
+  assert.deepEqual(kinds(f), ['']); assert.equal(feedback(f), 'Receipt changes saved.', 'no "already saved" claim when nothing had been committed');
+  await newReceipt(f, 'Second', '5'); const loads = f.calls.load.length; await save(f);
+  assert.equal(f.calls.load.length, loads, 'with no unconfirmed create there is no extra read');
+});
+
+test('R1: text edited after an unconfirmed create is kept: the adopted receipt is updated, not inserted again', async () => {
+  const f = await receiptFixture({ loaded: [] });
+  const row = await newReceipt(f, 'Lost Mart', '10');
+  f.fails.createResponseLost = new Error('timeout'); await save(f); f.fails.createResponseLost = null;
+  await f.type(row, 'store', 'Lost Mart (edited)');
+  await save(f);
+  assert.equal(f.calls.create.length, 1); assert.deepEqual(f.calls.update.map(([id, values]) => [id, values.store]), [['new-1', 'Lost Mart (edited)']]);
+  assert.equal(f.db.size, 1); assert.deepEqual(kinds(f), ['']);
+});
+
+test('R1: if the database check cannot be made, nothing is written; and several identical candidates are never guessed', async () => {
+  const f = await receiptFixture({ loaded: [] });
+  await newReceipt(f, 'Twin Mart', '10');
+  f.fails.createResponseLost = new Error('timeout'); await save(f); f.fails.createResponseLost = null;
+  f.fails.load = new Error('offline'); const writes = f.calls.create.length + f.calls.update.length;
+  await save(f);
+  assert.match(feedback(f), /^Could not check whether an earlier attempt already saved a new receipt: offline\. Nothing was saved; try again\.$/);
+  assert.equal(f.calls.create.length + f.calls.update.length, writes); f.fails.load = null;
+  const twin = { ...f.db.get('new-1'), dbId: 'other', updatedAt: f.stamp() }; f.db.set('other', twin); // a second identical receipt appeared meanwhile
+  await save(f);
+  assert.match(feedback(f), /2 receipts in your account look identical to it\. Nothing was saved\./);
+  assert.equal(f.calls.create.length, 1); assert.equal(f.calls.update.length, 0); assert.deepEqual(kinds(f), ['New, unsaved']);
+});
+
+test('R1: only receipts this session does not already know are candidates: an identical receipt that is on screen is never adopted', async () => {
+  const f = await receiptFixture({ loaded: [saved('a', 10, 'Same Mart')] });
+  const row = await newReceipt(f, 'Same Mart', '10'); // a genuinely new receipt that looks like the saved one
+  f.fails.createResponseLost = new Error('timeout'); await save(f); f.fails.createResponseLost = null;
+  assert.equal(f.db.size, 2);
+  await save(f);
+  assert.equal(dbIdOf(row), 'new-1', 'it adopted its own earlier write, not the receipt that was already there'); assert.equal(f.calls.create.length, 1); assert.equal(f.db.size, 2);
+});
+
+test('R2: sign out during a save, sign in as someone else: the new session starts clean, can save while the old request is pending, and the old answer changes nothing', async () => {
+  const f = await receiptFixture({ loaded: many(5) });
+  await f.type(f.rows()[0], 'amount', '111');
+  const releaseA = holdFirstWrite(f); const pendingA = (await startSave(f)).done;
+  assert.equal(progress(f), 'Saving 0 of 1'); assert.equal(f.elements.saveDraft.disabled, true);
+  f.ui.clearForLogout();
+  assert.equal(progressVisible(f), false); assert.equal(progress(f), ''); assert.equal(f.elements.saveProgressLive.textContent, '');
+  assert.equal(f.elements.saveDraft.disabled, false); assert.equal(f.elements.saveDraft.getAttribute('aria-busy'), null);
+  await f.ui.loadForUser({ id: 'user-2' });
+  assert.equal(progressVisible(f), false, 'the next account does not see the previous account\'s progress');
+  await f.type(f.rows()[3], 'amount', '333');
+  const releaseB = holdFirstWrite(f); const pendingB = (await startSave(f)).done; // B's own write is held while A's is still pending
+  assert.equal(progress(f), 'Saving 0 of 1'); assert.equal(f.elements.saveDraft.disabled, true);
+  releaseA(); await pendingA; await settle();
+  assert.equal(progress(f), 'Saving 0 of 1', 'A finishing late did not change B\'s progress');
+  assert.equal(f.elements.saveDraft.disabled, true, 'nor B\'s Save button: a stale finish never clears a newer save\'s state'); assert.equal(f.elements.saveDraft.getAttribute('aria-busy'), 'true');
+  releaseB(); await pendingB; await settle();
+  assert.equal(progress(f), 'Saved 1 receipt'); assert.equal(f.elements.saveDraft.disabled, false); assert.equal(feedback(f), 'Receipt changes saved.');
+  assert.deepEqual(f.calls.update.map(([id]) => id), ['r001', 'r004'], 'A\'s write was already in flight; B wrote only its own receipt');
+  assert.equal(String(f.field(f.rows()[0], 'amount').value), '1','nothing from A appears in B\'s list'); assert.deepEqual(kinds(f), ['', '', '', '', '']);
+  assert.equal(f.elements.availableCount.textContent, '5');
+});
+
+test('R2: an account that never finishes its save does not stop the next account from saving', async () => {
+  const f = await receiptFixture({ loaded: many(3) });
+  await f.type(f.rows()[0], 'amount', '50'); holdFirstWrite(f); await startSave(f); // never released
+  f.ui.clearForLogout(); await f.ui.loadForUser({ id: 'user-2' });
+  await f.type(f.rows()[1], 'amount', '60'); await save(f);
+  assert.equal(progress(f), 'Saved 1 receipt'); assert.equal(f.elements.saveDraft.disabled, false);
+});
+
+test('R3: a receipt removed while its own write is in flight is not applied to the list or the cache, and the result says it was saved anyway', async () => {
+  const prompts = [];
+  const f = await receiptFixture({ loaded: [], confirm: async options => { prompts.push(options.message); return false; } });
+  const doomed = await newReceipt(f, 'Doomed Mart', '20', { address: '2 Gone Street' }); await newReceipt(f, 'Keep Mart', '30');
+  const release = holdFirstWrite(f); const pending = (await startSave(f)).done; // the first write (Doomed Mart) is the one awaited
+  f.list.children = f.list.children.filter(row => row !== doomed); // the user removes that card while its write is running
+  release(); await pending; await settle();
+  assert.equal(f.calls.create.length, 2); assert.equal(f.db.size, 2, 'the write that was already running did commit; nothing claims otherwise');
+  assert.deepEqual(f.rows().map(row => row.part('.receipt-store').value), ['Keep Mart'], 'the removed card is not put back');
+  assert.equal(dbIdOf(doomed), undefined, 'the removed row was not updated'); assert.equal(f.elements.availableCount.textContent, '1', 'the cache only holds receipts that are on the list');
+  assert.match(feedback(f), /^Receipt changes saved\. A receipt you removed from the list was already being saved and was saved anyway; refresh the page to see it\.$/);
+  assert.equal(progress(f), 'Saved 1 receipt'); assert.deepEqual(prompts.filter(message => /Doomed/.test(message)), [], 'no Company Directory prompt for the removed receipt');
+  assert.deepEqual(kinds(f), ['']);
 });
