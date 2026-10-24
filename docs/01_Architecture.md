@@ -1,6 +1,6 @@
 # FSResibo Architecture
 
-Version: 1.5
+Version: 1.6
 
 ## Core Principle
 
@@ -83,7 +83,7 @@ Quick Optimizer is an authenticated top-level `#quick-optimizer` workspace. `qui
 
 Closest Match and Fewest Receipts prioritize target-reaching totals from T through T+5000 centavos, inclusive. Closest ranks lowest excess, then fewer receipts. Fewest ranks fewer receipts, then lowest excess. Under-target Closest ranks highest total; under-target Fewest derives the closest-under total M independently and ranks only max(1,M−5000) through M by fewer receipts, then highest total. Preferred results precede fallback results, including alternatives. Do Not Exceed permits only positive totals at or below T. Equal totals/counts use ascending original-input identity vectors; duplicate amounts remain distinct receipts. Decision 018 records this accounting revision.
 
-Quick Optimizer has no Supabase, receipt-service, Monthly Filing-service, Company Directory, storage, lifecycle, or export dependency. Workspace switching preserves its model; refresh creates defaults. Logout, recovery/unauthenticated cleanup, and user-account changes explicitly clear it. Its amounts never enter Available Total, long-term optimization pools, or either transaction export. Milestone 3.6 implementation is complete; technical review and Product Owner browser acceptance are pending. It is not accepted, merged, or declared rolled out.
+Quick Optimizer has no Supabase, receipt-service, Monthly Filing-service, Company Directory, storage, lifecycle, or export dependency. Workspace switching preserves its model; refresh creates defaults. Logout, recovery/unauthenticated cleanup, and user-account changes explicitly clear it. Its amounts never enter Available Total, long-term optimization pools, or either transaction export. Milestone 3.6 was merged to `main` by PR #15 on 2026-10-10. The Product Owner reported browser tests passed; mobile device validation was not performed, and assistive-technology and mobile-performance checks are not recorded. No production rollout is claimed.
 
 ### Module Boundaries
 
@@ -92,6 +92,18 @@ Quick Optimizer has no Supabase, receipt-service, Monthly Filing-service, Compan
 ### Export Boundary
 
 One reusable Expense Detailed Report workbook builder preserves the official A:O mapping and grouped Supplier Details header. Each transaction workflow passes its own explicit snapshot array. The exporter never queries Supabase, and Quick Optimizer has no export.
+
+## CP10 refinements on the UAT branch
+
+These changes live on the protected UAT branch `claude/ui-ux-refinement` (45 commits ahead of `main` at `2b1268c`). They add no table, migration or schema change. Evidence for each is in `07_Regression_Coverage_Matrix.md`.
+
+- **Receipt Encoding:** per-receipt "New, unsaved" and "Unsaved changes" indicators that agree with the export preflight; dirty-only saves (only changed receipts are written) with real progress, all-or-none amount validation, session-scoped saves, and explicit reconciliation of a create whose answer was lost (Issues #22 and #24, PRs #23 and #25). Consumed receipts are read-only.
+- **Receipt Optimization:** Manual Selection as a second export mode beside Best Match, each with its own selection and arrangement; a Select Shown that fills only the remaining capacity up to 100; a reviewable, reorderable export confirmation with a second snapshot check, so a changed, deleted or Consumed receipt blocks the export and nothing is marked Consumed unless it was exported.
+- **Monthly Filing:** numbered cards that match the workbook Item No., exact Active Total, aggregated directory feedback, and the lifecycle above.
+- **Workbooks and dates:** export filenames use the Philippine calendar date; Amount cells are numeric with a `#,##0.00` format, a blank amount is an empty cell and an explicit zero is numeric zero.
+- **Workflow safeguards:** keyboard shortcuts (Ctrl+Enter adds a receipt, Ctrl+S saves), in-app confirmation dialogs with focus containment, and a GitHub Actions `node-tests` check that a repository ruleset requires on pull requests to the UAT branch.
+
+Known gap: Monthly Filing save, export and load are not session-scoped the way Receipt Encoding saves are (Issue #27).
 
 ## Current UI Direction
 Only the receipt list scrolls.

@@ -1,0 +1,268 @@
+// CP10-C3E-5 (Issue #26): cross-module regression coverage for gaps found while mapping the integration matrix (docs/07_Regression_Coverage_Matrix.md).
+// Tests only. They drive the real composition (app.js bootstrap) and the real receipt / Monthly Filing UI controllers against in-memory test doubles.
+// Nothing here talks to Supabase, so it is automated fake-backend evidence and never a substitute for the Product Owner's hosted UAT.
+import assert from 'node:assert/strict';
+import { readdir, readFile } from 'node:fs/promises';
+import test from 'node:test';
+import { createApplicationWorkspaces } from '../ui/applicationWorkspaces.js';
+import { receiptRoutes } from '../ui/navigationController.js';
+import { createQuickOptimizerUi } from '../ui/quickOptimizerUi.js';
+import { optimizationStrategies } from '../services/optimizationService.js';
+import { receiptFixture, settle } from './helpers/receiptUiFixture.mjs';
+import { monthlyFixture, savedMonthly } from './helpers/monthlyFilingUiFixture.mjs';
+
+const read = path => readFile(new URL(path, import.meta.url), 'utf8');
+const tick = (ms = 10) => new Promise(resolve => setTimeout(resolve, ms));
+
+// ---- 1. Authentication / session isolation: the real app.js bootstrap, every module observed -------------------------------------------------------
+const eventTarget = () => {
+  const listeners = new Map();
+  return { addEventListener: (name, callback) => listeners.set(name, callback), emit: (name, event = {}) => listeners.get(name)?.(event) };
+};
+const element = () => ({ hidden: false, attributes: {}, focused: false, ...eventTarget(), setAttribute(name, value) { this.attributes[name] = value; }, focus() { this.focused = true; } });
+
+// Runs the real app.js with every import replaced by a recording double. Receipts and Monthly Filing are spies so the ORDER and the TARGET of each lifecycle call
+// are visible; Quick Optimizer and the module-visibility composition are the real ones.
+async function bootApp({ sessionUser = { id: 'a', email: 'a@example.test' }, gates = {} } = {}) {
+  const source = await read('../app.js');
+  const log = [];
+  const nodes = new Map();
+  const document = { title: 'FSResibo', querySelector(selector) { if (!nodes.has(selector)) nodes.set(selector, element()); return nodes.get(selector); } };
+  const window = { location: { href: 'https://example.test/#receipts/encoding' }, history: { replaceState() {} }, setTimeout };
+  const record = name => (...args) => { log.push(name + (args.length ? `:${args.map(arg => arg?.id ?? arg).join(',')}` : '')); };
+  let subscription; let logoutCalls = 0;
+  const receipt = {
+    setModuleVisible: () => {}, setWorkspace: () => {}, start: record('receipt.start'), clearForLogout: record('receipt.clear'),
+    loadForUser: async user => { log.push(`receipt.load:${user.id}`); if (gates.receiptLoad) await gates.receiptLoad; },
+    importLegacyDraft: async user => { log.push(`receipt.importLegacy:${user.id}`); }, consumeLegacyWorkspace: () => 'encoding'
+  };
+  const monthly = { setVisible: () => {}, start: record('monthly.start'), clearForLogout: record('monthly.clear'), loadForUser: async user => { log.push(`monthly.load:${user.id}`); } };
+  const auth = { show: (message, options) => log.push(`auth.show:${message ?? ''}:${options?.clearPasswords ? 'clearPasswords' : ''}`), hide: record('auth.hide'), setMessage: () => {}, showRecovery: record('auth.showRecovery'), showRecoveryUnavailable: record('auth.showRecoveryUnavailable') };
+  const dependencies = {
+    document, window, isSupabaseConfigured: () => true, supabaseConfig: {}, appMetadata: { name: 'FSResibo', version: '3.6.0-beta.1' },
+    authRedirectUrl: () => 'https://example.test/', getCurrentSession: async () => sessionUser ? { user: sessionUser } : null,
+    hasPasswordRecoveryIntent: () => false, login: () => {}, logout: async () => { logoutCalls += 1; },
+    onAuthStateChange: async callback => { subscription = callback; }, recoveryCallbackError: () => null,
+    register: () => {}, requestPasswordReset: () => {}, updatePassword: () => {}, scanPrintedDetails: () => {},
+    downloadExpenseDetailedReport: () => {}, downloadSelectedReceipts: () => {}, findBest: () => {}, optimizationStrategies: {}, toCents: () => {},
+    receiptService: {}, monthlyFilingService: {}, sharedStoreService: {}, renderApplicationIdentity: () => {}, renderApplicationName: () => {},
+    createAuthPanel: () => auth, createConfirmationDialog: () => ({ confirm: () => {} }), createModalFocus: () => ({ open: () => {}, close: () => {} }),
+    createNavigationController: () => ({ start: () => { log.push('navigation.start'); }, setDrawer: () => {} }),
+    receiptRoutes, createReceiptUi: () => receipt, createMonthlyFilingUi: () => monthly,
+    createQuickOptimizerUi: () => createQuickOptimizerUi({ nextFrame: async () => {} }),
+    createApplicationWorkspaces: args => {
+      const real = createApplicationWorkspaces(args);
+      return { ...real, setUser: id => { log.push(`workspaces.setUser:${id}`); real.setUser(id); }, clearForLogout: () => { log.push('workspaces.clear'); real.clearForLogout(); } };
+    },
+    createThemeController: () => ({ restore: () => {} })
+  };
+  const body = source.replace(/^import .*;\r?$/gm, '') + '\nreturn { handleAuthState, quickOptimizerUi };';
+  const app = new Function(...Object.keys(dependencies), body)(...Object.values(dependencies));
+  await tick();
+  return { ...app, log, nodes, emit: (event, session) => subscription(event, session), handle: app.handleAuthState, logoutCalls: () => logoutCalls };
+}
+const since = (app, mark) => app.log.slice(mark);
+
+test('AUTH-1: the first session activates receipts, then Monthly Filing, for that account only, and a token refresh reloads nothing', async () => {
+  const app = await bootApp();
+  const activation = app.log.filter(entry => /^(workspaces\.setUser|auth\.hide|receipt\.load|monthly\.load|receipt\.importLegacy|navigation\.start)/.test(entry));
+  assert.deepEqual(activation, ['workspaces.setUser:a', 'auth.hide', 'receipt.load:a', 'monthly.load:a', 'receipt.importLegacy:a', 'navigation.start']);
+  const mark = app.log.length;
+  await app.handle('TOKEN_REFRESHED', { user: { id: 'a' } }); await app.handle('SIGNED_IN', { user: { id: 'a' } });
+  assert.deepEqual(since(app, mark), [], 'the same account never reloads or clears anything');
+});
+
+test('AUTH-2: a different account signing in without a sign-out event reloads both modules for the new account and resets the Quick calculator', async () => {
+  const app = await bootApp();
+  app.quickOptimizerUi.setTarget('1000'); app.quickOptimizerUi.appendBulk('500\n500'); await app.quickOptimizerUi.calculate();
+  assert.equal(app.quickOptimizerUi.getState().target, '1000');
+  const mark = app.log.length;
+  await app.handle('SIGNED_IN', { user: { id: 'b', email: 'b@example.test' } });
+  assert.deepEqual(since(app, mark).filter(entry => /load|setUser/.test(entry)), ['workspaces.setUser:b', 'receipt.load:b', 'monthly.load:b']);
+  assert.equal(app.quickOptimizerUi.getState().target, '', 'the previous account\'s temporary amounts are gone');
+  assert.equal(app.nodes.get('#userEmail').textContent, 'b@example.test');
+});
+
+test('AUTH-3: a second sign-in event for the account that is still activating does not start a second load', async () => {
+  let release; const gate = new Promise(resolve => { release = resolve; });
+  const app = await bootApp({ sessionUser: null, gates: { receiptLoad: gate } });
+  const first = app.handle('SIGNED_IN', { user: { id: 'c' } }); await tick();
+  const repeats = [app.handle('SIGNED_IN', { user: { id: 'c' } }), app.handle('TOKEN_REFRESHED', { user: { id: 'c' } })]; await tick();
+  release(); await Promise.all([first, ...repeats]);
+  assert.equal(app.log.filter(entry => entry === 'receipt.load:c').length, 1);
+  assert.equal(app.log.filter(entry => entry === 'monthly.load:c').length, 1);
+});
+
+test('AUTH-4: sign-out, a missing session and a signed-out start each clear receipts, Monthly Filing and Quick, and the sign-in screen clears password fields on an explicit sign-out', async () => {
+  const signedOutStart = await bootApp({ sessionUser: null });
+  assert.ok(signedOutStart.log.includes('workspaces.clear') && signedOutStart.log.some(entry => entry.startsWith('auth.show')), 'a signed-out start shows sign-in with nothing loaded');
+  assert.equal(signedOutStart.log.some(entry => /load:/.test(entry)), false);
+  const app = await bootApp();
+  app.quickOptimizerUi.setTarget('777');
+  let mark = app.log.length; await app.handle('SIGNED_OUT', null);
+  assert.deepEqual(since(app, mark), ['receipt.clear', 'monthly.clear', 'workspaces.clear', 'auth.show::clearPasswords']);
+  assert.equal(app.quickOptimizerUi.getState().target, '');
+  await app.handle('SIGNED_IN', { user: { id: 'a' } }); // the same account may sign in again after signing out and is loaded afresh
+  assert.equal(app.log.filter(entry => entry === 'receipt.load:a').length, 2); assert.equal(app.log.filter(entry => entry === 'monthly.load:a').length, 2);
+  app.quickOptimizerUi.setTarget('888'); mark = app.log.length; await app.handle('INITIAL_SESSION', null);
+  assert.deepEqual(since(app, mark), ['receipt.clear', 'monthly.clear', 'workspaces.clear', 'auth.show::']);
+  assert.equal(app.quickOptimizerUi.getState().target, '');
+});
+
+test('AUTH-5: after a recovery event, sign-in events are ignored until sign-out, and sign-out clears every module', async () => {
+  const app = await bootApp();
+  await app.handle('PASSWORD_RECOVERY', { user: { id: 'a' } });
+  assert.ok(app.log.includes('auth.showRecovery'));
+  const mark = app.log.length;
+  await app.handle('SIGNED_IN', { user: { id: 'z' } });
+  assert.equal(since(app, mark).some(entry => /load:|auth.hide/.test(entry)), false, 'a recovery session never opens the application for any account');
+  await app.handle('SIGNED_OUT', null);
+  assert.deepEqual(since(app, mark).filter(entry => /clear/.test(entry)), ['receipt.clear', 'monthly.clear', 'workspaces.clear', 'auth.show::clearPasswords']);
+  await app.handle('SIGNED_IN', { user: { id: 'a' } });
+  assert.ok(app.log.slice(mark).includes('receipt.load:a'), 'the next ordinary sign-in works again');
+});
+
+test('AUTH-6: Quick Optimizer use triggers no receipt, Monthly Filing or directory activity and no sign-out', async () => {
+  const app = await bootApp();
+  const mark = app.log.length;
+  app.quickOptimizerUi.setTarget('1000'); app.quickOptimizerUi.appendBulk('400\n600\n1040'); await app.quickOptimizerUi.calculate(); app.quickOptimizerUi.clear();
+  assert.deepEqual(since(app, mark), []); assert.equal(app.logoutCalls(), 0);
+});
+
+// ---- 1b. Known gap: Monthly Filing requests that belong to a signed-out account (reported as a separate bug; asserted as the intended behavior) ----
+// The receipt save is session-scoped (savePerformance.test.mjs R2). Monthly Filing save, export and load are not: a late answer for account A lands on account B's screen.
+// `todo` keeps CI green while the defect awaits Product Owner triage. When it is fixed these start passing and the flag can be removed.
+const MONTHLY_SESSION_BUG = 'Known defect: Monthly Filing requests are not session-scoped (see the separate bug issue linked from docs/07_Regression_Coverage_Matrix.md)';
+const owner = card => card.querySelector('.monthly-store').value;
+
+test('AUTH-7 (known defect): a Monthly Filing save still running when account A signs out never changes account B\'s screen', { todo: MONTHLY_SESSION_BUG }, async () => {
+  const f = monthlyFixture();
+  await f.ui.loadForUser({ id: 'A' }); await f.click(f.elements.add);
+  await f.edit(f.cards()[0], 'store', 'A-SECRET'); await f.edit(f.cards()[0], 'amount', '123');
+  let release; f.gates.create = new Promise(resolve => { release = resolve; });
+  const saving = f.click(f.elements.save); await tick();
+  f.ui.clearForLogout(); f.gates.create = null;
+  f.table.set('b1', savedMonthly('b1', { store: 'B-store' }));
+  await f.ui.loadForUser({ id: 'B' });
+  release(); await saving; await tick(20);
+  assert.deepEqual(f.cards().map(owner), ['B-store'], 'account A\'s receipt must not appear on B\'s screen');
+});
+
+test('AUTH-8 (known defect): account B can save while account A\'s earlier save is still unanswered', { todo: MONTHLY_SESSION_BUG }, async () => {
+  const f = monthlyFixture();
+  await f.ui.loadForUser({ id: 'A' }); await f.click(f.elements.add);
+  await f.edit(f.cards()[0], 'store', 'A-pending');
+  f.gates.create = new Promise(() => {}); // an answer that never arrives
+  void f.click(f.elements.save); await tick();
+  f.ui.clearForLogout(); f.gates.create = null;
+  f.table.set('b1', savedMonthly('b1', { store: 'B-store' }));
+  await f.ui.loadForUser({ id: 'B' });
+  assert.equal(f.elements.save.disabled, false, 'B\'s Save must not stay disabled behind A\'s request');
+});
+
+test('AUTH-9 (known defect): a slow Monthly Filing load for account A that resolves after account B\'s load does not replace B\'s receipts', { todo: MONTHLY_SESSION_BUG }, async () => {
+  const f = monthlyFixture({ records: [savedMonthly('a1', { store: 'A-ONE' })] });
+  let release; f.gates.load = new Promise(resolve => { release = resolve; });
+  const slow = f.ui.loadForUser({ id: 'A' }); await tick();
+  f.gates.load = null; f.table.clear(); f.table.set('b1', savedMonthly('b1', { store: 'B-store' }));
+  await f.ui.loadForUser({ id: 'B' });
+  release(); await slow; await tick(20);
+  assert.deepEqual(f.cards().map(owner), ['B-store']);
+});
+
+// ---- 2. Receipt Encoding: Consumed receipts are read-only --------------------------------------------------------------------------------------
+test('ENC-1: every field of a Consumed receipt is read-only, Mark Available makes it editable again, and Save never writes it', async () => {
+  const f = await receiptFixture({ loaded: [
+    { dbId: 'a', amount: 100, store: 'Available store', receiptDate: '2026-08-01' },
+    { dbId: 'u', amount: 70, store: 'Used store', receiptDate: '2026-08-02', status: 'consumed' }
+  ] });
+  f.elements.receiptStatusFilter.value = 'all'; await f.elements.receiptStatusFilter.emit('change'); await settle();
+  const fields = row => row.querySelectorAll('input, select');
+  const used = f.rows().find(row => row.dataset.receiptDbId === 'u'); const open = f.rows().find(row => row.dataset.receiptDbId === 'a');
+  assert.ok(fields(used).length >= 7 && fields(used).every(field => field.disabled), 'a Consumed receipt cannot be edited');
+  assert.ok(fields(open).every(field => !field.disabled), 'an Available receipt stays editable');
+  await f.click(f.elements.saveDraft);
+  assert.equal(f.calls.update.length + f.calls.create.length, 0, 'Save with nothing edited writes nothing, Consumed included');
+  await f.click(used.part('.restore-receipt')); await settle();
+  assert.ok(fields(used).every(field => !field.disabled), 'a restored receipt is editable');
+});
+
+// ---- 3. Receipt Optimization: accounting boundary and lifecycle through the real receipt UI --------------------------------------------------------
+const bestMatch = async (f, target, strategy) => { f.elements.optimizationStrategy.value = strategy; await f.elements.optimizationStrategy.emit('change'); f.elements.target.value = target; await f.click(f.elements.calculate); };
+const resultText = f => f.elements.resultAmount.textContent.replace(/\s/g, '');
+const available = (dbId, amount, store) => ({ dbId, amount, store, receiptDate: '2026-08-01' });
+
+test('OPT-1: through Receipt Optimization, PHP 50.00 of excess is accepted, PHP 50.01 is not, and a Consumed receipt is never in the pool', async () => {
+  const consumedExact = { ...available('x', 1000, 'Consumed exact'), status: 'consumed' };
+  const inside = await receiptFixture({ loaded: [available('r1', 500, 'A'), available('r2', 550, 'B'), consumedExact] });
+  await bestMatch(inside, '1000', optimizationStrategies.closest);
+  assert.equal(resultText(inside), '₱1,050.00', 'T + 50.00 is eligible and beats the under-target fallback; the Consumed 1,000.00 receipt is not used');
+  assert.equal(inside.elements.exportSelected.textContent, 'Export Selected (2)');
+  const outside = await receiptFixture({ loaded: [available('r1', 500, 'A'), available('r2', 550.01, 'B'), consumedExact] });
+  await bestMatch(outside, '1000', optimizationStrategies.closest);
+  assert.equal(resultText(outside), '₱550.01', 'T + 50.01 is excluded, so the best under-target receipt is offered instead');
+  await bestMatch(outside, '1000', optimizationStrategies.withoutExceeding);
+  assert.equal(resultText(outside), '₱550.01', 'Do Not Exceed never offers a total above the target');
+  for (const f of [inside, outside]) assert.deepEqual([f.calls.create.length, f.calls.update.length, f.calls.consume.length, f.calls.download.length], [0, 0, 0, 0], 'calculating writes and exports nothing');
+});
+
+test('OPT-2: after a Best Match export the exported receipts are Consumed, leave the pool, and the next calculation uses only what remains', async () => {
+  const f = await receiptFixture({ loaded: [available('r1', 500, 'A'), available('r2', 500, 'B'), available('r3', 300, 'C'), available('r4', 200, 'D')], viaServiceMapping: true });
+  await bestMatch(f, '1000', optimizationStrategies.closest);
+  assert.equal(resultText(f), '₱1,000.00');
+  await f.click(f.elements.exportSelected); await f.click(f.elements.confirmExport);
+  assert.equal(f.calls.download.length, 1, 'one download');
+  const exported = f.calls.download[0].map(item => item.dbId);
+  assert.deepEqual(f.calls.consume, [exported], 'exactly the exported receipts are marked Consumed, once');
+  for (const id of ['r1', 'r2', 'r3', 'r4']) assert.equal(f.db.get(id).status, exported.includes(id) ? 'consumed' : 'available');
+  await bestMatch(f, '1000', optimizationStrategies.closest);
+  assert.equal(resultText(f), '₱500.00', 'only the two remaining Available receipts (300.00 + 200.00) can be offered; the Consumed 1,000.00 is gone from the pool');
+  assert.equal(f.elements.exportSelected.textContent, 'Export Selected (2)');
+});
+
+// ---- 4. Security / persistence: static posture of every migration (NOT hosted two-account evidence) ------------------------------------------------
+const allMigrations = async () => {
+  const names = (await readdir(new URL('../supabase/migrations/', import.meta.url))).filter(name => name.endsWith('.sql')).sort();
+  return (await Promise.all(names.map(name => read(`../supabase/migrations/${name}`)))).join('\n');
+};
+
+test('SEC-1: every table created by the migrations enables row level security, grants nothing to anon, and every policy is owner-scoped or an active-profile read', async () => {
+  const names = (await readdir(new URL('../supabase/migrations/', import.meta.url))).filter(name => name.endsWith('.sql')).sort();
+  assert.deepEqual(names.map(name => name.slice(0, 3)), ['001', '002', '003', '004'], 'a new migration needs this posture check reviewed');
+  const sql = (await Promise.all(names.map(name => read(`../supabase/migrations/${name}`)))).join('\n');
+  const tables = [...sql.matchAll(/create table (?:if not exists )?(public\.\w+)/gi)].map(match => match[1]);
+  assert.deepEqual(tables.sort(), ['public.monthly_filing_receipts', 'public.receipts', 'public.shared_store_directory']);
+  for (const table of tables) assert.match(sql, new RegExp(`alter table ${table.replace('.', '\\.')} enable row level security`, 'i'), `${table} enables row level security`);
+  assert.doesNotMatch(sql, /grant [^;]*\bto\b[^;]*\b(anon|public)\b/i, 'no migration grants table or function access to anon or public');
+  const policies = [...sql.matchAll(/create policy "[^"]+"\s+on (public\.\w+) for (\w+) to (\w+)([\s\S]*?);/gi)];
+  assert.ok(policies.length >= 10, 'policies are present');
+  for (const [, table, , role, rest] of policies) {
+    assert.equal(role, 'authenticated', `${table} policies apply to authenticated users only`);
+    const sharedRead = /shared_store_directory/.test(table);
+    assert.ok(/auth\.uid\(\)\)\s*=\s*(user_id|created_by)/i.test(rest) || (sharedRead && /active is true/i.test(rest)), `${table} policy is owner-scoped or an active shared-profile read`);
+  }
+});
+
+test('SEC-2: no migration defines a privileged (security definer) function, so every RPC runs as the signed-in caller', async () => {
+  assert.doesNotMatch(await allMigrations(), /security definer/i);
+});
+
+// ---- 5. Coverage matrix integrity: every executable test ID the documentation cites exists --------------------------------------------------------
+test('DOC-1: every test cited in docs/07_Regression_Coverage_Matrix.md exists under that file name, and every cited file is a real test file', async () => {
+  const matrix = await read('../docs/07_Regression_Coverage_Matrix.md');
+  const files = new Set((await readdir(new URL('.', import.meta.url))).filter(name => name.endsWith('.test.mjs') || name.endsWith('.mjs')));
+  const citations = [...matrix.matchAll(/`([\w.]+\.test\.mjs)`(?: › "([^"]+)")?/g)];
+  assert.ok(citations.length >= 40, 'the matrix cites its evidence');
+  for (const [, file, title] of citations) {
+    assert.ok(files.has(file), `${file} exists`);
+    if (title) assert.ok((await read(`./${file}`)).includes(title), `${file} contains a test titled "${title}"`);
+  }
+});
+
+test('DOC-2: the documentation states the shipped version, and the roadmap no longer calls merged Milestone 3.6 unmerged', async () => {
+  const { appMetadata } = await import('../config/appMetadata.js');
+  for (const name of ['04_AI_CONTEXT.md', '07_Regression_Coverage_Matrix.md', '08_Integration_UAT_Checklist.md']) assert.ok((await read(`../docs/${name}`)).includes(appMetadata.version), `${name} cites ${appMetadata.version}`);
+  for (const name of ['00_Project_Charter.md', '01_Architecture.md', '02_Roadmap.md', '04_AI_CONTEXT.md', '05_DECISIONS.md', '06_M3.6_Browser_Acceptance.md']) {
+    assert.doesNotMatch(await read(`../docs/${name}`), /Milestone 3\.6 is not yet accepted or merged|It is not accepted or merged|not accepted, merged, or declared rolled out|It is not accepted, merged, or declared rolled out/, `${name} has no stale 'not merged' claim`);
+  }
+});
