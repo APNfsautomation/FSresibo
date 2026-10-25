@@ -32,6 +32,22 @@ Defects found during a test or documentation task are filed as separate bug issu
 
 Record automated evidence, live Product Owner evidence, deferred items, unverified items and release status separately (see `07_Regression_Coverage_Matrix.md`). `DEFERRED` and `NOT RUN` are never `PASS`. An automated pass never replaces a live check.
 
+## PR readiness report (informational)
+
+`.github/workflows/pr-readiness.yml` adds one check, `pr-readiness`, to every non-draft pull request into the UAT branch (Issue #36). It is informational. It is **not a required check**, not a review, not a merge or release authorization, and not proof that the tests ran. `node-tests` stays the only required check and `tests.yml` is untouched.
+
+**What it does.** It performs `GET` requests only, with a read-only token (`contents`, `pull-requests` and `checks` read), no secret, no checkout of pull request code and no third-party action. It posts no comment, label or status and pushes nothing. It reads the live pull request, the `node-tests` check run on the **authored head** (`github.event.pull_request.head.sha`, the evidence key; `GITHUB_SHA` is a synthetic merge commit and is labelled as such), the changed-file list (paginated) and the live UAT head.
+
+**Verdicts.** `READY` means every one of these was positively verified at the final read: pull request open, not a draft, targeting UAT; live head equals the authored head; `node-tests` completed with `success` from the GitHub Actions app (id 15368) on that head; mergeability is `true` (unknown is retried, then `INCONCLUSIVE`); the full changed-file inventory was read; the live UAT head was read. `NOT READY` means a fact failed (closed, draft, wrong base, superseded or changed head, failed or cancelled CI, conflicts). `INCONCLUSIVE` means a required fact could not be established (API error, CI not finished within the 15 minute window, mergeability unknown, incomplete file list). Only `READY` exits successfully. Even a green run prints `CI/metadata checked — HUMAN REVIEW AND PO APPROVAL REQUIRED`: human review and an exact-head Product Owner approval are still required.
+
+**Where to read it.** The job summary in the Actions UI; annotations on the check; and a parseable log line for tools that can only read logs: `PR_READINESS verdict=… pr=… head=… ci=… mergeable=… files=… files_complete=… workflow_files=…`, followed by one `PR_READINESS_REASON kind=… code=…` line per finding. Re-run the job after any UAT change or retarget.
+
+**Advisories.** Workflow files changed (`.github/workflows/`, `.github/actions/`) are flagged prominently: a pull request can edit its own workflows and the required `node-tests` job, so a green `node-tests` alone does not prove the test program ran; review the workflow diff. Supabase, vendored, config, test and other `.github` changes, a fork head and UAT drift are also flagged. None changes the verdict.
+
+**Limits.** The report cannot show who approved anything: the Product Owner, the Technical Lead and Claude Code act as the same GitHub account, and no comment or approval marker is parsed or trusted. It carries no test counts. A pull request can alter this workflow, so the output is advisory. A pull request retargeted away from UAT keeps an older result on its head commit; re-read the base before merging.
+
+**Rollback.** The check is not in the ruleset, so removing it never needs a ruleset change: disable the workflow in the Actions settings for an immediate stop, or revert the pull request that added `pr-readiness.yml` and `tests/workflowPolicy.test.mjs`. If it is ever made required, remove it from the ruleset first. `tests/workflowPolicy.test.mjs` fails if anyone adds a write scope, a secret, a checkout, an action, a privileged trigger or an unsafe expression to the workflow.
+
 ## Database-backed work
 
 Keep schema changes reproducible in source-controlled migrations. Apply and verify an additive migration and its RLS/security behavior before deploying frontend code that depends on it. Reserve manual Supabase actions for settings unsuitable for repository storage, such as account/auth project configuration, secrets, SMTP/provider credentials, and privileged administration; document those steps before deployment. A Supabase schema, RLS or Auth configuration change always needs its own explicit authorization.
