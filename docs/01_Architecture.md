@@ -125,6 +125,10 @@ Selected receipts should always be visually highlighted.
 - FS Automation blue/red are restrained shell accents. Encoding remains green and Optimization remains purple.
 - The application shell provides Receipts, Monthly Filing, and Quick Optimizer in the desktop sidebar and mobile drawer. All four documented hash routes are active; only the current top-level module has `aria-current="page"`. Supabase callback fragments retain precedence and are never normalized as application routes.
 
+## Runtime Dependencies (Issue #32)
+
+The site is static with no build step. Third-party browser code is pinned and listed in `vendor/dependency-manifest.json`. The Supabase client (`vendor/supabase/`, official UMD build 2.118.0) and SheetJS (`vendor/sheetjs/`, 0.20.3) are vendored; `index.html` loads the Supabase bundle with a Subresource Integrity attribute and `config/supabase.js` reads the global it defines. Tesseract.js 5.1.1 is loaded from jsDelivr with a Subresource Integrity attribute, and its worker, WASM core and English language data are pinned to exact versions in `services/ocrService.js` (`OCR_ASSET_PATHS`). **Those last three are fetched by the library and the browser does not verify their bytes**; see `05_DECISIONS.md`, "Runtime Dependency Pinning and Integrity", for the residual risk and the open options. `tests/dependencyIntegrity.test.mjs` keeps all of this consistent.
+
 ## Database and Deployment Principle
 
 Supabase migrations and static frontend deployments are separate operations. For a database-backed milestone: apply and verify the additive source-controlled migration, test RLS/security, deploy the dependent frontend, then perform deployment acceptance testing. New frontend code must not be deployed ahead of required tables or policies.

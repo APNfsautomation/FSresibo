@@ -60,7 +60,7 @@ These are recorded here so they are not forgotten. They need a separate live con
 | C4-1 | A genuine email **confirmation link** opens the deployed app, not the obsolete Synology `192.168.0.94` address | NOT RUN | Previously observed to fail |
 | C4-2 | A genuine **password-recovery link** shows the new-password form and completes a reset | NOT RUN | Previously observed to enter the app without a reset |
 | C4-3 | **Public sign-up** is refused by the hosted project | NOT RUN | The app has no visible sign-up control; the server setting is unverified |
-| C4-4 | Dependency pinning and integrity for CDN-loaded libraries | NOT RUN | See `07_Regression_Coverage_Matrix.md`, section 7 |
+| C4-4 | Dependency pinning and integrity (Issue #32). After deployment: the sign-in page loads, a real sign-in, sign-out and token refresh work, and an OCR scan of a non-sensitive printed receipt fills the card. The browser console shows no integrity, CORS or MIME error | NOT RUN | Automated checks and a localhost browser run are in the Issue #32 pull request. Hosted GitHub Pages, Synology and mobile are NOT RUN. The Tesseract worker, core and language data are pinned but not integrity-verified. Does not pass A7. |
 
 ## Known defect (do not use these checks to certify)
 

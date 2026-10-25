@@ -542,3 +542,35 @@ A previous account's Monthly Filing financial data could appear inside the next 
 - Round 2 review of PR #31 added: every remaining asynchronous Receipt Encoding continuation is session-scoped (Restore, Delete, permanent Consumed delete, Company Directory contribution and post-save prompts, OCR callback), and a stale Edit correction writes nothing to the shared Save correction button (a new session resets it; each session releases only its own). An earlier statement here that the unguarded Restore, Delete and OCR continuations "show no receipt data of the previous account" was wrong: a late Restore inserted the previous account's receipt (store, address, TIN) into the next account's receipt-history suggestions. It was reproduced by a failing test, fixed, and the remaining operations were audited (see `07_Regression_Coverage_Matrix.md`).
 - Round 3 review of PR #31 added: the three remaining confirmation continuations (Clear manual selection, Clear form, Discard unfinished receipt) check their session after the answer instead of relying on `app.js` dismissing the shared prompt with `false` on an account change. Tests use a late `true` confirmation, which is the harder case, and assert nothing of the next account changes (receipts, unsaved edits, selections, feedback, focus). With this the guarantee is: **every** confirmation, request and callback of the Receipt Encoding and Monthly Filing controllers captures its session and writes nothing once it has ended.
 - A request already sent before the switch (a status update, delete, contribution, correction, review read, workbook download, consume) cannot be recalled; its server-side effect stays owner-scoped by RLS and only its on-screen and cache effect is suppressed. Observed separately and not changed here: after a successful Edit correction the shared Save correction button is not re-enabled until the page is reloaded (this predates Issue #27).
+
+## Runtime Dependency Pinning and Integrity
+
+### Status
+
+Accepted (Product Owner authorized Issue #32 on 2026-10-25). Implemented in the Issue #32 pull request; independent review and deployment acceptance are pending.
+
+### Decision
+
+- Every third-party runtime dependency has an exact version, and `vendor/dependency-manifest.json` is the single source of truth for versions, hashes, licenses and integrity class. `tests/dependencyIntegrity.test.mjs` fails on a floating version, an external URL that is not written out in full in the manifest (nothing is allowed merely because it sits under an approved CDN directory, and the only Supabase host allowed is the configured project in `supabaseProjectUrl`), an unreviewed external script or remote import, a changed vendored byte, a removed `integrity` or `crossorigin`, an unlisted vendored file or a manifest that disagrees with `index.html` or `services/ocrService.js`.
+- **Supabase client:** the official npm UMD build 2.118.0 is vendored (`vendor/supabase/`, 218 KB, same pattern as SheetJS) and loaded by `index.html` as a same-origin classic script with a Subresource Integrity attribute. A dynamic `import()` from `esm.sh` cannot take an integrity attribute, and even an exact `esm.sh` URL serves esm.sh-built bytes rather than the npm artifact. `getSupabaseClient()` keeps its signature, cache and `createClient(url, anonKey)` call; it now also returns one shared client to concurrent callers instead of building two.
+- **Tesseract.js:** pinned to 5.1.1 (the version `@5` resolved to) with Subresource Integrity on the entry script. The worker script, WASM core and English data are loaded by the library itself, so `services/ocrService.js` passes their exact locations (`OCR_ASSET_PATHS`), which are the library defaults for 5.1.1 except that the previously unversioned `@tesseract.js-data/eng` is now `1.0.0`.
+- **SheetJS** is unchanged.
+
+### What is and is not verified
+
+- **Verified:** the Supabase bundle and the Tesseract.js entry script (the browser enforces Subresource Integrity; a wrong hash was observed to be blocked); the vendored files and SheetJS (hashes checked in CI).
+- **Pinned but not verified by the browser (partial mitigation, residual risk):** the Tesseract worker script, the two WASM cores (SIMD and non-SIMD) and the English language data. Library code fetches them with `importScripts` and `fetch`, which accept no integrity attribute. Their versions are immutable on the npm registry and the audited sha256 and sha384 values are recorded in the manifest, but nothing compares them with what a browser downloads. A compromised CDN could still serve different bytes for those four files. The browser also caches the language data in IndexedDB under an unversioned key.
+- URL version pins are not integrity: an exact-version URL does not prove the bytes.
+
+### Not chosen here (needs a Product Owner / Technical Lead decision)
+
+1. Vendor the whole Tesseract set (worker 124 KB, two cores of 3.9 MB, English data 2.95 MB, entry script 67 KB, about 11 MB in total) and test `.gz` and `.wasm.js` delivery on Synology. This would remove the residual risk.
+2. Fetch the worker, core and language data on the main thread with `fetch(url, { integrity })` and hand Tesseract blob URLs or language objects. Runtime verification without vendoring, but it reworks the OCR loading path.
+3. A bundler and lockfile (architecture change).
+4. A Content-Security-Policy meta tag (GitHub Pages cannot send headers).
+
+### Consequences
+
+- No Supabase schema, RLS, Auth setting, credential, key, version or feature change. The OCR behavior, messages and models are unchanged. OCR UAT test A7 stays DEFERRED.
+- The first sign-in page now depends on a same-origin file instead of a CDN; Tesseract still needs jsDelivr, as before.
+- Updating or rolling back a dependency follows `03_Development_Workflow.md`, section "Updating a runtime dependency".

@@ -1,3 +1,12 @@
+// Exact locations of the assets Tesseract.js 5.1.1 loads itself (worker script, WASM core, English language data). They are the library's own defaults for
+// 'eng' LSTM-only recognition, except that the language-data package version is now explicit (it used to float). These bytes are fetched by library code and are
+// NOT verified by the browser: see vendor/dependency-manifest.json and docs/05_DECISIONS.md (Issue #32).
+export const OCR_ASSET_PATHS = Object.freeze({
+  workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@v5.1.1/dist/worker.min.js',
+  corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@v5.1.1',
+  langPath: 'https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng@1.0.0/4.0.0_best_int'
+});
+
 function textLines(text) { return text.split(/\r?\n/).map(line => line.trim()).filter(Boolean); }
 
 export function printedReceiptDetails(text) {
@@ -17,7 +26,7 @@ export async function scanPrintedDetails(file, row, refreshSummary) {
   if (!window.Tesseract) { status.textContent = 'Free OCR could not load. Check your internet connection.'; status.classList.add('warning'); return; }
   status.textContent = 'Reading printed receipt details…';
   try {
-    const result = await Tesseract.recognize(file, 'eng');
+    const result = await Tesseract.recognize(file, 'eng', { ...OCR_ASSET_PATHS });
     const details = printedReceiptDetails(result.data.text);
     row.querySelector('.receipt-store').value = details.store || row.querySelector('.receipt-store').value;
     row.querySelector('.receipt-address').value = details.address || row.querySelector('.receipt-address').value;

@@ -14,7 +14,10 @@ export async function getSupabaseClient() {
   if (!isSupabaseConfigured()) return null;
   if (client) return client;
 
-  const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2');
+  // The library is the repository-vendored official UMD build (vendor/supabase/), loaded by index.html as a same-origin classic script with a
+  // Subresource Integrity hash. It defines the global `supabase`; nothing is fetched from a CDN at runtime (Issue #32).
+  const createClient = globalThis.supabase?.createClient;
+  if (typeof createClient !== 'function') throw new Error('The Supabase client library did not load. Reload the page; if this continues, vendor/supabase/ is missing from the deployment.');
   client = createClient(supabaseConfig.url, supabaseConfig.anonKey);
   return client;
 }
