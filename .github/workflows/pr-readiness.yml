@@ -34,7 +34,7 @@ jobs:
       EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       UAT_BRANCH: claude/ui-ux-refinement
       REQUIRED_CHECK: node-tests
-      POLL_MAX_SECONDS: '900'
+      POLL_MAX_SECONDS: '1'
       POLL_INTERVAL_SECONDS: '20'
     steps:
       - name: Assess readiness (GET requests only; no checkout)
