@@ -1,0 +1,125 @@
+{
+  "schema": 1,
+  "purpose": "Single source of truth for every third-party browser runtime dependency (Issue #32). tests/dependencyIntegrity.test.mjs compares this file with index.html, services/ocrService.js, the vendored files and every URL in the shipped source. Update procedure and rollback: docs/03_Development_Workflow.md, section 'Updating a runtime dependency'.",
+  "integrityClasses": {
+    "vendored-sri": "Byte-exact copy in this repository. Its hash is checked by CI and the browser enforces the same hash through a Subresource Integrity attribute.",
+    "vendored-hash": "Byte-exact copy in this repository, loaded as an ES module by a static import. Its hash is checked by CI; the browser has no integrity attribute for module imports.",
+    "cdn-sri": "Exact-version CDN script. The browser enforces the Subresource Integrity attribute in index.html.",
+    "cdn-pinned-unverified": "Exact-version CDN file fetched by library code at run time. The version is immutable on the npm registry, but the browser does NOT verify these bytes. The recorded hashes are the bytes that were audited; they are checked against the manifest but not against what a user's browser actually downloads."
+  },
+  "dependencies": [
+    {
+      "id": "supabase-js",
+      "package": "@supabase/supabase-js",
+      "version": "2.118.0",
+      "license": "MIT",
+      "role": "Browser auth and database client (Supabase Auth, PostgREST). Defines the global `supabase`.",
+      "integrityClass": "vendored-sri",
+      "file": "vendor/supabase/supabase-js-2.118.0.umd.js",
+      "licenseFile": "vendor/supabase/LICENSE.txt",
+      "source": "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js",
+      "npmTarballIntegrity": "sha512-FxI8UXMVC2UG7IkeiI8fuQZqq2oI3JeSuN8MPIC2RLVaoEAxKS0nqE6kii9Ewpq8f9gNPM6git1Y8f0vN/QLFw==",
+      "bytes": 218252,
+      "sha256": "ee3be8de192b97cb1d73d1e95d6b82bb1f6b658c0f97c4ef757fc331996ed3d3",
+      "sri": "sha384-TcHRA3zBbn+Lexh5n+Oil4guNPOS3rjNDpGRAN46u/s/mB2IZ50ceC6TYDU2yvgK",
+      "loadedBy": "index.html (classic script, same origin)",
+      "lineEndings": "exact"
+    },
+    {
+      "id": "sheetjs",
+      "package": "xlsx (SheetJS Community Edition)",
+      "version": "0.20.3",
+      "license": "Apache-2.0",
+      "role": "XLSX workbook generation for exports. Unchanged by Issue #32.",
+      "integrityClass": "vendored-hash",
+      "file": "vendor/sheetjs/xlsx-0.20.3.mjs",
+      "licenseFile": "vendor/sheetjs/LICENSE.txt",
+      "source": "https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs",
+      "bytes": 1008308,
+      "sha256": "1a0fb062ee9781b13f6687371b202aaefc53b6ce55b530c027e01f9c087b77db",
+      "loadedBy": "services/exportService.js (static ES module import, same origin)",
+      "lineEndings": "lf-normalized"
+    },
+    {
+      "id": "tesseract-js",
+      "package": "tesseract.js",
+      "version": "5.1.1",
+      "license": "Apache-2.0",
+      "role": "Free OCR entry script. Defines the global `Tesseract`.",
+      "integrityClass": "cdn-sri",
+      "url": "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js",
+      "npmTarballIntegrity": "sha512-lzVl/Ar3P3zhpUT31NjqeCo1f+D5+YfpZ5J62eo2S14QNVOmHBTtbchHm/YAbOOOzCegFnKf4B3Qih9LuldcYQ==",
+      "bytes": 66695,
+      "sha256": "a8e29918d098b2b06e1012bdaeffb4aec0445c5d5654709023e0bd1f442a80e8",
+      "sri": "sha384-GJqSu7vueQ9qN0E9yLPb3Wtpd7OrgK8KmYzC8T1IysG1bcvxvIO4qtYR/D3A991F",
+      "loadedBy": "index.html (classic script with integrity and crossorigin)"
+    },
+    {
+      "id": "tesseract-worker",
+      "package": "tesseract.js",
+      "version": "5.1.1",
+      "license": "Apache-2.0",
+      "role": "OCR worker script, loaded with importScripts inside a Blob worker.",
+      "integrityClass": "cdn-pinned-unverified",
+      "url": "https://cdn.jsdelivr.net/npm/tesseract.js@v5.1.1/dist/worker.min.js",
+      "npmTarballIntegrity": "sha512-lzVl/Ar3P3zhpUT31NjqeCo1f+D5+YfpZ5J62eo2S14QNVOmHBTtbchHm/YAbOOOzCegFnKf4B3Qih9LuldcYQ==",
+      "bytes": 123724,
+      "sha256": "aca1229639fc9907d86f96e825955a2b7c5716d17f3bc3acd71f9c7ab66181fc",
+      "sri": "sha384-zxn+VqofFzXpH99dUb3fa4ywoSBQJPy6/6oEaJHPlblZXr53a0g1Jl6720vgSzB7",
+      "loadedBy": "services/ocrService.js OCR_ASSET_PATHS.workerPath"
+    },
+    {
+      "id": "tesseract-core-simd-lstm",
+      "package": "tesseract.js-core",
+      "version": "5.1.1",
+      "license": "Apache-2.0",
+      "role": "OCR engine (WASM embedded in the script), used on browsers with WebAssembly SIMD.",
+      "integrityClass": "cdn-pinned-unverified",
+      "url": "https://cdn.jsdelivr.net/npm/tesseract.js-core@v5.1.1/tesseract-core-simd-lstm.wasm.js",
+      "npmTarballIntegrity": "sha512-KX3bYSU5iGcO1XJa+QGPbi+Zjo2qq6eBhNjSGR5E5q0JtzkoipJKOUQD7ph8kFyteCEfEQ0maWLu8MCXtvX5uQ==",
+      "bytes": 3938657,
+      "sha256": "ce20eda9533cbed1e6c2b4276fbae1e0adc61b6754b5513084be601787b457cf",
+      "sri": "sha384-YM1G+zaWYy9VSRP2C101LCgzh7n3Hqb6OEm9qDoZYgCADsni3nnECskC3WialQB7",
+      "loadedBy": "OCR_ASSET_PATHS.corePath (the library appends the file name)"
+    },
+    {
+      "id": "tesseract-core-lstm",
+      "package": "tesseract.js-core",
+      "version": "5.1.1",
+      "license": "Apache-2.0",
+      "role": "OCR engine (WASM embedded in the script), fallback for browsers without WebAssembly SIMD.",
+      "integrityClass": "cdn-pinned-unverified",
+      "url": "https://cdn.jsdelivr.net/npm/tesseract.js-core@v5.1.1/tesseract-core-lstm.wasm.js",
+      "npmTarballIntegrity": "sha512-KX3bYSU5iGcO1XJa+QGPbi+Zjo2qq6eBhNjSGR5E5q0JtzkoipJKOUQD7ph8kFyteCEfEQ0maWLu8MCXtvX5uQ==",
+      "bytes": 3938277,
+      "sha256": "8f04aa0cc81e7bde33f80e92fa01a7a665f0b4884d098acf5de9c7104a11dfaa",
+      "sri": "sha384-EKWY5JDwphQoyxhvYU7eaCcyQ0EdV6fZK3L2vzfZcv2ichRdNd6pSnyWPNv6fMuR",
+      "loadedBy": "OCR_ASSET_PATHS.corePath (the library appends the file name)"
+    },
+    {
+      "id": "tesseract-eng-data",
+      "package": "@tesseract.js-data/eng",
+      "version": "1.0.0",
+      "license": "MIT",
+      "role": "English language data (tessdata 4.0.0 best, integer model), fetched by the worker.",
+      "integrityClass": "cdn-pinned-unverified",
+      "url": "https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng@1.0.0/4.0.0_best_int/eng.traineddata.gz",
+      "npmTarballIntegrity": "sha512-mbTumm6KQPUHyzTPQaF3ObXYnx0SqqfV2nabqFVQBwD6Kl7PhGSLSzOlfFTWy0P3BjghaSKA2W9GB19Jk+ZcTg==",
+      "bytes": 2952873,
+      "sha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+      "sri": "sha384-JI+fraGAoc5GBGIliuqzHRnP1nJyrukg5ggNSBv/TO+YOVj+6Te6XXQOx7ia10xq",
+      "loadedBy": "OCR_ASSET_PATHS.langPath (the library appends eng.traineddata.gz)"
+    }
+  ],
+  "ocrAssetPaths": {
+    "workerPath": "https://cdn.jsdelivr.net/npm/tesseract.js@v5.1.1/dist/worker.min.js",
+    "corePath": "https://cdn.jsdelivr.net/npm/tesseract.js-core@v5.1.1",
+    "langPath": "https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng@1.0.0/4.0.0_best_int"
+  },
+  "allowedExternalOrigins": ["https://cdn.jsdelivr.net"],
+  "removedReferences": [
+    "https://esm.sh/@supabase/supabase-js@2 (floating major, dynamic import, esm.sh transitive imports)",
+    "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js (floating major, no integrity)",
+    "implicit https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng/... (package version omitted)"
+  ]
+}

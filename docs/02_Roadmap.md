@@ -108,7 +108,7 @@ The earlier C3E-2 follow-up (the "Go to Encoding" action in the unsaved-changes 
 ### CP10-C4 queue (unresolved)
 - Email confirmation link redirect (an obsolete Synology address was observed) and the password-recovery flow (links entered the app without a reset) need live Supabase configuration and a functional retest. Unit tests do not resolve them.
 - Confirm hosted public sign-up is refused.
-- Dependency pinning and integrity for CDN-loaded libraries (Supabase client, Tesseract.js).
+- Dependency pinning and integrity (Issue #32, implemented in its pull request, not released): Supabase client vendored at 2.118.0 with Subresource Integrity, Tesseract.js pinned to 5.1.1 with Subresource Integrity, its worker, core and English data pinned to exact versions. **Partial for OCR:** those last three are fetched by the library and are not verified by the browser. Fully closing that needs a separate decision (see `05_DECISIONS.md`, "Runtime Dependency Pinning and Integrity").
 - Monthly Filing session isolation (Issue #27, HIGH): fixed and automated-tested in its pull request (with the confirmed AUTH-10 overlapping-activation fix); remains a `main` release blocker until reviewed, deployed and accepted in the Product Owner's two-account live-browser UAT.
 - Pre-production data reset and maintenance runbook.
 

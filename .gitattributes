@@ -1,0 +1,2 @@
+# Vendored third-party files are byte-exact copies of the published artifacts: no end-of-line conversion, so their recorded hashes hold on every checkout.
+vendor/supabase/** -text

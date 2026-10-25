@@ -36,6 +36,17 @@ Record automated evidence, live Product Owner evidence, deferred items, unverifi
 
 Keep schema changes reproducible in source-controlled migrations. Apply and verify an additive migration and its RLS/security behavior before deploying frontend code that depends on it. Reserve manual Supabase actions for settings unsuitable for repository storage, such as account/auth project configuration, secrets, SMTP/provider credentials, and privileged administration; document those steps before deployment. A Supabase schema, RLS or Auth configuration change always needs its own explicit authorization.
 
+## Updating a runtime dependency
+
+Third-party browser code changes only through a reviewed pull request. Never point the application at a floating version (`@2`, `@5`, `latest`) and never edit a vendored file by hand.
+
+1. Read the release notes and security advisories for the exact new version, and check `npm view <package>@<version> dist.integrity` against a tarball you download yourself.
+2. Vendored file (Supabase, SheetJS): take the file from the npm tarball (or the vendor's official URL), store it under `vendor/<name>/` with the version in its file name, update that directory's `README.md` and `LICENSE.txt`, and record the new sha256, the sha384 `integrity` value and the size.
+3. CDN script (Tesseract.js entry): change the exact version in `index.html` and compute the sha384 `integrity` value from the downloaded bytes. For Tesseract, also move `OCR_ASSET_PATHS` in `services/ocrService.js` (worker, core, language data) to the matching release and re-download and hash each file.
+4. Update `vendor/dependency-manifest.json` (version, URL or file, sizes, sha256, sri, license) and the `integrity` attributes in `index.html`. `node --test tests/dependencyIntegrity.test.mjs` must pass.
+5. Run the full suite, then load the app from a static server under a `/FSresibo/`-style sub-path and check: the console shows no integrity, CORS or MIME error; sign-in page; for Tesseract, an OCR scan of a non-sensitive sample and the request list. Say plainly which of these were not run.
+6. Rollback is a revert of that pull request (the previous vendored file or pinned URL and its recorded hashes return together).
+
 ## New AI sessions
 
 - Read `/docs` and the issue, including every authorization comment.

@@ -252,7 +252,7 @@ Epic 4 is OCR Improvements.
 Highest Priority
 
 - Safe Epic 3 navigation and transaction-domain isolation
-- Unresolved CP10-C4 items: email confirmation redirect, password-recovery flow, hosted sign-up setting, and CDN dependency pinning. Issue #27 (Monthly Filing session isolation, HIGH) is fixed and automated-tested in its pull request but stays a production-release blocker until reviewed, deployed and accepted in two-account live UAT
+- Unresolved CP10-C4 items: email confirmation redirect, password-recovery flow, and hosted sign-up setting. Dependency pinning (Issue #32) is implemented in its pull request and is partial for OCR: the Tesseract worker, core and language data are pinned but not integrity-verified ("Runtime Dependency Pinning and Integrity" in `05_DECISIONS.md`). Issue #27 (Monthly Filing session isolation, HIGH) is fixed and automated-tested in its pull request but stays a production-release blocker until reviewed, deployed and accepted in two-account live UAT
 - Product Owner integration UAT (`08_Integration_UAT_Checklist.md`) after the CP10-C3E-5 pull request is reviewed and merged
 - Preserve accepted Monthly Filing lifecycle/export and shared-directory behavior
 
