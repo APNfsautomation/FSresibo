@@ -431,3 +431,38 @@ test('CFC-2 (R1-B): legitimate counts are unchanged: 0 with no files and 3 with 
   await check(scenario({ pr: [ok(pr({ changed_files: 0 }))], files: names(1) }), 'INCONCLUSIVE', undefined, ['inconclusive:FILES_INCOMPLETE']);
   await check(scenario({ pr: [ok(pr({ changed_files: 3 }))], files: [] }), 'INCONCLUSIVE', undefined, ['inconclusive:FILES_INCOMPLETE']);
 });
+
+// ---------------------------------------------------------------- Round 2 review (R2): the check-run total_count is a required fact too
+
+const runList = (count, over = () => ({})) => Array.from({ length: count }, (_, index) => checkRun({ id: index + 1, ...over(index) }));
+const countedChecks = (totalCount, runs) => { const body = { total_count: totalCount, check_runs: runs }; if (totalCount === undefined) delete body.total_count; return body; };
+
+test('CNT-1 (R2): total_count is accepted only as a non-negative integer; missing, null, string, negative, fractional and other types are INCONCLUSIVE, never green', async () => {
+  for (const [label, value] of [['missing', undefined], ['null', null], ['string one', '1'], ['empty string', ''], ['string zero', '0'], ['negative', -1], ['fraction', 1.5], ['half', 0.5], ['boolean true', true], ['array', []], ['object', {}], ['NaN (serialises to null)', Number.NaN], ['Infinity (serialises to null)', Infinity]]) {
+    const result = await execute(scenario({ checks: [ok(countedChecks(value, [checkRun()]))] }));
+    assertInvariants(result, 'INCONCLUSIVE');
+    assert.ok(result.codes.includes('inconclusive:CI_COUNT_UNKNOWN'), `${label}: ${result.codes.join(',')}`);
+  }
+});
+
+test('CNT-2 (R2): a reported total smaller than the returned list is an inconsistency and INCONCLUSIVE', async () => {
+  for (const [total, runs] of [[0, [checkRun()]], [1, [checkRun({ id: 1 }), checkRun({ id: 2 })]], [99, runList(100)]]) {
+    const result = await execute(scenario({ checks: [ok(countedChecks(total, runs))] }));
+    assertInvariants(result, 'INCONCLUSIVE');
+    assert.ok(result.codes.includes('inconclusive:CI_COUNT_INCONSISTENT'), `${total} of ${runs.length}: ${result.codes.join(',')}`);
+  }
+});
+
+test('CNT-3 (R2): truncation is still detected, and legitimate matching counts are still READY', async () => {
+  await check(scenario({ checks: [ok(countedChecks(1, [checkRun()]))] }), 'READY');
+  await check(scenario({ checks: [ok(countedChecks(100, runList(100)))] }), 'READY');
+  await check(scenario({ checks: [ok(countedChecks(101, runList(100)))] }), 'INCONCLUSIVE', undefined, ['inconclusive:CI_TRUNCATED']);
+  await check(scenario({ checks: [ok(countedChecks(150, [checkRun()]))] }), 'INCONCLUSIVE', undefined, ['inconclusive:CI_TRUNCATED']);
+});
+
+test('CNT-4 (R2): an invalid or inconsistent count does not hide a failed CI result: NOT READY still wins, and both reasons are listed', async () => {
+  const failed = checkRun({ conclusion: 'failure' });
+  await check(scenario({ checks: [ok(countedChecks(null, [failed]))] }), 'NOT READY', undefined, ['notready:CI_NOT_SUCCESS', 'inconclusive:CI_COUNT_UNKNOWN']);
+  await check(scenario({ checks: [ok(countedChecks(0, [failed]))] }), 'NOT READY', undefined, ['notready:CI_NOT_SUCCESS', 'inconclusive:CI_COUNT_INCONSISTENT']);
+  await check(scenario({ checks: [ok(countedChecks(5, [failed]))] }), 'NOT READY', undefined, ['notready:CI_NOT_SUCCESS', 'inconclusive:CI_TRUNCATED']);
+});
