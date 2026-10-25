@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "purpose": "Single source of truth for every third-party browser runtime dependency (Issue #32). tests/dependencyIntegrity.test.mjs compares this file with index.html, services/ocrService.js, the vendored files and every URL in the shipped source. Update procedure and rollback: docs/03_Development_Workflow.md, section 'Updating a runtime dependency'.",
+  "purpose": "Source of truth for every third-party browser runtime dependency (Issue #32). tests/dependencyIntegrity.test.mjs compares this file with index.html, services/ocrService.js, the vendored files and every URL in the shipped source. Update procedure and rollback: docs/03_Development_Workflow.md, section 'Updating a runtime dependency'.",
   "integrityClasses": {
     "vendored-sri": "Byte-exact copy in this repository. Its hash is checked by CI and the browser enforces the same hash through a Subresource Integrity attribute.",
     "vendored-hash": "Byte-exact copy in this repository, loaded as an ES module by a static import. Its hash is checked by CI; the browser has no integrity attribute for module imports.",
@@ -117,6 +117,7 @@
     "langPath": "https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng@1.0.0/4.0.0_best_int"
   },
   "allowedExternalOrigins": ["https://cdn.jsdelivr.net"],
+  "supabaseProjectUrl": "https://ilinpznoawvsplkhjaqr.supabase.co",
   "removedReferences": [
     "https://esm.sh/@supabase/supabase-js@2 (floating major, dynamic import, esm.sh transitive imports)",
     "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js (floating major, no integrity)",

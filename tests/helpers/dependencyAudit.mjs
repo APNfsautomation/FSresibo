@@ -114,7 +114,13 @@ export async function auditDependencies(root) {
 
   // 3. Every URL and import in the shipped source: nothing floating, nothing unreviewed, no remote module import.
   const allowedExact = new Set([...dependencies.map(dependency => dependency.url).filter(Boolean), 'http://www.w3.org/2000/svg']);
-  const allowedPrefixes = Object.values(manifest.ocrAssetPaths ?? {});
+  // Exact strings only: the OCR directory paths as written in source, never anything beneath them (every file Tesseract loads is its own manifest entry).
+  for (const exact of Object.values(manifest.ocrAssetPaths ?? {})) allowedExact.add(exact);
+  const projectUrl = manifest.supabaseProjectUrl;
+  if (!/^https:\/\/[a-z0-9]+\.supabase\.co$/.test(projectUrl ?? '')) fail('manifest: supabaseProjectUrl is missing or malformed');
+  else allowedExact.add(projectUrl);
+  const configuredUrl = read('config/supabase.js').toString('utf8').match(/url:\s*'(https:\/\/[^']+)'/)?.[1];
+  if (configuredUrl !== projectUrl) fail('config/supabase.js: the configured project URL differs from manifest supabaseProjectUrl');
   const shipped = SHIPPED_ENTRIES.flatMap(entry => {
     const full = path.join(root, entry);
     if (!existsSync(full)) return [];
@@ -123,8 +129,7 @@ export async function auditDependencies(root) {
   for (const file of new Set(shipped)) {
     const text = read(file).toString('utf8');
     for (const url of new Set(text.match(/https?:\/\/[^\s'"`)<>\\]+/g) ?? [])) {
-      if (allowedExact.has(url) || allowedPrefixes.some(prefix => url === prefix || url.startsWith(`${prefix}/`))) continue;
-      if (/^https:\/\/[a-z0-9]+\.supabase\.co\/?$/.test(url)) continue; // the project's own data endpoint, not a library
+      if (allowedExact.has(url)) continue;
       fail(`${file}: unexpected external URL ${url}`);
     }
     for (const url of new Set(text.match(/https:\/\/cdn\.jsdelivr\.net\/[^\s'"`)<>\\]+/g) ?? [])) {
