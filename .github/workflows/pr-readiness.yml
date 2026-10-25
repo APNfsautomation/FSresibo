@@ -107,16 +107,18 @@ jobs:
               if (attempt < MERGEABLE_RETRIES) await sleep(MERGEABLE_RETRY_MS);
             }
             return {
-              state: pr.state, draft: pr.draft === true, base: pr.base?.ref ?? '', head: pr.head?.sha ?? '',
+              // draft is tri-state (true, false, or null = unknown) and changed is a non-negative integer or null = unknown: only a literal boolean or integer counts.
+              state: pr.state, draft: pr.draft === true ? true : pr.draft === false ? false : null, base: pr.base?.ref ?? '', head: pr.head?.sha ?? '',
               headRepo: pr.head?.repo?.full_name ?? null, mergeable: pr.mergeable === true ? true : pr.mergeable === false ? false : null,
-              author: pr.user?.login ?? '', changed: Number(pr.changed_files), additions: pr.additions, deletions: pr.deletions,
+              author: pr.user?.login ?? '', changed: Number.isInteger(pr.changed_files) && pr.changed_files >= 0 ? pr.changed_files : null, additions: pr.additions, deletions: pr.deletions,
             };
           }
 
-          const hardBlocked = s => s.state !== 'open' || s.draft || s.base !== UAT || s.head !== EVENT_HEAD;
+          const hardBlocked = s => s.state !== 'open' || s.draft === true || s.base !== UAT || s.head !== EVENT_HEAD;
           function evaluate(s) {
             if (s.state !== 'open') add('notready', 'PR_NOT_OPEN', 'The pull request is not open.');
-            if (s.draft) add('notready', 'PR_DRAFT', 'The pull request is a draft.');
+            if (s.draft === true) add('notready', 'PR_DRAFT', 'The pull request is a draft.');
+            else if (s.draft !== false) add('inconclusive', 'PR_DRAFT_UNKNOWN', 'GitHub did not report a boolean draft status; only an explicit false counts as not a draft.');
             if (s.base !== UAT) add('notready', 'BASE_NOT_UAT', 'The pull request does not target the UAT branch.');
             if (s.head !== EVENT_HEAD) add('notready', 'HEAD_SUPERSEDED', 'SUPERSEDED: the pull request head is no longer the commit this run started with.');
             if (!hardBlocked(s)) {
@@ -199,13 +201,15 @@ jobs:
               await observeCi(facts);
               try {
                 final = await readPr();
-                if (final.head !== first.head || final.base !== first.base || final.state !== first.state || final.draft !== first.draft) add('notready', 'CHANGED_DURING_ASSESSMENT', 'The pull request changed while CI was being observed.');
+                if (first.draft !== false) add('inconclusive', 'PR_DRAFT_UNKNOWN', 'GitHub did not report a boolean draft status; only an explicit false counts as not a draft.');
+                if (final.head !== first.head || final.base !== first.base || final.state !== first.state || (typeof final.draft === 'boolean' && typeof first.draft === 'boolean' && final.draft !== first.draft)) add('notready', 'CHANGED_DURING_ASSESSMENT', 'The pull request changed while CI was being observed.');
               } catch (error) { add('inconclusive', 'API_PR_FINAL', `Could not re-read the pull request after observing CI (${clean(error.message)}).`); }
             } else facts.ci = 'not-checked';
             evaluate(final);
             facts.final = final;
             facts.mergeable = final.mergeable === null ? 'unknown' : String(final.mergeable);
-            await inventory(facts, first.changed);
+            // The expected file count must be a valid integer at both reads and identical between them; otherwise it is unknown and the inventory is incomplete.
+            await inventory(facts, first.changed !== null && first.changed === final.changed ? final.changed : null);
             try {
               const branch = await api(`/repos/${REPO}/branches/${encodeURIComponent(UAT)}`);
               facts.uatNow = String(branch.commit?.sha ?? '');
