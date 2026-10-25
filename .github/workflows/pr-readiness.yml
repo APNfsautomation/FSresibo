@@ -130,13 +130,14 @@ jobs:
           async function observeCi(facts) {
             const deadline = Date.now() + POLL_MAX_MS;
             const query = `/repos/${REPO}/commits/${EVENT_HEAD}/check-runs?check_name=${encodeURIComponent(CHECK)}&per_page=100`;
-            let latest = null; let apiFailed = false; let ignored = 0; let truncated = false;
+            let latest = null; let apiFailed = false; let ignored = 0; let count = 'ok';
             for (;;) {
               try {
                 const body = await api(query);
                 apiFailed = false;
                 const runs = Array.isArray(body.check_runs) ? body.check_runs : [];
-                truncated = Number(body.total_count) > runs.length;
+                // total_count counts only if GitHub reports a non-negative integer; the list is complete only when it equals the number of runs returned.
+                count = !Number.isInteger(body.total_count) || body.total_count < 0 ? 'unknown' : body.total_count > runs.length ? 'truncated' : body.total_count < runs.length ? 'inconsistent' : 'ok';
                 const genuine = runs.filter(run => run.name === CHECK && run.head_sha === EVENT_HEAD && run.app?.id === ACTIONS_APP_ID && run.app?.slug === 'github-actions');
                 ignored = runs.length - genuine.length;
                 latest = genuine.sort((a, b) => b.id - a.id)[0] ?? null;
@@ -155,8 +156,10 @@ jobs:
             } else {
               facts.ci = clean(latest.conclusion); facts.ciRun = String(Number(latest.id) || '');
               if (latest.conclusion !== 'success') add('notready', 'CI_NOT_SUCCESS', `${clean(CHECK)} concluded: ${clean(latest.conclusion)}.`);
-              else if (truncated) add('inconclusive', 'CI_TRUNCATED', 'The check-run list was truncated.');
             }
+            if (count === 'unknown') add('inconclusive', 'CI_COUNT_UNKNOWN', 'GitHub did not report a valid check-run total_count, so the list cannot be shown to be complete.');
+            else if (count === 'truncated') add('inconclusive', 'CI_TRUNCATED', 'The check-run list was truncated.');
+            else if (count === 'inconsistent') add('inconclusive', 'CI_COUNT_INCONSISTENT', 'GitHub reported a check-run total_count smaller than the list it returned.');
           }
 
           async function inventory(facts, expected) {
