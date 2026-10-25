@@ -30,6 +30,8 @@ Live status words: **PASS**, **FAIL**, **PARTIAL**, **DEFERRED**, **NOT RUN**. `
 | Issue #32 baseline, UAT `d3b947f` | `node --test tests/*.test.mjs` | 880 tests: 880 pass, 0 fail, 0 todo |
 | Issue #32 final (local, Node v24.19.0) | `node --test tests/*.test.mjs` | **909 tests: 909 pass, 0 fail, 0 todo.** 29 new tests in `dependencyIntegrity.test.mjs` (11 behavior and manifest tests, 18 mutation tests). |
 | Issue #32 after Technical Lead Round 1 (local, Node v24.19.0) | `node --test tests/*.test.mjs` | **913 tests: 913 pass, 0 fail, 0 todo.** Four more mutation tests (22 in total): an unlisted file under the approved Tesseract core or English-data directory, a Supabase project URL that is not the configured one, and a changed project URL without the manifest. They failed before the audit was tightened. |
+| Issue #33 baseline, UAT `14ddbfd` | `node --test tests/*.test.mjs` | 913 tests, 913 pass, 0 fail, 0 todo |
+| Issue #33 final (local, Node v24.19.0) | `node --test tests/*.test.mjs` | **922 tests: 922 pass, 0 fail, 0 todo.** 9 new tests in `editCorrectionButton.test.mjs`; 8 of them failed before the fix. |
 | Issue #27 final, hosted | `node-tests` on the exact PR head | the SHA and run id are recorded in the PR description |
 | Issue #29 final, hosted | `node-tests` on the exact PR head | the SHA and run id are recorded in the PR description |
 

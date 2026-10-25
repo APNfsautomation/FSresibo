@@ -1771,6 +1771,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     refreshOptimizationCards();
     restoreEditTriggerFocus(index);
     editSavePending = false;
+    if (submitButton) submitButton.disabled = false; // released by the session that disabled it: every await above was checked against `generation`, and nothing below awaits, so this is still that session (Issue #33)
   };
   const applyToolbarChange = () => {
     toolbarState = readToolbarState();
