@@ -388,3 +388,46 @@ test('RO-1: across a full green run the script sent only GET requests to the fiv
   assert.deepEqual(endpoints, [`/repos/${REPO}/branches/claude%2Fui-ux-refinement`, `/repos/${REPO}/commits/{sha}/check-runs`, `/repos/${REPO}/pulls/7`, `/repos/${REPO}/pulls/7/files`].sort());
   assert.ok(result.requests.every(request => request.method === 'GET'));
 });
+
+// ---------------------------------------------------------------- Round 1 review (R1-A, R1-B): missing or invalid required PR metadata must never become READY
+
+const without = (key, over = {}) => { const body = pr(over); delete body[key]; return body; };
+
+test('DRF-1 (R1-A): draft is tri-state: only an explicit boolean false establishes "not a draft"; true is NOT READY; anything else is INCONCLUSIVE', async () => {
+  await check(scenario({ pr: [ok(pr({ draft: false }))] }), 'READY');
+  await check(scenario({ pr: [ok(pr({ draft: true }))] }), 'NOT READY', undefined, ['notready:PR_DRAFT']);
+  for (const [label, body] of [['missing', without('draft')], ['null', pr({ draft: null })], ['string false', pr({ draft: 'false' })], ['string true', pr({ draft: 'true' })], ['zero', pr({ draft: 0 })], ['one', pr({ draft: 1 })], ['empty string', pr({ draft: '' })], ['object', pr({ draft: {} })], ['array', pr({ draft: [] })]]) {
+    const result = await execute(scenario({ pr: [ok(body)] }));
+    assertInvariants(result, 'INCONCLUSIVE');
+    assert.ok(result.codes.includes('inconclusive:PR_DRAFT_UNKNOWN'), `${label}: ${result.codes.join(',')}`);
+    assert.ok(!result.codes.includes('notready:PR_DRAFT'), `${label} is not asserted to be a draft either`);
+  }
+});
+
+test('DRF-2 (R1-A): unknown draft status at either read blocks READY, whichever read is unknown', async () => {
+  await check(scenario({ pr: [ok(pr()), ok(without('draft'))] }), 'INCONCLUSIVE', undefined, ['inconclusive:PR_DRAFT_UNKNOWN']);
+  await check(scenario({ pr: [ok(pr({ draft: null })), ok(pr())] }), 'INCONCLUSIVE', undefined, ['inconclusive:PR_DRAFT_UNKNOWN']);
+  await check(scenario({ pr: [ok(without('draft')), ok(without('draft'))] }), 'INCONCLUSIVE', undefined, ['inconclusive:PR_DRAFT_UNKNOWN']);
+  await check(scenario({ pr: [ok(pr({ draft: null })), ok(pr({ draft: true }))] }), 'NOT READY', undefined, ['notready:PR_DRAFT']);
+});
+
+test('CFC-1 (R1-B): changed_files is accepted only as a non-negative integer; null, missing, negative, fractional, string and other types are unknown, never a count', async () => {
+  const bad = [['null', null], ['missing', undefined], ['string zero', '0'], ['string three', '3'], ['negative', -1], ['fraction', 1.5], ['boolean false', false], ['boolean true', true], ['array', []], ['object', {}], ['NaN (serialises to null)', Number.NaN], ['Infinity (serialises to null)', Infinity]];
+  for (const emptyList of [true, false]) {
+    for (const [label, value] of bad) {
+      const body = value === undefined ? without('changed_files') : pr({ changed_files: value });
+      const result = await execute(scenario({ pr: [ok(body)], files: emptyList ? [] : names(3) }));
+      assertInvariants(result, 'INCONCLUSIVE');
+      assert.ok(result.codes.includes('inconclusive:FILES_INCOMPLETE'), `${label} (${emptyList ? 'empty' : '3'} files): ${result.codes.join(',')}`);
+      assert.ok(result.stdout.includes('files_complete=false'), `${label}: inventory is not reported complete`);
+      assert.ok(result.stdout.includes('files=unknown'), `${label}: the count is reported as unknown, not as a number`);
+    }
+  }
+});
+
+test('CFC-2 (R1-B): legitimate counts are unchanged: 0 with no files and 3 with three files are READY; a mismatch is still INCONCLUSIVE', async () => {
+  await check(scenario({ pr: [ok(pr({ changed_files: 0 }))], files: [] }), 'READY');
+  await check(scenario({ pr: [ok(pr({ changed_files: 3 }))], files: names(3) }), 'READY');
+  await check(scenario({ pr: [ok(pr({ changed_files: 0 }))], files: names(1) }), 'INCONCLUSIVE', undefined, ['inconclusive:FILES_INCOMPLETE']);
+  await check(scenario({ pr: [ok(pr({ changed_files: 3 }))], files: [] }), 'INCONCLUSIVE', undefined, ['inconclusive:FILES_INCOMPLETE']);
+});
