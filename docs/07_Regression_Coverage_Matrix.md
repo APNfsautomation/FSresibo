@@ -1,6 +1,6 @@
 # Regression Coverage Matrix and Evidence Map
 
-Checkpoint: CP10-C3E-5 (Issue #26). Build under review: `FSResibo v3.6.0-beta.1` on `claude/ui-ux-refinement` at `2b1268c` plus this checkpoint's tests and documentation.
+Checkpoint: CP10-C3E-5 (Issue #26). Build under review: `FSResibo v3.6.0-beta.1` on `claude/ui-ux-refinement` at `2b1268c` plus this checkpoint's tests and documentation. **Release update (Stage 4B, 2026-10-26):** the release candidate carries version `3.6.0`; the rows below keep their checkpoint-time evidence, and the release-time status is in section 10.
 
 This document records what is **automated**, what is **live-tested by the Product Owner**, what is **deferred**, what is **unverified**, and what is **not released**. It is a test and documentation checkpoint: no application code was changed. Its executable test IDs are checked by `tests/crossModuleRegression.test.mjs` (DOC-1), so a renamed or deleted test cannot silently leave a stale claim here.
 
@@ -46,7 +46,7 @@ Each citation names a test file in backticks, then › and the start of a test t
 | ID | Expected result | Automated evidence | Gap / disposition | Live PO UAT |
 |---|---|---|---|---|
 | AUTH-01 | Redirect URLs keep the GitHub Pages sub-path; recovery intent is recognized from query or fragment before any session. (A, S) | `authService.test.mjs` › "runtime auth redirect preserves the GitHub Pages repository subpath"; `authService.test.mjs` › "recovery-intent callbacks are recognized from query or fragment" | Logic only. Real emails and real redirects are not exercised. | NOT RUN (see CP10-C4) |
-| AUTH-02 | An email confirmation link lands on the deployed app, and a recovery link opens the new-password form. | none | **Unverified.** The Product Owner earlier observed confirmation links reaching an obsolete Synology address and recovery links entering the app without a reset. Needs live Supabase URL/redirect configuration and a functional retest. Assigned to **CP10-C4**. Unit tests must not be read as resolving it. | NOT RUN |
+| AUTH-02 | An email confirmation link lands on the deployed app, and a recovery link opens the new-password form. | none | **Unverified.** The Product Owner earlier observed confirmation links reaching an obsolete Synology address and recovery links entering the app without a reset. Needs live Supabase URL/redirect configuration and a functional retest. Assigned to **CP10-C4**. Unit tests must not be read as resolving it. **Update (2026-10-26, Product Owner report in Issue #41; no artifact stored here):** the email confirmation link, the genuine recovery link and the administrator invitation each passed live Product Owner testing. This is Product Owner acceptance, not independent technical verification. The Product Owner also confirmed that the Supabase Site URL points to GitHub Pages and that the Synology redirect remains an intentionally allowed alternative. | PASS (Product Owner tested; reported) |
 | AUTH-03 | All password fields are emptied on sign-out, on the recovery screen and when the panel closes; a failed login keeps typing. (A) | `c3Polish.test.mjs` › "AUTH-03: all five password fields are emptied" | None | NOT RUN |
 | AUTH-04 | A user change or logout clears the receipt manual selection, both arrangements and known-missing ids. (A) | `arrangementIsolation.test.mjs` › "R01: logout and a user change clear both arrangements"; `asyncExportIsolation.test.mjs` › "R03: logout and a user change reset the manual selection" | None | NOT RUN |
 | AUTH-05 | Quick Optimizer keeps its state for the same account and clears it on an account switch, logout and null session. (A) | `quickOptimizer.integration.test.mjs` › "same account retains calculator; account switch, logout and repeated null cleanup clear it" | None | NOT RUN |
@@ -177,7 +177,7 @@ Each citation names a test file in backticks, then › and the start of a test t
 | SEC-03 | Monthly Filing and shared-store migrations keep owner or active-read access. (S) | `monthlyFilingMigration.test.mjs` › "Monthly Filing migration provides authenticated ownership CRUD and no broad anon grant"; `sharedStoreMigration.test.mjs` › "shared-store migration creates a normalized company reference table with quality and duplicate protections" | None | NOT RUN |
 | SEC-04 | A malformed non-blank amount can never become NULL or zero in either service. (A) | `moneyAmount.test.mjs` › "no malformed non-blank amount can silently become NULL or zero in either service" | None | NOT RUN |
 | SEC-05 | Cross-user transaction separation holds on the hosted database. | none for this build | **Unverified for this build.** `01_Architecture.md` records live two-user RLS validation at Milestones 3.4 and 3.5; no artifact is stored in the repository and it was not re-run on the current UAT build. | NOT RUN |
-| SEC-06 | No unintended public sign-up. | none | The sign-up form is hidden markup and no control opens it (static observation). Whether Supabase refuses a direct sign-up call is a server setting that cannot be verified from the repository. **Unverified; CP10-C4.** | NOT RUN |
+| SEC-06 | No unintended public sign-up. | none | The sign-up form is hidden markup and no control opens it (static observation). Whether Supabase refuses a direct sign-up call is a server setting that cannot be verified from the repository. **Unverified; CP10-C4.** **Update (2026-10-26, reported):** public sign-up was disabled in Supabase by the Product Owner. A direct sign-up request against the hosted project has not been probed. | PARTIAL (setting reported changed; refusal not probed) |
 
 ### 3.9 Deployment and release discipline
 
@@ -186,7 +186,7 @@ Each citation names a test file in backticks, then › and the start of a test t
 | REL-01 | `node --test tests/*.test.mjs` passes, and `node-tests` is green on the exact PR head. (H) | Baseline above; final run recorded in the PR | The PR records the SHA and run id. |
 | REL-02 | The UAT branch is protected: pull request required, `node-tests` required, no force push or deletion, no bypass actor. (H) | Ruleset `25738688`, read back and exercised in Issue #20 (scratch PR #21 blocked, then cleared) | Direct pushes and force pushes were not attempted; the ruleset read-back is the evidence. Zero approvals are required, so human review is process, not enforced by GitHub. |
 | REL-03 | The UAT build deployed to GitHub Pages. (H) | "pages build and deployment" run `40074968959`, success, head `2b1268c` | None |
-| REL-04 | The version stays `3.6.0-beta.1`. (A) | `applicationShell.test.mjs` › "the official display name comes from the one metadata value and the version is unchanged" | No version bump in this checkpoint. |
+| REL-04 | The application version is the stable release `3.6.0`. (A) | `applicationShell.test.mjs` › "the official display name comes from the one metadata value and the stable release version is set"; `themeAndIdentity.test.mjs` | Changed from `3.6.0-beta.1` by the release-preparation change (Stage 4B). This asserts the metadata value only; it does not mean the version is deployed. |
 | REL-05 | UAT compared with `main`, nothing merged. (H) | `main` is at `cfd8dff` (PR #15 merge); UAT is 45 commits ahead and 0 behind | `main` is untouched. No production release is authorized. |
 
 ### 3.10 Runtime dependency integrity (Issue #32, CP10-C4-4)
@@ -223,13 +223,13 @@ These are three different things and must not be merged into one claim.
 | This checkpoint, Issue #26 | Merged (PR #28). Product Owner reported 13 of 14 mandatory checks PASS; **check #8 FAIL** (more than 32 receipts). | Check #8 retest after Issue #29 is deployed; 11b and OCR A7 stay deferred. | Not authorized. |
 | Large-pool Receipt Optimization, Issue #29 | In review. Not accepted. | Product Owner retest of check #8; real mobile-device performance (**NOT RUN**). | Not authorized. |
 
-Open authentication items (AUTH-02, SEC-06) may block promotion to `main` even if this checkpoint is accepted. Issue #27 (Monthly Filing session isolation, HIGH, production-release blocker) is **fixed in its own pull request and automated-tested, but stays open and a release blocker until it is reviewed, merged, deployed and accepted in the Product Owner's two-account live-browser UAT** (section 6).
+Open authentication items (AUTH-02, SEC-06) may block promotion to `main` even if this checkpoint is accepted. Issue #27 (Monthly Filing session isolation, HIGH, production-release blocker) is **fixed in its own pull request and automated-tested, but stays open and a release blocker until it is reviewed, merged, deployed and accepted in the Product Owner's two-account live-browser UAT** (section 6). **Superseded for Issue #27 on 2026-10-26:** Issue #27 is closed with Product Owner UAT acceptance (recorded in Issue #41); see section 10.
 
 ## 6. Defects found by this checkpoint
 
 | Issue | Summary | Status |
 |---|---|---|
-| [#27](https://github.com/APNfsautomation/FSresibo/issues/27) | Monthly Filing save, export and load were not session-scoped: a signed-out account's late answer could replace the next account's receipts on screen, speak into its feedback and keep its buttons disabled. | **Fixed in the Issue #27 pull request** by per-session operation isolation (`ui/monthlyFilingUi.js`, `ui/receiptUi.js`, `app.js`); automated regression tests pass (AUTH-7/8/9 and AUTH-10, plus the four races found in the Technical Lead's Round 1 review: A, B, A; a late startup session answer; Receipt Encoding's review/export/edit isolation; recovery). **Still open and still a production-release blocker** until reviewed, merged, deployed and accepted by the Product Owner's two-account live-browser UAT. Workaround until then: do not switch accounts while Monthly Filing activity is in progress, and reload before trusting a switched-account view. |
+| [#27](https://github.com/APNfsautomation/FSresibo/issues/27) | Monthly Filing save, export and load were not session-scoped: a signed-out account's late answer could replace the next account's receipts on screen, speak into its feedback and keep its buttons disabled. | **Fixed in the Issue #27 pull request** by per-session operation isolation (`ui/monthlyFilingUi.js`, `ui/receiptUi.js`, `app.js`); automated regression tests pass (AUTH-7/8/9 and AUTH-10, plus the four races found in the Technical Lead's Round 1 review: A, B, A; a late startup session answer; Receipt Encoding's review/export/edit isolation; recovery). **Still open and still a production-release blocker** until reviewed, merged, deployed and accepted by the Product Owner's two-account live-browser UAT. Workaround until then: do not switch accounts while Monthly Filing activity is in progress, and reload before trusting a switched-account view. **Update (2026-10-26):** closed with Product Owner UAT acceptance (Issue #41). |
 
 **Safety workaround until fixed:** Until it is fixed, do not switch accounts while a Monthly Filing save, export or load is still running, and reload the page before trusting a view after an account switch.
 
@@ -238,7 +238,9 @@ Observations, not defects claimed:
 - On a `PASSWORD_RECOVERY` event `app.js` clears only the workspace composition (Quick Optimizer); receipt and Monthly Filing state is cleared on the following sign-out. The application view is hidden meanwhile and sign-in events are ignored (AUTH-5), so nothing is shown. Recorded for CP10-C4 review of the recovery flow.
 - **Overlapping activation (AUTH-10) was confirmed by reproduction and is fixed in the same pull request**, with minimal session guards in `app.js` (an activation epoch advanced by every new activation, sign-out, recovery event and missing session, checked after every await; any open confirmation prompt dismissed when the account ends or changes) and `ui/receiptUi.js` (a session generation checked by `loadForUser`, the Company Directory reload and the legacy-draft import). Added scope beyond Monthly Filing, kept to the same cross-account invariant.
 
-## 7. CP10-C4 queue (unresolved, not resolved by this checkpoint)
+## 7. CP10-C4 queue (historical; status at release in section 10)
+
+> This is the queue as recorded at the checkpoint. Items 1, 2 and 5 and the data reset in item 6 have since been closed or completed, and item 3 is partly addressed, as reported in section 10.
 
 1. **Confirmation link redirect.** Confirmation emails reached an obsolete Synology `192.168.0.94` address. Requires Supabase Auth URL configuration and a live functional retest (AUTH-02).
 2. **Password-reset flow.** Recovery links entered the app without showing a reset form. Requires a live functional retest (AUTH-02). Unit tests cover only link recognition and the expired/invalid state.
@@ -289,3 +291,25 @@ Reproduce with `node --expose-gc tests/benchmarks/poolOptimization.benchmark.mjs
 - **Cost model:** about 3 ns per cell, cells = kept receipts × sum range in gcd units, with memory about cells / 8 bytes. The slowest default-grid row was 2.5 s; the budget ceilings (1.5e9 cells, 256 MiB) correspond to roughly 5 s on this machine, which is not a latency promise on any other device. The `--full` grid adds PHP 100,000 targets (about 9-12 s and about 0.5 GB at 400 receipts, which the budget refuses).
 - **Real browser, not the full app:** the real client, module Worker and solver were loaded from a local server under a `/FSresibo/` path in Chromium 152 (Claude desktop app, same machine). The 33-receipt case found receipt #33 in 22 ms; 400 receipts / PHP 20,000 took 2.9 s with 667 animation frames rendered (one 69 ms gap while the Worker module loaded) and about 28 progress messages; cancel returned after 300 ms; a 400 ms timeout safeguard fired at 412 ms; an over-budget pool was refused immediately. This is a scratch-harness measurement: it is not the signed-in app, not GitHub Pages, and not a mobile device.
 - **Not measured:** mobile browsers, other desktop browsers, repeated-run variance, the full app's Supabase-backed flow. Mobile performance is **NOT RUN**; no phone-speed multiple is assumed.
+
+## 10. Release 3.6.0 status addendum (2026-10-26)
+
+Kept separate from the checkpoint rows above, which are historical. "Reported" means the Product Owner or Technical Lead stated it (Issue #41 and release instructions) and **no artifact is stored in this repository**; it is not automated evidence.
+
+| Gate | Evidence type | Status |
+|---|---|---|
+| Automated suite on the release candidate | Automated (`node --test tests/*.test.mjs`, `node-tests` in CI) | PASS (counts are recorded in the release pull request, not here) |
+| Issues #27, #29, #32, #33 | Live Product Owner UAT, recorded in the closed issues | Accepted for their recorded scope |
+| Password recovery (genuine email link) | Live Product Owner test, reported | PASS |
+| Administrator invitation | Live Product Owner test, reported | PASS |
+| Public sign-up disabled (SEC-06) | Product Owner configuration change, reported | Setting changed; direct-API refusal not probed |
+| Production cleanup (`receipts`, `monthly_filing_receipts`, `shared_store_directory`) | Reported, 2026-10-26 | Completed. 20 receipts of accounts outside the cleanup scope remain and must be preserved; 8 authentication accounts preserved; Monthly Filing and the Shared Store Directory cleared |
+| Database backup and isolated restore rehearsal | Reported (evidence kept outside the repository) | Backup completed 2026-10-26; restore rehearsal succeeded with 176 records compared and zero field differences. A **fresh** verified pre-release backup is still required (`09_Release_Runbook.md`) |
+| `main` and UAT rulesets | Verified through the GitHub API | Active; `node-tests` required from GitHub Actions |
+| Supabase security advisories | Under review | **Open**; no database change is authorized |
+| Cross-user RLS on the hosted database for this build (SEC-05) | Not re-run | Unverified for this build; earlier live two-user validation is recorded in `01_Architecture.md` |
+| Email confirmation (C4-1) | Live Product Owner test, reported | PASS (Product Owner tested) |
+| Supabase Site URL and redirect allow-list | Product Owner confirmation, reported | Site URL points to GitHub Pages; the Synology redirect is intentionally an allowed alternative. Not independently verified |
+| Production smoke checks on the deployed build | Not yet run | NOT RUN (`08_Integration_UAT_Checklist.md`) |
+| GitHub Pages production cutover | Not performed | NOT DONE; Pages still serves the UAT branch |
+| OCR A7; 400 new receipts; Tesseract asset integrity | Deferred | DEFERRED, never PASS |

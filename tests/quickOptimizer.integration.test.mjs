@@ -129,7 +129,7 @@ test('actual app bootstrap uses one calculator and clears it on auth events and 
     loadForUser: async () => {}, importLegacyDraft: async () => {}, consumeLegacyWorkspace: () => 'encoding' };
   const monthly = { setVisible: noop, clearForLogout: noop, start: noop, loadForUser: async () => {} };
   const dependencies = {
-    document, window, isSupabaseConfigured: () => true, supabaseConfig: {}, appMetadata: { name: 'FSResibo', version: '3.6.0-beta.1' },
+    document, window, isSupabaseConfigured: () => true, supabaseConfig: {}, appMetadata: { name: 'FSResibo', version: '3.6.0' },
     authRedirectUrl: () => 'https://example.test/', getCurrentSession: async () => ({ user: { id: 'a', email: 'a@example.test' } }),
     hasPasswordRecoveryIntent: () => false, login: noop, logout: async () => {},
     onAuthStateChange: async callback => { subscription = callback; }, recoveryCallbackError: () => null,

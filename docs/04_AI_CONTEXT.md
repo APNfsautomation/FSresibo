@@ -144,7 +144,7 @@ Authentication is separated from business logic.
 
 Epic 3 — Additional Receipt Workflows & Shared Store Data
 
-Epic 2 is complete through Milestone 2.6 and the beta.5 receipt-delete hotfix. Epic 3 Milestones 3.1–3.5 are merged and complete, including PR #14. Migration 004 is deployed and Monthly Filing lifecycle/export acceptance passed. The live Shared Store Directory serves both transaction workflows; company-controlled signup is in effect. Milestone 3.6 was merged to `main` by PR #15 (2026-10-10); the Product Owner reported browser tests passed, but mobile device validation was not performed and milestone-wide manual acceptance is not claimed. UI/UX refinement (CP10) continues on the protected UAT branch `claude/ui-ux-refinement`, which is ahead of `main`; U01-A (Issue #22) and U01-B (Issue #24) were accepted for development/UAT. The development version in `config/appMetadata.js` is `3.6.0-beta.1`; this is not a production rollout claim. Receipt Optimization over more than 32 Available receipts (Issue #29) uses an exact solver in a Worker with computation budgets; over budget it returns no recommendation instead of an approximation (Decision 019); Quick Optimizer keeps its 32-row limit. `07_Regression_Coverage_Matrix.md` separates automated evidence, live Product Owner results, deferred items, unverified items and release status; read it before claiming anything is accepted.
+Epic 2 is complete through Milestone 2.6 and the beta.5 receipt-delete hotfix. Epic 3 Milestones 3.1–3.5 are merged and complete, including PR #14. Migration 004 is deployed and Monthly Filing lifecycle/export acceptance passed. The live Shared Store Directory serves both transaction workflows; company-controlled signup is in effect. Milestone 3.6 was merged to `main` by PR #15 (2026-10-10); the Product Owner reported browser tests passed, but mobile device validation was not performed and milestone-wide manual acceptance is not claimed. UI/UX refinement (CP10) continues on the protected UAT branch `claude/ui-ux-refinement`, which is ahead of `main`; U01-A (Issue #22) and U01-B (Issue #24) were accepted for development/UAT. The version in `config/appMetadata.js` on the UAT branch is the stable `3.6.0`; it is **not** deployed to production: `main` does not contain it and GitHub Pages still serves the UAT branch. See `09_Release_Runbook.md` and `10_Release_Notes_v3.6.0.md`. Receipt Optimization over more than 32 Available receipts (Issue #29) uses an exact solver in a Worker with computation budgets; over budget it returns no recommendation instead of an approximation (Decision 019); Quick Optimizer keeps its 32-row limit. `07_Regression_Coverage_Matrix.md` separates automated evidence, live Product Owner results, deferred items, unverified items and release status; read it before claiming anything is accepted.
 
 ---
 
@@ -252,7 +252,7 @@ Epic 4 is OCR Improvements.
 Highest Priority
 
 - Safe Epic 3 navigation and transaction-domain isolation
-- Unresolved CP10-C4 items: email confirmation redirect, password-recovery flow, and hosted sign-up setting. Dependency pinning (Issue #32) is implemented in its pull request and is partial for OCR: the Tesseract worker, core and language data are pinned but not integrity-verified ("Runtime Dependency Pinning and Integrity" in `05_DECISIONS.md`). Issue #27 (Monthly Filing session isolation, HIGH) is fixed and automated-tested in its pull request but stays a production-release blocker until reviewed, deployed and accepted in two-account live UAT
+- Release 3.6.0 (see `02_Roadmap.md`, "Release 3.6.0 status"). Closed with Product Owner acceptance: Issues #27, #29, #32 and #33; password recovery and administrator invitations (reported); public sign-up disabled in Supabase (reported); production database cleanup, backup and isolated restore rehearsal (reported, 2026-10-26). The 20 remaining receipts (accounts outside the cleanup scope) and all 8 authentication accounts must be preserved; never schedule another cleanup. Pending: a fresh pre-release backup, the release pull request to `main`, the Pages cutover (has not occurred), production smoke checks, and review of the Supabase security advisories (no database change is authorized). Dependency pinning (Issue #32) is partial for OCR: the Tesseract worker, core and language data are pinned but not integrity-verified ("Runtime Dependency Pinning and Integrity" in `05_DECISIONS.md`)
 - Product Owner integration UAT (`08_Integration_UAT_Checklist.md`) after the CP10-C3E-5 pull request is reviewed and merged
 - Preserve accepted Monthly Filing lifecycle/export and shared-directory behavior
 
@@ -398,11 +398,11 @@ Always preserve the project's philosophy:
 
 > Help users capture, organize, optimize, and export receipt information with the least amount of manual work while keeping users in control.
 
-## Beta Application Identity
+## Application Identity and Version
 
 - Theme preference is browser-local: System, Light, or Dark.
 - Corporate blue/red are shell accents; Encoding remains green and Optimization remains purple.
-- `config/appMetadata.js` is the single source of the tester-facing version. Milestone 3.5 shipped as `3.5.0-beta.1`; Milestone 3.6 and the current UAT branch are `3.6.0-beta.1`. The version is not bumped by testing or documentation work.
+- `config/appMetadata.js` is the single source of the tester-facing version. Milestone 3.5 shipped as `3.5.0-beta.1` and Milestone 3.6 was merged to `main` as `3.6.0-beta.1`; the release candidate on the UAT branch is the stable `3.6.0`. The version is not bumped by testing or documentation work.
 - Core receipt actions use the shared in-app confirmation dialog instead of browser-native prompts, which can be suppressed by browser anti-abuse controls. Informational workflow feedback remains inline and non-blocking.
 
 ## Database and Manual Supabase Principle
