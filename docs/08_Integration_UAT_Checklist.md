@@ -107,26 +107,40 @@ The production database holds 20 receipts of other accounts and 8 authentication
 | P1 | Open https://apnfsautomation.github.io/FSresibo/ in a clean window. Console open. | Sign-in page loads over HTTPS; the version reads `3.6.0`; no integrity, CORS or MIME error in the console | NOT RUN | |
 | P2 | Sign in, reload, sign out, sign in again | Session behaves; no other account's data appears | NOT RUN | |
 | P3 | Receipt Encoding, **one** receipt `UAT-SMOKE-P3`: add and save it, edit it, save again, then delete only that receipt | Saves, shows progress, edit persists, delete removes only that receipt. Nothing from P3 remains | NOT RUN | |
-| P4 | Receipt Optimization with **two separate sets**, because export marks receipts Consumed. Set A: three receipts `UAT-SMOKE-P4A-1` to `-3`, used for one **Best Match** export. Set B: three different receipts `UAT-SMOKE-P4B-1` to `-3`, used for one **Manual Selection** export. Never reuse a receipt across the two | Result is shown; each workbook downloads and opens; only the exported receipts become Consumed. Six Consumed receipts remain (see the inventory); Consumed receipts are read-only and are not deleted here | NOT RUN | |
+| P4 | Receipt Optimization with **two separate sets**, because export marks receipts Consumed. See "P4 deterministic procedure" below. Set A is used for one **Best Match** export and Set B for one **Manual Selection** export. Never reuse a receipt across the two | Best Match must select **all three** Set A receipts (the only combination that reaches the target) and Manual Selection exports **all three** Set B receipts. Each workbook downloads and opens. Six Consumed receipts remain (see the inventory); Consumed receipts are read-only and are not deleted here | NOT RUN | |
 | P5 | Monthly Filing: add two Active entries `UAT-SMOKE-P5-1` and `-2`, Export & Archive (both are archived), then Return to Active for `-1` only. Do not use Clear Archived or Clear All | Lifecycle works; workbook downloads. One Active and one Archived entry remain (see the inventory) | NOT RUN | |
 | P6 | Shared Store Directory: type an existing store name (safe path). Do not create a profile | Suggestion appears; nothing is contributed | NOT RUN | |
 | P7 | Two-account switch (two designated accounts) | The second account never sees the first account's receipts or prompts. Creates no records | NOT RUN | |
 | P8 | Phone-width layout (375px) for the drawer, Encoding and Optimization. Creates no records | Usable without horizontal scrolling | NOT RUN | |
 | P9 | Re-check or reference pre-cutover gate G2 (direct sign-up refusal). Run a new probe only with the Product Owner's explicit authorization and a disposable address | Refused, or the recorded G2 result or deferral is referenced | NOT RUN | |
 
+### P4 deterministic procedure
+
+Best Match searches **every** Available receipt in the account, and it may select a subset. These fixed values make the outcome deterministic, so the expected Consumed count can be stated.
+
+1. **Precondition.** The test account has **no other Available receipt** (check the baseline; P3's receipt was deleted). If it has any, **stop and do not run P4 in this account**: Best Match could include and consume a receipt that is not part of the test. Use another designated test account, or ask the Product Owner.
+2. **Set A (Best Match).** Create exactly three Available receipts: `UAT-SMOKE-P4A-1` with amount **100.00**, `UAT-SMOKE-P4A-2` with **200.00**, and `UAT-SMOKE-P4A-3` with **300.00**. Create no Set B receipt yet.
+3. In Optimization, run **Best Match** with a target of **600.00**, leaving the strategy at its default. The three amounts total exactly 600.00 (the target); the largest two total 500.00, so no smaller combination reaches the target. The recommendation must therefore be all three receipts, whichever strategy is selected, and the PHP 50 allowance is not needed.
+4. In the export review dialog, confirm it lists **exactly** `UAT-SMOKE-P4A-1`, `-2` and `-3` and nothing else. If it lists anything different, **cancel** and do not confirm; record the deviation as FAIL and go to the inventory note below.
+5. Confirm the export. The three Set A receipts become Consumed.
+6. **Set B (Manual Selection), created only after step 5.** Create exactly three Available receipts: `UAT-SMOKE-P4B-1` with amount **50.00**, `UAT-SMOKE-P4B-2` with **60.00**, and `UAT-SMOKE-P4B-3` with **70.00**.
+7. Switch to **Manual Selection** and **select all three** Set B receipts by hand. Do not use Best Match for this export. In the review dialog confirm it lists exactly the three Set B receipts, then confirm the export. All three become Consumed.
+
+Expected result: six Consumed receipts and no Available receipt from P4.
+
 ### Smoke-test data inventory
 
-Fill this in during the run. "Expected" is what a correct run leaves behind; "Actual" is what was found. Records are listed by name only; do not record account identifiers or amounts.
+Fill this in during the run. "Expected" is what a correct run leaves behind; "Actual" is what was found. Records are listed by name, with the fixed disposable P4 amounts from the procedure above; do not record account identifiers or any other amount.
 
 | Check | Record names | Expected remaining | Actual remaining | Follow-up |
 |---|---|---|---|---|
 | P3 | `UAT-SMOKE-P3` | none (deleted in the check) | | none |
-| P4 Set A | `UAT-SMOKE-P4A-1` to `-3` | 3 Consumed receipts | | Targeted removal needs separate Product Owner approval |
-| P4 Set B | `UAT-SMOKE-P4B-1` to `-3` | 3 Consumed receipts | | Targeted removal needs separate Product Owner approval |
+| P4 Set A | `UAT-SMOKE-P4A-1` (100.00), `-2` (200.00), `-3` (300.00) | 3 Consumed receipts (Best Match, target 600.00, all three required) | | Targeted removal needs separate Product Owner approval |
+| P4 Set B | `UAT-SMOKE-P4B-1` (50.00), `-2` (60.00), `-3` (70.00) | 3 Consumed receipts (Manual Selection, all three selected by hand) | | Targeted removal needs separate Product Owner approval |
 | P5 | `UAT-SMOKE-P5-1`, `UAT-SMOKE-P5-2` | 1 Active entry (`-1`) and 1 Archived entry (`-2`) | | Targeted removal needs separate Product Owner approval |
 | P6, P7, P8 | none | no records | | none |
 
-The test account is therefore expected to hold 6 Consumed receipts, 1 Active and 1 Archived Monthly Filing entry after a correct run (8 records), on top of its baseline. Any difference is reported to the Product Owner and not corrected by deleting records.
+The test account is therefore expected to hold 6 Consumed receipts, 1 Active and 1 Archived Monthly Filing entry after a correct run (8 records), on top of its baseline. Any difference is reported to the Product Owner and not corrected by deleting records. If a P4 export did not consume exactly the planned receipts (for example the review dialog was cancelled, or an unexpected selection was exported), record **each** P4 receipt individually in the Actual column with its real status (Consumed or Available); the six P4 records and the eight P4 and P5 records in total still apply, only their statuses differ. Any other record that was consumed is reported to the Product Owner at once.
 
 ## Issue #27 status
 
