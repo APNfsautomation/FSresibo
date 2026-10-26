@@ -14,9 +14,9 @@ const html = await read('../index.html');
 const staticHtml = html.replace(/<template[\s\S]*?<\/template>/g, '');
 
 // ---- identity ----------------------------------------------------------------------------------
-test('the official display name comes from the one metadata value and the version is unchanged', () => {
+test('the official display name comes from the one metadata value and the stable release version is set', () => {
   assert.equal(appMetadata.name, 'FS Receipt Management Tool');
-  assert.equal(appMetadata.version, '3.6.0-beta.1');
+  assert.equal(appMetadata.version, '3.6.0');
 });
 
 test('runtime identity writes the title, metadata and every [data-app-name] element from appMetadata', () => {
@@ -28,7 +28,7 @@ test('runtime identity writes the title, metadata and every [data-app-name] elem
   assert.ok(brandTargets.every(target => target.textContent === 'FS Receipt Management Tool'));
   assert.ok(metas.every(meta => meta.content === 'FS Receipt Management Tool'));
   const version = { textContent: '' };
-  assert.equal(renderApplicationIdentity([version], appMetadata), 'FS Receipt Management Tool v3.6.0-beta.1');
+  assert.equal(renderApplicationIdentity([version], appMetadata), 'FS Receipt Management Tool v3.6.0');
   renderApplicationName({ title: '' }, appMetadata);                      // documents without querySelectorAll are tolerated
 });
 

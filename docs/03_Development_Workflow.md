@@ -8,8 +8,8 @@
 
 ## Branches
 
-- `main` is stable and is gated separately. Nothing reaches it without the Product Owner's explicit approval.
-- `claude/ui-ux-refinement` is the protected development/UAT branch. GitHub Pages serves it for UAT. A repository ruleset requires a pull request and a passing `node-tests` check, and blocks force pushes and deletion. Nobody pushes to it directly.
+- `main` is stable and is gated separately. Nothing reaches it without the Product Owner's explicit approval. Ruleset `25866288` requires a pull request and a passing `node-tests` check (GitHub Actions), blocks force pushes and deletion, requires 0 approving reviews and has no bypass actors.
+- `claude/ui-ux-refinement` is the protected development/UAT branch. GitHub Pages **currently** serves it (legacy branch-based publishing, source branch `claude/ui-ux-refinement`, URL https://apnfsautomation.github.io/FSresibo/). That stays true until the production cutover in `09_Release_Runbook.md`, after which Pages will serve `main`; the cutover has not happened. A repository ruleset requires a pull request and a passing `node-tests` check, and blocks force pushes and deletion. Nobody pushes to it directly.
 - Each issue gets its own branch, for example `issue-26-final-regression-docs`, created from the current UAT head. The issue names the base branch.
 
 ## Route for every change
@@ -22,11 +22,20 @@
 6. Claude Code reports the pull request URL, exact SHA, test counts and a Product Owner UAT checklist, then **stops**.
 7. ChatGPT reviews the code, tests and documents independently and records findings in GitHub. Claude Code fixes findings on the same branch and repeats from step 4.
 8. A merge into the UAT branch needs an exact-SHA authorization from ChatGPT under the delegation the Product Owner has given for that issue, or the Product Owner's explicit permission. A delegation for one issue does not extend to the next. No ruleset or protection bypass.
-9. After the merge, GitHub Pages deploys the UAT branch. Verify the deployment run and the visible version.
+9. After the merge, GitHub Pages deploys the UAT branch (while the Pages source is still the UAT branch). Verify the deployment run and the visible version.
 10. The Product Owner performs functional UAT on the deployed build and records PASS, FAIL, PARTIAL, DEFERRED or NOT RUN. Passing tests or a successful Pages build never mark a checkpoint accepted.
 11. Promotion to `main` and any production release are separate, explicit Product Owner decisions.
 
 Defects found during a test or documentation task are filed as separate bug issues for Product Owner triage and are not fixed quietly inside that pull request.
+
+## Production release (v3.6.0)
+
+Current state versus plan, kept apart on purpose:
+
+- **Current:** the UAT branch carries version `3.6.0`; `main` holds the earlier Milestone 3.6 source plus the CI bootstrap; Pages serves the UAT branch. Nothing of the stable release is live.
+- **Planned:** a pull request from the UAT branch to `main` (a merge commit, after a fresh trial merge shows no conflicts), approved by the Product Owner for one exact SHA, followed by switching the Pages source to `main` and validating the live commit. The procedure, the backup requirement and the rollback options are in `09_Release_Runbook.md`. The release summary is in `10_Release_Notes_v3.6.0.md`.
+- `pr-readiness` runs only for pull requests into the UAT branch and does not run for the release pull request; `node-tests` does.
+- After the cutover, merges into the UAT branch no longer deploy anywhere. Whether to keep a hosted UAT is a separate Product Owner decision; until then, update step 9 above accordingly.
 
 ## Evidence and status vocabulary
 

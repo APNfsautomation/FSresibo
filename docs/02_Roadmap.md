@@ -82,11 +82,11 @@ Migration 004 is deployed. Hosted RPC/security/two-user/concurrency validation p
 - Exact centavo display, workspace state retention, and refresh/logout/account-change resets
 - No persistence, store data, lifecycle, export, or migration
 
-Version: `FSResibo v3.6.0-beta.1`. Merged to `main` by PR #15 on 2026-10-10 after technical-lead review; the Product Owner reported browser tests passed the same day. **Mobile device validation was not performed**, and assistive-technology, mobile-performance and tested-browser details are not recorded, so milestone-wide manual acceptance is not claimed. No production rollout is claimed. See `06_M3.6_Browser_Acceptance.md` for the checklist and the recorded evidence.
+Version at merge: `FSResibo v3.6.0-beta.1`; the release candidate on the UAT branch carries the stable `3.6.0`. Merged to `main` by PR #15 on 2026-10-10 after technical-lead review; the Product Owner reported browser tests passed the same day. **Mobile device validation was not performed**, and assistive-technology, mobile-performance and tested-browser details are not recorded, so milestone-wide manual acceptance is not claimed. No production rollout is claimed. See `06_M3.6_Browser_Acceptance.md` for the checklist and the recorded evidence.
 
 ## CP10 — UI/UX refinement on the UAT branch
 
-Work proceeds on the protected branch `claude/ui-ux-refinement` through pull requests with the `node-tests` check (see `03_Development_Workflow.md`). `main` is untouched and no production release is authorized. Evidence for every row is in `07_Regression_Coverage_Matrix.md`.
+Work proceeds on the protected branch `claude/ui-ux-refinement` through pull requests with the `node-tests` check (see `03_Development_Workflow.md`). `main` has received only the CI bootstrap (PR #44) and is protected by ruleset `25866288`; the application itself has not been released to `main`, which needs the Product Owner's explicit approval of an exact SHA. Evidence for every row is in `07_Regression_Coverage_Matrix.md`.
 
 | Checkpoint | Scope | State |
 |---|---|---|
@@ -96,8 +96,8 @@ Work proceeds on the protected branch `claude/ui-ux-refinement` through pull req
 | U01-A, Issue #22 / PR #23 | Unsaved indicators, capped Select Shown, reachable Expand/Collapse | Accepted by the Product Owner: 18 PASS, 1 DEFERRED (A7) |
 | U01-B, Issue #24 / PR #25 | Dirty-only saves, real progress, edit/session safety | Merged; Product Owner UAT PASS at milestone level |
 | C3E-5, Issue #26 | Regression coverage map, documentation alignment, Product Owner checklist | Merged (PR #28); Product Owner UAT 13/14 PASS, check #8 FAIL (more than 32 receipts) |
-| Issue #29 | Exact Receipt Optimization for more than 32 Available receipts (Worker, budgets, progress, Cancel) | In review; Product Owner retest of check #8 after deployment pending |
-| C4 | Authentication remediation and release gate (see below) | Not started |
+| Issue #29 | Exact Receipt Optimization for more than 32 Available receipts (Worker, budgets, progress, Cancel) | Merged; Issue #29 is closed with Product Owner UAT acceptance (recorded in Issue #41) |
+| C4 | Authentication remediation and release gate (see below) | Gates closed by the Product Owner on 2026-10-26 except the items listed under "Pending production tasks" below |
 
 The earlier C3E-2 follow-up (the "Go to Encoding" action in the unsaved-changes export block) is delivered; it is covered by `reviewArrange.test.mjs`.
 
@@ -105,12 +105,38 @@ The earlier C3E-2 follow-up (the "Go to Encoding" action in the unsaved-changes 
 - Manual OCR dirty-indicator test **A7** (Issue #22): deferred to Epic 4, OCR Improvements. Not passed.
 - 400 genuinely new receipts and bulk-save optimization: deferred to later, with new approval. Not passed.
 
-### CP10-C4 queue (unresolved)
-- Email confirmation link redirect (an obsolete Synology address was observed) and the password-recovery flow (links entered the app without a reset) need live Supabase configuration and a functional retest. Unit tests do not resolve them.
-- Confirm hosted public sign-up is refused.
-- Dependency pinning and integrity (Issue #32, implemented in its pull request, not released): Supabase client vendored at 2.118.0 with Subresource Integrity, Tesseract.js pinned to 5.1.1 with Subresource Integrity, its worker, core and English data pinned to exact versions. **Partial for OCR:** those last three are fetched by the library and are not verified by the browser. Fully closing that needs a separate decision (see `05_DECISIONS.md`, "Runtime Dependency Pinning and Integrity").
-- Monthly Filing session isolation (Issue #27, HIGH): fixed and automated-tested in its pull request (with the confirmed AUTH-10 overlapping-activation fix); remains a `main` release blocker until reviewed, deployed and accepted in the Product Owner's two-account live-browser UAT.
-- Pre-production data reset and maintenance runbook.
+## Release 3.6.0 status (as of 2026-10-26)
+
+The source on the UAT branch is version `3.6.0` (`config/appMetadata.js`). It is **not** released: `main` does not contain it and GitHub Pages still serves the UAT branch. The procedure is in `09_Release_Runbook.md`; the user-facing summary is in `10_Release_Notes_v3.6.0.md`. Items below marked "reported" come from the Product Owner or Technical Lead (Issue #41 and release instructions); no artifact for them is stored in this repository.
+
+### Completed acceptance criteria
+- Issues #27 (Monthly Filing session isolation, with the AUTH-10 fix), #29 (large-pool optimizer), #32 (dependency pinning) and #33 (Edit Save correction) are closed with recorded Product Owner UAT acceptance for their recorded scope (Issue #41).
+- Password recovery (genuine email link, new-password form) passed Product Owner testing (reported).
+- Administrator invitations passed Product Owner testing (reported).
+- U01-A (Issue #22) accepted, with A7 deferred; U01-B (Issue #24) accepted at milestone level.
+
+### Verified infrastructure
+- `main` ruleset `25866288` and UAT ruleset `25738688` are active; both require a pull request and a passing `node-tests` check from GitHub Actions (integration 15368), block deletion and force pushes, have no bypass actors, and require 0 approving reviews. Enforcement on `main` was exercised by a disposable failing pull request that GitHub reported as BLOCKED (PR #45, closed unmerged).
+- `tests.yml` exists on `main` and UAT (identical); `pr-readiness.yml` (Issue #36, informational) is UAT-only.
+- Hosted Supabase: production cleanup completed on 2026-10-26 (reported). Twenty receipts belonging to accounts outside the approved cleanup scope remain and **must be preserved**. All 8 authentication accounts were preserved. Monthly Filing and the Shared Store Directory were cleared. Schema, migrations and RLS were not changed by the cleanup.
+- A database backup and an isolated restore rehearsal were completed successfully (reported).
+- Public sign-up was disabled in Supabase by the Product Owner (reported). A direct sign-up request against the hosted project has not been probed from this repository.
+
+### Pending production tasks
+- A fresh pre-release database backup and its verification immediately before cutover (`09_Release_Runbook.md`).
+- Release pull request from the UAT branch to `main`, an exact-SHA Product Owner approval, and the merge.
+- GitHub Pages production cutover (source branch change), then validation of the live published commit. **This has not occurred.**
+- Production smoke checks on the deployed build (`08_Integration_UAT_Checklist.md`, "Production release smoke checks").
+- Review and classification of the Supabase security advisories (mutable `search_path` on three functions, `rls_auto_enable()` executable by `anon` and `authenticated`, leaked-password protection disabled). They remain under review; **no database change is authorized**.
+- Confirmation of the Supabase Auth redirect allow-list and email templates for the production URL (the sign-up confirmation email path is not reachable with sign-up disabled; invitation and recovery links passed).
+
+### Deferred improvements
+- OCR dirty-indicator test **A7** (Epic 4). Not passed.
+- 400 genuinely new receipts and bulk-save optimization. Not passed.
+- Integrity verification of the Tesseract worker, core and English language data (pinned to exact versions but not verified by the browser; see `05_DECISIONS.md`).
+- Automated backup encryption and archiving.
+- Mobile-device performance and assistive-technology checks of Milestone 3.6 were never recorded.
+- Hosted UAT after the cutover (the UAT branch will no longer be published once Pages serves `main`; a separate decision).
 
 ## Future
 - Epic 4 — OCR Improvements

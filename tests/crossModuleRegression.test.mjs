@@ -39,7 +39,7 @@ async function bootApp({ sessionUser = { id: 'a', email: 'a@example.test' }, gat
   const monthly = { setVisible: () => {}, start: record('monthly.start'), clearForLogout: record('monthly.clear'), loadForUser: async user => { log.push(`monthly.load:${user.id}`); if (gates.monthlyByUser?.[user.id]) await gates.monthlyByUser[user.id]; } };
   const auth = { show: (message, options) => log.push(`auth.show:${message ?? ''}:${options?.clearPasswords ? 'clearPasswords' : ''}`), hide: record('auth.hide'), setMessage: () => {}, showRecovery: record('auth.showRecovery'), showRecoveryUnavailable: record('auth.showRecoveryUnavailable') };
   const dependencies = {
-    document, window, isSupabaseConfigured: () => true, supabaseConfig: {}, appMetadata: { name: 'FSResibo', version: '3.6.0-beta.1' },
+    document, window, isSupabaseConfigured: () => true, supabaseConfig: {}, appMetadata: { name: 'FSResibo', version: '3.6.0' },
     authRedirectUrl: () => 'https://example.test/', getCurrentSession: async () => { if (gates.session) await gates.session; return sessionUser ? { user: sessionUser } : null; },
     hasPasswordRecoveryIntent: () => false, login: () => {}, logout: async () => { logoutCalls += 1; },
     onAuthStateChange: async callback => { subscription = callback; }, recoveryCallbackError: () => null,
