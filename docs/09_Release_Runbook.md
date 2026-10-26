@@ -41,7 +41,7 @@ Each step needs the Product Owner's approval where stated. Do not start a step u
 
 1. **Release pull request.** After the release-metadata pull request is merged into the UAT branch, take that merged head as the release candidate. Run a fresh trial merge of `origin/main` and the UAT head (for example `git merge-tree --write-tree origin/main origin/claude/ui-ux-refinement`) and run `node --test tests/*.test.mjs` on the result. At the time of the Stage 4A assessment the trial merge had no conflicts and 958 tests passed; **re-run it**, because the UAT branch can move.
 2. Open a pull request from `claude/ui-ux-refinement` into `main` (merge commit, no squash). `node-tests` runs for it; `pr-readiness` does not (it targets the UAT branch only). The Product Owner approves one exact SHA.
-3. **Backup** (section 3) is verified.
+3. **Backup** (section 3) is verified, and the **pre-cutover sign-up gate** (G1 and G2 in `08_Integration_UAT_Checklist.md`) is recorded: G1 recorded, and G2 passed or deferred with the Product Owner's recorded residual-risk acceptance. No live Auth probe happens without the Product Owner's explicit authorization.
 4. Merge the pull request through the ruleset. No bypass exists or is to be attempted. Auto-merge stays off.
 5. **Pages cutover.** In the repository settings, Pages, change the source branch from `claude/ui-ux-refinement` to `main` (path `/`). The equivalent API call is `PUT /repos/APNfsautomation/FSresibo/pages` with `source.branch = main` and `source.path = /`; it has **not** been run. No workflow file and no code change are needed for the legacy branch build. Perform this step only after the merge in step 4, so `main` is never published before it contains the release.
 6. **Validate the live commit.**
@@ -49,7 +49,7 @@ Each step needs the Product Owner's approval where stated. Do not start a step u
    - `gh api repos/APNfsautomation/FSresibo/pages/builds/latest` shows the commit that was merged.
    - `gh api "repos/APNfsautomation/FSresibo/deployments?environment=github-pages&per_page=3"` shows a deployment for `main` at that commit.
    - The application shows `v3.6.0`, and a served file such as `config/appMetadata.js` matches the repository blob at that commit (a hard refresh avoids the browser cache). The application does not display a commit SHA (assumption: checked only from the documentation, not on the deployed build).
-7. Run the production smoke checks in `08_Integration_UAT_Checklist.md` ("Production release smoke checks"). Record results as PASS, FAIL, PARTIAL, DEFERRED or NOT RUN.
+7. Run the production smoke checks in `08_Integration_UAT_Checklist.md` ("Production release smoke checks"). They create labelled `UAT-SMOKE-` records in production; complete the data inventory there and leave removal to a separately approved, targeted follow-up (no Clear All, Clear Archived or automated cleanup). Record results as PASS, FAIL, PARTIAL, DEFERRED or NOT RUN.
 8. **Preventing UAT from deploying to production.** Once the source is `main`, merges into the UAT branch no longer publish anything, so a UAT merge cannot change the live site. Production changes only when `main` changes, and `main` only changes through a protected pull request. The cost is that no hosted UAT exists; whether to create one is a separate Product Owner decision. Update `03_Development_Workflow.md` after the cutover.
 9. Optionally tag the release commit after the smoke checks pass (the repository has no tags today). Tagging is a repository change and needs approval.
 
@@ -94,6 +94,7 @@ Before asking, establish what is wrong, what the restore would overwrite, whethe
 ## 7. Open items before the cutover
 
 - Fresh verified backup (section 3).
+- Pre-cutover sign-up gate G1 and G2 recorded (C4-3 is still PARTIAL).
 - Release pull request and exact-SHA approval (section 4).
 - Product Owner decision on whether a hosted UAT is wanted after the cutover.
 - Review of the Supabase security advisories.

@@ -124,6 +124,7 @@ The source on the UAT branch is version `3.6.0` (`config/appMetadata.js`). It is
 
 ### Pending production tasks
 - A fresh pre-release database backup and its verification immediately before cutover (`09_Release_Runbook.md`).
+- The pre-cutover sign-up gate (read-only confirmation of the Supabase setting, and a direct refused-sign-up test only with the Product Owner's explicit authorization, or a recorded deferral with the Product Owner's residual-risk acceptance), in `08_Integration_UAT_Checklist.md`.
 - Release pull request from the UAT branch to `main`, an exact-SHA Product Owner approval, and the merge.
 - GitHub Pages production cutover (source branch change), then validation of the live published commit. **This has not occurred.**
 - Production smoke checks on the deployed build (`08_Integration_UAT_Checklist.md`, "Production release smoke checks").

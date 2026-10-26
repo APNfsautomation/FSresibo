@@ -63,30 +63,70 @@ Status as of 2026-10-26. "Reported" means stated by the Product Owner or Technic
 | C4-4 | Dependency pinning and integrity (Issue #32). After deployment: the sign-in page loads, a real sign-in, sign-out and token refresh work, and an OCR scan of a non-sensitive printed receipt fills the card. The browser console shows no integrity, CORS or MIME error | NOT RUN on the hosted build | Issue #32 is closed with Product Owner acceptance, and automated checks and a localhost browser run are in its pull request. Hosted GitHub Pages, Synology and mobile were not run. The Tesseract worker, core and language data are pinned but not integrity-verified. Does not pass A7 |
 | C4-5 | **Administrator invitation** opens the app and completes onboarding | PASS (Product Owner tested) | Not part of the original list |
 
+## Pre-cutover release gate: sign-up refusal (SEC-06 / C4-3)
+
+C4-3 is **PARTIAL**: public sign-up was disabled in Supabase by the Product Owner (reported), but a server-side refusal has not been independently tested. This gate must be recorded **before** the Pages cutover in `09_Release_Runbook.md`. Nothing here has been executed, and this document authorizes no live probe and no Supabase setting change.
+
+| # | Gate | Expected | Result | Date (Philippines time) | Recorded by |
+|---|---|---|---|---|---|
+| G1 | **Read-only** confirmation of the live Supabase sign-up setting by the Product Owner or an administrator (look at the setting; do not change it). Record only that it is disabled, not any key, URL or secret | Public sign-up is disabled | NOT RUN | | |
+| G2 | A direct sign-up request against the real hosted Auth endpoint, **only after explicit Product Owner authorization**, using one disposable address that you control | The request is **refused** with an error; no account is created and no confirmation email arrives; the number of authentication accounts is still 8 | NOT RUN | | |
+
+Rules for G2:
+- Do not run it without the Product Owner's explicit authorization for that probe. Record the authorization.
+- Use a disposable address only. Never use a colleague's or a real customer's address, and put no password in notes.
+- **If the request is not refused** (an account or a confirmation email appears), stop. Do not delete the account or change any setting; report it to the Product Owner, who decides the response. That outcome is a release blocker.
+- **If the Product Owner defers G2**, write the deferral and the Product Owner's explicit acceptance of the residual risk (a sign-up could be attempted with the public key if the setting were ever reverted or misconfigured) in the Result column, with the date. A deferred gate is `DEFERRED`, never `PASS`, and C4-3 stays PARTIAL.
+- The cutover waits for G1 to be recorded, and for G2 to be either PASS or deferred with the recorded risk acceptance. Post-cutover check P9 below re-references this gate.
+
 ## Production release smoke checks (3.6.0)
 
 To be run by the Product Owner on the **production** build after the cutover in `09_Release_Runbook.md`. They are a short sample, not a repeat of checks 1-15, and nothing here is executed yet. Every status starts as NOT RUN; `DEFERRED` and `NOT RUN` are not `PASS`.
 
-Production rules: the production database holds 20 receipts of other accounts that must be preserved and 8 authentication accounts. Use only your own account (or a designated test account) and `UAT-`-named disposable receipts; delete only receipts you created, through the application. Decline every Company Directory contribution prompt unless the Product Owner decides otherwise. Do not run Clear All Monthly Filing, and do not use any bulk-delete path. Do not enter real passwords in notes.
+### Smoke-test data lifecycle
+
+The production database holds 20 receipts of other accounts and 8 authentication accounts, all of which must be preserved. These checks create records in production, so the data they create is planned, labelled and inventoried, and **no cleanup is part of this checklist**.
+
+- Use a designated test account that the Product Owner confirms owns none of the preserved receipts (or, if it does, record its existing receipts as the baseline and never touch them). Do not use another person's account.
+- Name every record you create with the prefix `UAT-SMOKE-`. Create nothing else. Do not edit, restore, export or delete any record that does not carry that prefix.
+- Before P3, record the test account's baseline: receipts per status (Available, Consumed) and Monthly Filing entries (Active, Archived).
+- Decline every Company Directory contribution prompt. No directory profile is created.
+- **Prohibited, unchanged:** Clear All Monthly Filing, Clear Archived, any bulk or blanket delete, and any automated cleanup. The only deletion in this list is the single `UAT-SMOKE-` receipt in P3, through the application. Do not enter real passwords in notes.
+- Records that remain after the checks are listed in the inventory below. Removing them, if wanted, is a **separately approved, targeted follow-up** by the Product Owner, one named record at a time; it is not done here.
 
 | Field | Value |
 |---|---|
 | Deployed commit (from the Pages build or deployment record) | |
 | Visible version shown in the application | expected `v3.6.0` |
 | Browser and version (desktop); phone or emulator | |
+| Designated test account(s) (do not write passwords) | |
 | Tester / date (Philippines time) | |
 
 | # | Check | Expected | Status | Evidence / notes |
 |---|---|---|---|---|
 | P1 | Open https://apnfsautomation.github.io/FSresibo/ in a clean window. Console open. | Sign-in page loads over HTTPS; the version reads `3.6.0`; no integrity, CORS or MIME error in the console | NOT RUN | |
 | P2 | Sign in, reload, sign out, sign in again | Session behaves; no other account's data appears | NOT RUN | |
-| P3 | Receipt Encoding: add and save one disposable receipt, edit it, save again, then delete it | Saves, shows progress, edit persists, delete removes only that receipt | NOT RUN | |
-| P4 | Receipt Optimization: run one Best Match and one manual selection export with disposable receipts | Result is shown; the Excel workbook downloads and opens; exported receipts become Consumed | NOT RUN | |
-| P5 | Monthly Filing: add two disposable Active receipts, Export & Archive, then Return to Active for one | Lifecycle works; workbook downloads | NOT RUN | |
+| P3 | Receipt Encoding, **one** receipt `UAT-SMOKE-P3`: add and save it, edit it, save again, then delete only that receipt | Saves, shows progress, edit persists, delete removes only that receipt. Nothing from P3 remains | NOT RUN | |
+| P4 | Receipt Optimization with **two separate sets**, because export marks receipts Consumed. Set A: three receipts `UAT-SMOKE-P4A-1` to `-3`, used for one **Best Match** export. Set B: three different receipts `UAT-SMOKE-P4B-1` to `-3`, used for one **Manual Selection** export. Never reuse a receipt across the two | Result is shown; each workbook downloads and opens; only the exported receipts become Consumed. Six Consumed receipts remain (see the inventory); Consumed receipts are read-only and are not deleted here | NOT RUN | |
+| P5 | Monthly Filing: add two Active entries `UAT-SMOKE-P5-1` and `-2`, Export & Archive (both are archived), then Return to Active for `-1` only. Do not use Clear Archived or Clear All | Lifecycle works; workbook downloads. One Active and one Archived entry remain (see the inventory) | NOT RUN | |
 | P6 | Shared Store Directory: type an existing store name (safe path). Do not create a profile | Suggestion appears; nothing is contributed | NOT RUN | |
-| P7 | Two-account switch (two designated accounts) | The second account never sees the first account's receipts or prompts | NOT RUN | |
-| P8 | Phone-width layout (375px) for the drawer, Encoding and Optimization | Usable without horizontal scrolling | NOT RUN | |
-| P9 | Direct sign-up attempt against the live Auth endpoint (only with the Product Owner's go-ahead, using a disposable address) | Refused | NOT RUN | |
+| P7 | Two-account switch (two designated accounts) | The second account never sees the first account's receipts or prompts. Creates no records | NOT RUN | |
+| P8 | Phone-width layout (375px) for the drawer, Encoding and Optimization. Creates no records | Usable without horizontal scrolling | NOT RUN | |
+| P9 | Re-check or reference pre-cutover gate G2 (direct sign-up refusal). Run a new probe only with the Product Owner's explicit authorization and a disposable address | Refused, or the recorded G2 result or deferral is referenced | NOT RUN | |
+
+### Smoke-test data inventory
+
+Fill this in during the run. "Expected" is what a correct run leaves behind; "Actual" is what was found. Records are listed by name only; do not record account identifiers or amounts.
+
+| Check | Record names | Expected remaining | Actual remaining | Follow-up |
+|---|---|---|---|---|
+| P3 | `UAT-SMOKE-P3` | none (deleted in the check) | | none |
+| P4 Set A | `UAT-SMOKE-P4A-1` to `-3` | 3 Consumed receipts | | Targeted removal needs separate Product Owner approval |
+| P4 Set B | `UAT-SMOKE-P4B-1` to `-3` | 3 Consumed receipts | | Targeted removal needs separate Product Owner approval |
+| P5 | `UAT-SMOKE-P5-1`, `UAT-SMOKE-P5-2` | 1 Active entry (`-1`) and 1 Archived entry (`-2`) | | Targeted removal needs separate Product Owner approval |
+| P6, P7, P8 | none | no records | | none |
+
+The test account is therefore expected to hold 6 Consumed receipts, 1 Active and 1 Archived Monthly Filing entry after a correct run (8 records), on top of its baseline. Any difference is reported to the Product Owner and not corrected by deleting records.
 
 ## Issue #27 status
 
