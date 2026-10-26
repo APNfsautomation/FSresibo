@@ -1,4 +1,6 @@
 import { utils, writeFileXLSX } from '../vendor/sheetjs/xlsx-0.20.3.mjs';
+import { parseMoneyAmount } from '../domain/moneyAmount.js';
+import { philippineDateStamp } from '../domain/exportDate.js';
 
 export const expenseDetailedReportHeaders = Object.freeze([
   'Item No.', 'Receipt Date', 'Supplier Details: Name', 'Supplier Details: Address', 'VAT Status / Indicator',
@@ -21,9 +23,16 @@ const spreadsheetDate = value => {
   return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day ? date : '';
 };
 
-const numericAmount = value => {
-  const amount = Number(String(value || '').trim());
-  return Number.isFinite(amount) ? amount : '';
+export const amountCellFormat = '#,##0.00';
+
+// Amount cell value from the strict CP10-C0 parser: missing (null, undefined, blank or whitespace) = no cell at all (null); an explicit 0 or "0" = numeric zero;
+// a valid amount = its exact numeric value. A non-blank amount that cannot be parsed is rejected, never exported as an empty cell or a guessed number.
+// (Callers validate amounts before exporting; this is the defensive last check, so no misleading accounting report is produced.)
+export const numericAmount = value => {
+  const parsed = parseMoneyAmount(value);
+  if (parsed.blank) return null;
+  if (!parsed.valid) throw new Error(`Cannot export receipt amount: ${parsed.message}`);
+  return parsed.amount;
 };
 
 export const buildExpenseDetailedReportRows = receipts => [
@@ -39,6 +48,8 @@ export function createExpenseDetailedReportWorkbook(receipts, xlsx = { utils }) 
   receipts.forEach((receipt, index) => {
     const cell = worksheet[`B${index + 3}`];
     if (cell?.v instanceof Date) cell.z = 'd-mmm';
+    const amount = worksheet[`H${index + 3}`];
+    if (amount?.t === 'n') amount.z = amountCellFormat;
   });
   worksheet['!merges'] = expenseDetailedReportHeaderMerges.map(range => xlsx.utils.decode_range(range));
   worksheet['!cols'] = [
@@ -56,6 +67,6 @@ export function downloadExpenseDetailedReport(receipts, filename) {
 }
 
 export const createSelectedReceiptsWorkbook = createExpenseDetailedReportWorkbook;
-export function downloadSelectedReceipts(receipts, filename = `fsresibo-selected-receipts-${new Date().toISOString().slice(0, 10)}.xlsx`) {
+export function downloadSelectedReceipts(receipts, filename = `fsresibo-selected-receipts-${philippineDateStamp()}.xlsx`) {
   downloadExpenseDetailedReport(receipts, filename);
 }

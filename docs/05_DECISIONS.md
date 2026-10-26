@@ -467,7 +467,9 @@ Archived means exported and read-only until returned to Active; it does not mean
 
 **Status**
 
-Accepted accounting/design contract; Milestone 3.6 implementation review and Product Owner browser acceptance pending.
+Accepted accounting/design contract. The original note read "Milestone 3.6 implementation review and Product Owner browser acceptance pending."
+
+Status update (2026-10-24, Issue #26): the implementation was merged to `main` by PR #15 on 2026-10-10 after technical-lead review, and the Product Owner reported browser tests passed. Mobile device validation was not performed and is not claimed; assistive-technology and mobile-performance checks are not recorded. The decision itself is unchanged.
 
 ### Decision
 
@@ -484,3 +486,91 @@ A fixed PHP 50 allowance matches the approved accounting workflow; a target-rela
 `findBestMatches()` returns exact ordered top-three combinations through compact meet-in-the-middle subsets and bounded merges; `findBest()` remains its one-result compatibility wrapper. Receipt Optimization retains transaction/export behavior. Quick Optimizer is an isolated amount-only workspace with explicit calculation, stable temporary labels, atomic newline bulk append, and no persistence or export. Navigation preserves its one-instance state; refresh, logout/account changes, and Clear Calculator reset it. Exact display formatting retains centavos. This extends Decision 015 without rewriting it or Decisions 012, 014, 016, and 017. Milestone acceptance, merge, and rollout are separate gates.
 
 ---
+
+# Decision 019
+
+## Exact Large-Pool Receipt Optimization
+
+**Status**
+
+Accepted (Product Owner authorized implementation of Issue #29 on 2026-10-24). Implemented in the Issue #29 pull request; Product Owner retest of UAT check #8 after deployment is pending. Decision 018 and its accounting rules are unchanged.
+
+### Decision
+
+Receipts → Optimization calculates over **all Available receipts**, with no first-32 or filtered subset. Pools of up to 32 receipts continue to use the unchanged `findBest()` engine. Pools of more than 32 use a separate **exact, pseudo-polynomial solver** (`services/poolOptimizationService.js`) that returns the single result Decision 018's rules define:
+
+- Dense dynamic programming over centavo sums: a bitset of reachable totals fixes the total; a minimum-count table with one decision bit per (receipt, sum) rebuilds the fewest-receipt set, and rebuilding from the first receipt upward reproduces the rule "of two sets with the same count, the one containing the smallest differing index wins". There is no 32-bit mask.
+- Exactness-preserving reductions: receipts above the cap (target plus PHP 50, or the target for Do Not Exceed) cannot take part and are dropped after the whole pool is validated; zero-amount receipts never improve a ranking; every amount is divided by the gcd of the kept amounts; the table is never wider than the pool total.
+- **Exact fast paths.** When the whole positive pool does not exceed the target, Closest and Do Not Exceed take every positive receipt, and so does Fewest when the pool equals the target. Fewest with the pool below the target is solved as an **omitted-receipt problem**: omit receipts totalling at most PHP 50 (and leaving at least PHP 0.01), maximizing the omitted count, then minimizing the omitted amount, then preferring not to omit the smaller index. Its table is at most 5,000 centavos wide.
+- **Budgets, checked before any large allocation, by one verdict shared by every search path (the DP and the omitted-receipt table alike):** about 1.5e9 cells, 256 MiB of predicted memory, a sum range under 2^30 units, a finite cost estimate, and (for the DP) fewer than 32,767 kept receipts; a 45-second timeout inside the solver and a watchdog around it. The page thread solves directly only the engine, the nothing-qualifies and take-every-receipt answers and complement problems of at most 2,000,000 planned cells; anything larger goes to the Worker, and anything over budget is refused before a Worker exists. These are provisional ceilings, not a latency or support guarantee.
+- **No eligible receipt:** when every positive receipt is above the cap, the answer is an exact "nothing qualifies" with a finite zero-cost plan, computed directly, never a Worker.
+- **Over budget, cancelled, timed out or failed:** the app shows "Exact result cannot be computed safely with these values on this device; no recommendation was produced." (or the matching cancelled/timeout/error wording), keeps every receipt untouched, and never returns an approximation. It does not suggest exporting or consuming receipts to shrink the pool.
+- The long-pool search runs in a **module Web Worker** with visible progress and a Cancel button. A finished run is applied only if it is still the current run for the same account and the identical pool signature (every receipt's id, status and amount), target and strategy; edits (every field, including typing in Store and a correction saved through the Edit dialog), status changes, target or strategy changes, a newer calculation, sign-out, an account switch, switching from Receipt Optimization to Encoding and leaving the Receipts module all stop it. The pool signature covers every workbook-relevant value of every receipt, raw amount text included, so a change that fires no event is still caught.
+
+### Reason
+
+Real saved pools exceed 32 receipts, and the 32-receipt limit comes from 32-bit identity masks and 2^(n/2) subset lists: deleting the guard silently corrupts results (a 33-receipt pool returned a total with no receipts) and needs gigabytes by the high 40s. Subset sums over integer centavos are pseudo-polynomial, so an exact answer is possible whenever the target range is bounded.
+
+### Consequences
+
+- Exact for every pool inside the budget, identical to the existing engine for up to 32 receipts, and refused rather than approximated outside it. Cost grows with receipts × target (in gcd units), not with the number of subsets: on the development machine (Node 24, Intel Core i7-14700HX) about 3 ns per cell, for example 400 typical receipts at a PHP 20,000 target in about 2.4 s and about 100 MiB, and whole-peso pools 100 times cheaper. Targets above the pool cost almost nothing. A target between half the pool and the pool is not specially accelerated.
+- Quick Optimizer keeps its separately specified 32 entered amounts and top-three results; Manual Selection keeps its 100-selected cap; bulk saving of hundreds of new receipts remains deferred. No schema, RLS, Auth, version or `main` change.
+- Mobile performance is not measured; WebAssembly acceleration and a user-chosen candidate scope are deferred and would each need a separate decision.
+
+# Decision 020
+
+## Session-Scoped Asynchronous Operations
+
+**Status**
+
+Accepted (Product Owner authorized implementation of Issue #27 on 2026-10-25). Implemented in the Issue #27 pull request; independent review and the Product Owner's two-account live-browser UAT are pending.
+
+### Decision
+
+Every asynchronous operation that can change what a signed-in user sees belongs to a session. A session is replaced by every sign-in (the same account signing in again included), sign-out, recovery event and missing session. An operation captures its session when it starts and treats its result, error and `finally` as inert once the session is no longer current: it renders nothing, says nothing, prompts nothing, sends nothing further, and releases only its own session's guards. Guards (busy flag, mutation guard, archive-uncertainty lifecycle) are part of the session, so a new session starts with free guards even if an earlier request never finishes. App-level activation uses an epoch checked after every await, and a confirmation prompt is dismissed when its account ends or changes.
+
+### Reason
+
+A previous account's Monthly Filing financial data could appear inside the next account's authenticated screen, and the next account's controls could stay disabled behind a request that never answered. Overlapping activation was confirmed by reproduction in Receipt Encoding's load and in `app.js`.
+
+### Consequences
+
+- The successful same-session flows (save, directory decision, workbook snapshot, archive, single mutation restriction, archive-uncertainty reconciliation, Active/Archived behavior) are unchanged. Same-account token refreshes are still de-duplicated by `app.js` and never start a new session.
+- A request already sent to the database before the switch cannot be recalled: a workbook already generated, an archive or Company Directory contribution already requested keep their server-side effect, which stays owner-scoped by RLS. Only the on-screen effect is suppressed.
+- No schema, RLS, Auth, dependency, feature or version change; automated tests use fake services and are not live hosted evidence.
+- Round 1 review of PR #31 added: the latest authentication event wins (A, B, A and B, A, B), a late startup session answer is ignored once any later sign-in, sign-out or recovery event has happened, password recovery ends both controllers' sessions, and Receipt Encoding's dialogs and pending review, export and edit save belong to their session (the previous account's are closed or discarded before the next session's first await, and its export runner can no longer read, generate a workbook or consume). A review read, workbook, consume or correction already sent before the switch cannot be recalled.
+- Round 2 review of PR #31 added: every remaining asynchronous Receipt Encoding continuation is session-scoped (Restore, Delete, permanent Consumed delete, Company Directory contribution and post-save prompts, OCR callback), and a stale Edit correction writes nothing to the shared Save correction button (a new session resets it; each session releases only its own). An earlier statement here that the unguarded Restore, Delete and OCR continuations "show no receipt data of the previous account" was wrong: a late Restore inserted the previous account's receipt (store, address, TIN) into the next account's receipt-history suggestions. It was reproduced by a failing test, fixed, and the remaining operations were audited (see `07_Regression_Coverage_Matrix.md`).
+- Round 3 review of PR #31 added: the three remaining confirmation continuations (Clear manual selection, Clear form, Discard unfinished receipt) check their session after the answer instead of relying on `app.js` dismissing the shared prompt with `false` on an account change. Tests use a late `true` confirmation, which is the harder case, and assert nothing of the next account changes (receipts, unsaved edits, selections, feedback, focus). With this the guarantee is: **every** confirmation, request and callback of the Receipt Encoding and Monthly Filing controllers captures its session and writes nothing once it has ended.
+- A request already sent before the switch (a status update, delete, contribution, correction, review read, workbook download, consume) cannot be recalled; its server-side effect stays owner-scoped by RLS and only its on-screen and cache effect is suppressed. The Edit correction's shared Save button defect that was observed separately (it stayed disabled after a successful correction until reload) was fixed afterwards under Issue #33: the originating session releases the button when its own correction completes; a stale session still never touches it.
+
+## Runtime Dependency Pinning and Integrity
+
+### Status
+
+Accepted (Product Owner authorized Issue #32 on 2026-10-25). Implemented in the Issue #32 pull request; independent review and deployment acceptance are pending.
+
+### Decision
+
+- Every third-party runtime dependency has an exact version, and `vendor/dependency-manifest.json` is the single source of truth for versions, hashes, licenses and integrity class. `tests/dependencyIntegrity.test.mjs` fails on a floating version, an external URL that is not written out in full in the manifest (nothing is allowed merely because it sits under an approved CDN directory, and the only Supabase host allowed is the configured project in `supabaseProjectUrl`), an unreviewed external script or remote import, a changed vendored byte, a removed `integrity` or `crossorigin`, an unlisted vendored file or a manifest that disagrees with `index.html` or `services/ocrService.js`.
+- **Supabase client:** the official npm UMD build 2.118.0 is vendored (`vendor/supabase/`, 218 KB, same pattern as SheetJS) and loaded by `index.html` as a same-origin classic script with a Subresource Integrity attribute. A dynamic `import()` from `esm.sh` cannot take an integrity attribute, and even an exact `esm.sh` URL serves esm.sh-built bytes rather than the npm artifact. `getSupabaseClient()` keeps its signature, cache and `createClient(url, anonKey)` call; it now also returns one shared client to concurrent callers instead of building two.
+- **Tesseract.js:** pinned to 5.1.1 (the version `@5` resolved to) with Subresource Integrity on the entry script. The worker script, WASM core and English data are loaded by the library itself, so `services/ocrService.js` passes their exact locations (`OCR_ASSET_PATHS`), which are the library defaults for 5.1.1 except that the previously unversioned `@tesseract.js-data/eng` is now `1.0.0`.
+- **SheetJS** is unchanged.
+
+### What is and is not verified
+
+- **Verified:** the Supabase bundle and the Tesseract.js entry script (the browser enforces Subresource Integrity; a wrong hash was observed to be blocked); the vendored files and SheetJS (hashes checked in CI).
+- **Pinned but not verified by the browser (partial mitigation, residual risk):** the Tesseract worker script, the two WASM cores (SIMD and non-SIMD) and the English language data. Library code fetches them with `importScripts` and `fetch`, which accept no integrity attribute. Their versions are immutable on the npm registry and the audited sha256 and sha384 values are recorded in the manifest, but nothing compares them with what a browser downloads. A compromised CDN could still serve different bytes for those four files. The browser also caches the language data in IndexedDB under an unversioned key.
+- URL version pins are not integrity: an exact-version URL does not prove the bytes.
+
+### Not chosen here (needs a Product Owner / Technical Lead decision)
+
+1. Vendor the whole Tesseract set (worker 124 KB, two cores of 3.9 MB, English data 2.95 MB, entry script 67 KB, about 11 MB in total) and test `.gz` and `.wasm.js` delivery on Synology. This would remove the residual risk.
+2. Fetch the worker, core and language data on the main thread with `fetch(url, { integrity })` and hand Tesseract blob URLs or language objects. Runtime verification without vendoring, but it reworks the OCR loading path.
+3. A bundler and lockfile (architecture change).
+4. A Content-Security-Policy meta tag (GitHub Pages cannot send headers).
+
+### Consequences
+
+- No Supabase schema, RLS, Auth setting, credential, key, version or feature change. The OCR behavior, messages and models are unchanged. OCR UAT test A7 stays DEFERRED.
+- The first sign-in page now depends on a same-origin file instead of a CDN; Tesseract still needs jsDelivr, as before.
+- Updating or rolling back a dependency follows `03_Development_Workflow.md`, section "Updating a runtime dependency".

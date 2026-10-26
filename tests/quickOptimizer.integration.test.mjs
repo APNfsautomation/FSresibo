@@ -108,7 +108,7 @@ test('app composes one calculator and uses cleanup paths; HTML exposes the contr
   assert.match(app, /onRoute: applicationWorkspaces.renderRoute/);
   assert.match(app, /applicationWorkspaces.setUser\(user.id\)/);
   assert.match(app, /event === 'SIGNED_OUT'[\s\S]*?applicationWorkspaces.clearForLogout\(\)/);
-  assert.match(app, /else \{\s*activeUserId = undefined;[\s\S]*?applicationWorkspaces.clearForLogout\(\)/);
+  assert.match(app, /else \{[\s\S]*?activeUserId = undefined;[\s\S]*?applicationWorkspaces.clearForLogout\(\)/); // the missing-session branch now also ends any activation first (Issue #27)
   assert.match(html, /id="quickOptimizerNavigationItem"[^>]*>Quick Optimizer<\/button>/);
   assert.match(html, /id="quickOptimizerWorkspace" hidden/);
 });
@@ -129,14 +129,14 @@ test('actual app bootstrap uses one calculator and clears it on auth events and 
     loadForUser: async () => {}, importLegacyDraft: async () => {}, consumeLegacyWorkspace: () => 'encoding' };
   const monthly = { setVisible: noop, clearForLogout: noop, start: noop, loadForUser: async () => {} };
   const dependencies = {
-    document, window, isSupabaseConfigured: () => true, supabaseConfig: {}, appMetadata: { name: 'FSResibo', version: '3.6.0-beta.1' },
+    document, window, isSupabaseConfigured: () => true, supabaseConfig: {}, appMetadata: { name: 'FSResibo', version: '3.6.0' },
     authRedirectUrl: () => 'https://example.test/', getCurrentSession: async () => ({ user: { id: 'a', email: 'a@example.test' } }),
     hasPasswordRecoveryIntent: () => false, login: noop, logout: async () => {},
     onAuthStateChange: async callback => { subscription = callback; }, recoveryCallbackError: () => null,
     register: noop, requestPasswordReset: noop, updatePassword: noop, scanPrintedDetails: noop,
     downloadExpenseDetailedReport: noop, downloadSelectedReceipts: noop, findBest: noop, optimizationStrategies: {}, toCents: noop,
-    receiptService: {}, monthlyFilingService: {}, sharedStoreService: {}, renderApplicationIdentity: noop,
-    createAuthPanel: () => auth, createConfirmationDialog: () => ({ confirm: noop }),
+    receiptService: {}, monthlyFilingService: {}, sharedStoreService: {}, renderApplicationIdentity: noop, renderApplicationName: noop,
+    createAuthPanel: () => auth, createConfirmationDialog: () => ({ confirm: noop, close: noop }), createModalFocus: () => ({ open: noop, close: noop }),
     createNavigationController: ({ onRoute }) => ({ start() { routeCallbacks.push(onRoute); onRoute('quick-optimizer', { module: 'quick-optimizer' }); } }),
     receiptRoutes, createReceiptUi: () => receipt, createMonthlyFilingUi: () => monthly,
     createQuickOptimizerUi: () => { instances++; return createQuickOptimizerUi({ nextFrame: async () => {} }); },

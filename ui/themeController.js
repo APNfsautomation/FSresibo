@@ -3,8 +3,10 @@ export const themeStorageKey = 'fsresibo:theme-preference';
 
 const validPreference = value => themePreferences.includes(value) ? value : 'system';
 
-export function createThemeController({ select, root = document.documentElement, storage = localStorage, media = matchMedia('(prefers-color-scheme: dark)') }) {
+// `select` (one control) and `selects` (several, e.g. the sign-in screen and the sidebar) are kept in sync with one stored preference.
+export function createThemeController({ select, selects = [], root = document.documentElement, storage = localStorage, media = matchMedia('(prefers-color-scheme: dark)') }) {
   let preference = 'system';
+  const controls = [select, ...selects].filter(Boolean);
 
   const resolve = value => validPreference(value) === 'system' ? (media.matches ? 'dark' : 'light') : validPreference(value);
   const apply = value => {
@@ -13,7 +15,7 @@ export function createThemeController({ select, root = document.documentElement,
     root.dataset.theme = resolved;
     root.dataset.themePreference = preference;
     root.style.colorScheme = resolved;
-    if (select) select.value = preference;
+    controls.forEach(control => { control.value = preference; });
     return resolved;
   };
   const save = value => {
@@ -25,10 +27,10 @@ export function createThemeController({ select, root = document.documentElement,
     return apply(stored);
   };
 
-  select?.addEventListener('change', () => {
-    apply(select.value);
+  controls.forEach(control => control.addEventListener('change', () => {
+    apply(control.value);
     save(preference);
-  });
+  }));
   media?.addEventListener?.('change', () => {
     if (preference === 'system') apply('system');
   });

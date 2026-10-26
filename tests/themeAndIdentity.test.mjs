@@ -32,15 +32,16 @@ test('both version targets render from the one application metadata value', () =
   const authVersion = { textContent: '' };
   const appVersion = { textContent: '' };
   const label = renderApplicationIdentity([authVersion, appVersion], appMetadata);
-  assert.equal(label, 'FSResibo v3.6.0-beta.1');
+  assert.equal(label, 'FS Receipt Management Tool v3.6.0');
   assert.equal(authVersion.textContent, label);
   assert.equal(appVersion.textContent, label);
 });
 
 test('semantic surface tokens cover dark native selects and optimization result cards', async () => {
-  const styles = await readFile(new URL('../styles.css', import.meta.url), 'utf8');
-  assert.match(styles, /html\[data-theme="dark"\] select\{color-scheme:dark\}/);
-  assert.match(styles, /--optimization-surface:#202c3a/);
-  assert.match(styles, /\.receipt-status-filter select,[^\n]*background:var\(--control\)/);
-  assert.match(styles, /\.optimization-toolbar,\.optimization-result-summary div\{background:var\(--optimization-surface\)/);
+  const styles = (await readFile(new URL('../styles.css', import.meta.url), 'utf8')).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ');
+  assert.match(styles, /html\[data-theme="dark"\] select \{ color-scheme: dark; \}/);
+  assert.match(styles, /html\[data-theme="dark"\] \{[^}]*--surface-2: #1b2a41/);
+  assert.match(styles, /\.receipt-status-filter select[^{]*\{[^}]*background: var\(--control\)/);
+  assert.match(styles, /\.optimization-toolbar \{[^}]*background: var\(--surface-2\)/);
+  assert.match(styles, /\.optimization-result-summary div \{[^}]*background: var\(--surface-2\)/);
 });

@@ -2,6 +2,18 @@ import { deduplicateDirectoryCandidates, finalizeDirectoryPromptFingerprints, fi
 
 export { deduplicateDirectoryCandidates, finalizeDirectoryPromptFingerprints, findCompatibleSharedProfiles, hasContributableStoreDetails, normalizeStoreTin, persistedStoreFingerprint, postSaveDirectoryDecision, resolveSharedContributionCandidate, sharedProfileIdentity } from '../domain/sharedStoreProfiles.js';
 
+import { makeTemplateIdsUnique, receiptSummaryAccessibleName } from './receiptAccessibility.js';
+import { collapseKeptReceiptsOnShortWindows } from './optimizationPresentation.js';
+import { trackTextEntry } from './textEntryFocus.js';
+import { parseMoneyAmount } from '../domain/moneyAmount.js';
+import { outsideRangeNotice, receiptHasUnsavedChanges, releasedHiddenNotice } from './encodingPresentation.js';
+import { changedWorkbookFields, classifyExportSnapshot, describeFieldChanges, moveId, partitionExportProblems, sameMembers, summarizeAmounts, workbookFields } from '../domain/exportArrangement.js';
+import { buildReviewRow, createExportReview } from './exportReview.js';
+import { ENGINE_RECEIPT_LIMIT } from '../services/poolOptimizationService.js';
+import { createPoolOptimizerClient } from './poolOptimizerClient.js';
+import { fillShown, fillShownMessage, hiddenSelectedCount, manualEligibility, manualLimitMessage, maximumManualSelection, pruneManual, summarizeManual, toggleManual } from '../domain/manualSelection.js';
+import { createReceiptExportRunner, preflightExport, preflightMessage, snapshotProblemMessage, unsavedValuesNotice } from './receiptExport.js';
+
 const draftKey = 'receipt-match-draft-v2';
 const money = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' });
 const dateFormatter = new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium' });
@@ -197,7 +209,7 @@ export function buildOptimizationView(entries, state) {
 }
 export const availableOptimizerReceipts = receipts => receipts.filter(receipt => normalizeReceiptStatus(receipt.status) === 'available' && receipt.cents > 0);
 
-export function createReceiptDeleteHandler({ row, triggerFallback, getCurrentUser, getReceiptStatus, hasDraftContent, confirmAction, deleteReceipt, removeStoreSourceReceipt, clearSelection, refreshReceiptIds, refreshEncodingCards, refreshOptimizationCards, setFeedback, feedbackTarget }) {
+export function createReceiptDeleteHandler({ row, triggerFallback, getSession = () => 0, getCurrentUser, getReceiptStatus, hasDraftContent, confirmAction, deleteReceipt, removeStoreSourceReceipt, clearSelection, refreshReceiptIds, refreshEncodingCards, refreshOptimizationCards, setFeedback, feedbackTarget }) {
   let deletePending = false;
   return async event => {
     const trigger = event.currentTarget;
@@ -205,14 +217,18 @@ export function createReceiptDeleteHandler({ row, triggerFallback, getCurrentUse
     const id = row.dataset.receiptDbId;
     if (getReceiptStatus() === 'consumed') return;
     const nextFocus = row.nextElementSibling || row.previousElementSibling;
+    const session = getSession(); // the session this delete belongs to (Issue #27): an answer for an earlier one changes nothing under the next account
     deletePending = true;
     try {
       if (id && getCurrentUser()) {
         if (!await confirmAction({ title: 'Delete saved receipt?', message: 'This cannot be undone.', confirmLabel: 'Delete receipt', cancelLabel: 'Keep receipt', danger: true, trigger })) return;
+        if (getSession() !== session) return;
         trigger.disabled = true;
         setFeedback(feedbackTarget);
         await deleteReceipt(id);
+        if (getSession() !== session) return;
       } else if (hasDraftContent() && !await confirmAction({ title: 'Discard unfinished receipt?', message: 'Its entered details will be lost.', confirmLabel: 'Discard receipt', cancelLabel: 'Keep editing', danger: true, trigger })) return;
+      if (getSession() !== session) return; // a late Yes from an earlier session removes nothing, clears nothing and moves no focus under the next account
       row.remove();
       if (id) removeStoreSourceReceipt(id);
       clearSelection();
@@ -221,7 +237,44 @@ export function createReceiptDeleteHandler({ row, triggerFallback, getCurrentUse
       refreshOptimizationCards();
       (nextFocus?.querySelector('summary') || triggerFallback).focus({ preventScroll: true });
     } catch (error) {
-      setFeedback(feedbackTarget, `Could not delete this receipt: ${error.message}`);
+      if (getSession() !== session) return;
+      setFeedback(feedbackTarget, `Could not delete this receipt: ${error.message}`, 'error');
+    } finally {
+      deletePending = false;
+      trigger.disabled = false;
+    }
+  };
+}
+// Permanent deletion of a saved Consumed receipt. The row stays in the list until the database has confirmed the deletion.
+export function createConsumedDeleteHandler({ row, triggerFallback, getSession = () => 0, getCurrentUser, getReceiptStatus, confirmAction, deleteConsumedReceipt, removeStoreSourceReceipt, clearSelection, refreshReceiptIds, refreshEncodingCards, refreshOptimizationCards, setFeedback, feedbackTarget }) {
+  let deletePending = false;
+  const visibleNeighbour = (start, step) => { let node = start; while (node && node.hidden) node = node[step]; return node; };
+  return async event => {
+    const trigger = event.currentTarget;
+    if (!trigger || trigger.disabled || deletePending) return;
+    const id = row.dataset.receiptDbId;
+    if (!id || !getCurrentUser() || getReceiptStatus() !== 'consumed') return;
+    const nextFocus = visibleNeighbour(row.nextElementSibling, 'nextElementSibling') || visibleNeighbour(row.previousElementSibling, 'previousElementSibling');
+    const session = getSession();
+    deletePending = true;
+    try {
+      if (!await confirmAction({ title: 'Permanently delete this Consumed receipt?', message: 'This permanently deletes the saved receipt. It cannot be undone. Receipts you already exported are not affected.', confirmLabel: 'Delete permanently', cancelLabel: 'Keep receipt', danger: true, trigger })) return;
+      if (getSession() !== session) return;
+      trigger.disabled = true;
+      setFeedback(feedbackTarget);
+      await deleteConsumedReceipt(id);
+      if (getSession() !== session) return;
+      row.remove();
+      removeStoreSourceReceipt(id);
+      clearSelection();
+      refreshReceiptIds();
+      refreshEncodingCards();
+      refreshOptimizationCards();
+      setFeedback(feedbackTarget, 'Consumed receipt deleted permanently.', 'success');
+      (nextFocus?.querySelector('summary') || triggerFallback)?.focus?.({ preventScroll: true });
+    } catch (error) {
+      if (getSession() !== session) return;
+      setFeedback(feedbackTarget, `Could not delete this Consumed receipt: ${String(error?.message || 'Unknown error').replace(/[.\s]+$/, '')}. It was not removed from your list.`, 'error');
     } finally {
       deletePending = false;
       trigger.disabled = false;
@@ -246,10 +299,33 @@ export function combineStoreProfiles(sharedProfiles, historyProfiles) {
   return [...shared, ...historyProfiles.filter(profile => !sharedIds.has(identity(profile))).map(profile => ({ ...profile, source: 'history', normalizedStore: profile.normalizedStore || normalizeStoreText(profile.store) }))];
 }
 
-export function createReceiptUi({ elements, findBest, optimizationStrategies, toCents, scanPrintedDetails, downloadSelectedReceipts, receiptService, sharedStoreService = {}, confirmAction = async () => false }) {
+export function createReceiptUi({ elements, findBest, optimizationStrategies, toCents, scanPrintedDetails, downloadSelectedReceipts, receiptService, sharedStoreService = {}, confirmAction = async () => false, modalFocus = null, poolOptimizer = createPoolOptimizerClient() }) {
   let currentUser;
-  let selectedReceiptIndexes = new Set();
-  let selectedReceiptIds = [];
+  // The optimizer result: { entries: [{ dbId, receiptId, label, used }] } in export order, or null. Saved receipts are identified by database id.
+  // An unsaved draft has no id yet: it is kept (by its receipt number) so export can explain why it is blocked instead of silently dropping it.
+  // `used` is what the optimizer calculated with (workbook fields), kept to detect that the result no longer applies.
+  let selection = null;
+  // The exact large-pool Best Match calculation running in a Worker, if any (Issue #29). Its answer is applied only while this very run is still the current one.
+  let calculationRun = null; let calculationGeneration = 0;
+  // The temporary export order for the current selection: { selection, initial: [ids], order: [ids] }. Memory only; never stored anywhere.
+  // One temporary export arrangement per mode, in memory only: a mode's review never replaces the other's.
+  const arrangements = { 'best-match': null, manual: null };
+  const activeArrangement = () => arrangements[exportSession?.mode ?? exportMode];
+  // Export mode (CP10-C3E-4). Best Match keeps its own result (`selection` above); Manual Selection keeps an ordered list of saved receipt ids in click order.
+  // The two never share state: switching modes changes only which one is shown and exported. Memory only; reset on logout, reload and user change.
+  let exportMode = 'best-match';
+  let manualIds = [];
+  let manualSourceCache = null; // rebuilt whenever the ids change, so its identity stands for "this exact manual selection"
+  // Receipts a snapshot has proven are gone from the database. Their local rows may still say Available (unsaved fields are never discarded), so they must not be pickable again. Memory only, per session.
+  const knownMissingIds = new Set();
+  // Eligibility is judged on the SAVED receipt (the local cache of what the database holds), never on the row's display status: that one is normalized to
+  // Available/Consumed, so an unknown or empty saved status would otherwise look Available. Exactly 'available' is eligible.
+  const manualEligibilityOf = (dbId, savedById = savedReceiptsById()) => {
+    if (dbId && knownMissingIds.has(dbId)) return 'missing';
+    const saved = dbId ? savedById.get(dbId) : null;
+    return manualEligibility({ dbId: saved ? saved.dbId : null, status: saved?.status });
+  };
+  const setManualIds = ids => { manualIds = ids; manualSourceCache = null; arrangements.manual = null; };
   let toolbarState = defaultOptimizationToolbarState();
   let encodingDisplayState = { compartment: 'all' };
   let searchDebounce;
@@ -257,11 +333,31 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   let storeProfiles = [];
   let sharedStoreProfiles = [];
   let storeSuggestionSequence = 0;
+  let receiptDomSequence = 0;
   let savePending = false;
+  // Every sign-in, sign-out or account change starts a new save session: a save still in flight from an earlier one can no longer show progress, change the cache or
+  // the controls, or clear state that belongs to a newer save.
+  let saveGeneration = 0;
+  // Advanced by every sign-in and sign-out: a load or import that started under an earlier value belongs to an ended session and is inert (Issue #27).
+  let sessionGeneration = 0;
+  // New receipts whose write failed: the database may have committed them even though the answer was lost, so they are checked before being created again.
+  let uncertainCreates = new WeakMap();
+  const resetSaveState = () => {
+    saveGeneration += 1; savePending = false; uncertainCreates = new WeakMap();
+    if (elements.saveDraft) { elements.saveDraft.disabled = false; elements.saveDraft.removeAttribute?.('aria-busy'); }
+    if (elements.saveProgress) { elements.saveProgress.hidden = true; elements.saveProgress.dataset.busy = ''; }
+    if (elements.saveProgressText) elements.saveProgressText.textContent = '';
+    if (elements.saveProgressLive) elements.saveProgressLive.textContent = '';
+  };
   let importPending = false;
   let editSavePending = false;
   const format = cents => money.format(cents / 100);
-  const setFeedback = (target, text = '') => { if (target) target.textContent = text; };
+  // Severity is explicit: 'success' | 'warning' | 'error' | 'info' (no severity = a neutral note). It is exposed as data-severity for styling.
+  const setFeedback = (target, text = '', severity = '') => {
+    if (!target) return;
+    target.textContent = text;
+    if (text && severity) target.dataset.severity = severity; else delete target.dataset.severity;
+  };
   const formatDate = value => {
     const date = calendarReceiptDate(value);
     if (!date) return 'Date not set';
@@ -269,13 +365,17 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     return dateFormatter.format(new Date(year, month - 1, day));
   };
   const rowValues = row => Object.fromEntries(['amount', 'receiptDate', 'vat', 'invoice', 'store', 'address', 'tin'].map(key => [key, row.querySelector(`.receipt-${key}`).value]));
+  // Strict amount rules shared with the persistence boundary (domain/moneyAmount.js): a malformed non-blank amount is never guessed at.
+  const amountProblem = row => { const parsed = parseMoneyAmount(row.querySelector('.receipt-amount').value); return parsed.valid === false ? parsed.message : ''; };
+  const amountCents = row => { const parsed = parseMoneyAmount(row.querySelector('.receipt-amount').value); return parsed.valid ? parsed.cents : 0; };
+  const rowAmountMessage = (row, problem) => `Receipt ${row.dataset.receiptId || ''}: ${problem}`.replace('Receipt : ', '');
   const rebuildStoreProfiles = () => { storeProfiles = buildStoreProfiles(storeSourceReceipts); };
   const sharedProfile = profile => ({ ...profile, storeName: profile.storeName || profile.store, address: profile.address || '', tin: profile.tin || '' });
   const profileIdentity = sharedProfileIdentity;
   const combinedStoreProfiles = () => combineStoreProfiles(sharedStoreProfiles, storeProfiles);
-  const reloadSharedStores = async () => {
-    try { sharedStoreProfiles = await sharedStoreService.listActiveSharedStores(); return true; }
-    catch { setFeedback(elements.encodingFeedback, 'Company Store Directory is temporarily unavailable. Your receipt history is still available.'); return false; }
+  const reloadSharedStores = async (generation = sessionGeneration) => {
+    try { const loaded = await sharedStoreService.listActiveSharedStores(); if (generation !== sessionGeneration) return false; sharedStoreProfiles = loaded; return true; }
+    catch { if (generation !== sessionGeneration) return false; setFeedback(elements.encodingFeedback, 'Company Store Directory is temporarily unavailable. Your receipt history is still available.', 'warning'); return false; }
   };
   const upsertStoreSourceReceipt = receipt => {
     if (!receipt?.dbId) return;
@@ -289,7 +389,26 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     storeSourceReceipts = storeSourceReceipts.filter(receipt => receipt.dbId !== id);
     rebuildStoreProfiles();
   };
-  const clearSelection = () => { selectedReceiptIndexes = new Set(); selectedReceiptIds = []; updateExportAction(); };
+  const setUnsavedNotice = (text = '') => {
+    const notice = elements.optimizationUnsavedNotice;
+    if (!notice) return;
+    notice.textContent = text;
+    notice.hidden = !text;
+  };
+  // Clearing the Best Match result never touches the manual selection (or its arrangement).
+  const clearSelection = () => { cancelCalculation('changed'); arrangements['best-match'] = null; selection = null; setUnsavedNotice(''); showExportBlockAction(null); updateExportAction(); };
+  const selectionEntryMatchesRow = (entry, row) => entry.dbId ? row.dataset.receiptDbId === entry.dbId : row.dataset.receiptId === entry.receiptId;
+  const bestIncludesRow = row => Boolean(selection?.entries.some(entry => selectionEntryMatchesRow(entry, row)));
+  const manualPosition = row => row.dataset.receiptDbId ? manualIds.indexOf(row.dataset.receiptDbId) + 1 : 0;
+  const selectionIncludesRow = row => exportMode === 'manual' ? manualPosition(row) > 0 : bestIncludesRow(row);
+  // The selection the Export Selected button of the ACTIVE mode acts on, in the shape the export pipeline expects: { mode, entries: [{ dbId, receiptId, label, used }] }.
+  const manualSource = () => {
+    if (!manualIds.length) return null;
+    if (!manualSourceCache) manualSourceCache = { mode: 'manual', entries: manualIds.map(id => { const number = [...elements.list.children].find(row => row.dataset.receiptDbId === id)?.dataset.receiptId ?? '?'; return { dbId: id, receiptId: number, label: `Receipt ${number}`, used: undefined }; }) };
+    return manualSourceCache;
+  };
+  const exportSource = () => exportMode === 'manual' ? manualSource() : selection;
+  const exportButton = () => exportMode === 'manual' ? elements.manualExportSelected : elements.exportSelected;
   const workspaceStorageKey = () => currentUser?.id ? `fsresibo-workspace-${currentUser.id}` : null;
   const toolbarStorageKey = () => currentUser?.id ? `fsresibo-optimization-toolbar-${currentUser.id}` : null;
   const encodingDisplayStorageKey = () => currentUser?.id ? `fsresibo-encoding-display-${currentUser.id}` : null;
@@ -367,8 +486,21 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   const refreshToggle = row => {
     const summary = row.querySelector('summary');
     row.querySelector('.toggle-label').textContent = row.open ? 'Collapse' : 'Details';
-    summary.setAttribute('aria-label', `${row.open ? 'Collapse' : 'Show'} receipt details`);
     summary.title = `${row.open ? 'Collapse' : 'Show'} receipt details`;
+    refreshSummaryAccessibleName(row);
+  };
+  // Each summary is named by its stable receipt identity, store, amount and state; kept in sync with edits, status and expansion.
+  const refreshSummaryAccessibleName = row => {
+    const amountValue = String(row.querySelector('.receipt-amount').value ?? '').trim();
+    row.querySelector('summary').setAttribute('aria-label', receiptSummaryAccessibleName({
+      id: row.dataset.receiptId || '1',
+      store: row.querySelector('.receipt-store').value,
+      amountCents: amountValue ? toCents(amountValue) : null,
+      status: normalizeReceiptStatus(row.dataset.receiptStatus),
+      open: row.open,
+      outsideRange: row.classList.contains('is-outside-range'),
+      unsavedLabel: unsavedLabels[row.dataset.unsavedKind] ?? ''
+    }));
   };
   const receiptStatus = row => normalizeReceiptStatus(row.dataset.receiptStatus);
   const refreshSummary = row => {
@@ -376,32 +508,146 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     const store = row.querySelector('.receipt-store').value.trim() || 'Store not set';
     const amount = toCents(row.querySelector('.receipt-amount').value);
     row.querySelector('.summary-id').textContent = `Receipt ${id}`;
-    row.querySelector('.summary-store').textContent = store;
+    const summaryStore = row.querySelector('.summary-store');
+    summaryStore.textContent = store;
+    summaryStore.title = store;
     row.querySelector('.summary-amount').textContent = format(amount);
+    refreshSummaryAccessibleName(row);
   };
   const updateExportAction = () => {
-    const count = selectedReceiptIds.length === selectedReceiptIndexes.size ? selectedReceiptIds.length : 0;
+    const count = selection ? selection.entries.length : 0;
     elements.exportSelected.disabled = count === 0;
     elements.exportSelected.textContent = `Export Selected (${count})`;
+    if (elements.manualExportSelected) {
+      elements.manualExportSelected.disabled = manualIds.length === 0;
+      elements.manualExportSelected.textContent = `Export Selected (${manualIds.length})`;
+    }
+    renderManualSummary();
+  };
+  // Edit pins (presentation only, never stored): a receipt being added or edited stays visible even when its amount is outside the selected
+  // amount range. A pin overrides the amount range only, never the Available/Consumed view. Pins are released by collapsing the receipt, a successful
+  // Save, changing the amount range or the view, Collapse all, and deleting the receipt.
+  const pinReceipt = row => { row.dataset.filterPinned = '1'; };
+  const releaseEditPins = (rows = [...elements.list.children]) => {
+    const pinned = rows.filter(row => row.dataset.filterPinned);
+    const outside = pinned.filter(row => row.classList.contains('is-outside-range'));
+    pinned.forEach(row => { delete row.dataset.filterPinned; });
+    return outside;
+  };
+  const rangeLabel = () => encodingAmountCompartments.find(compartment => compartment.value === encodingDisplayState.compartment)?.label ?? '';
+  const renderFilterNotice = outsideRows => {
+    if (!elements.encodingFilterNotice) return;
+    elements.encodingFilterNotice.hidden = outsideRows.length === 0;
+    if (outsideRows.length) elements.encodingFilterNoticeText.textContent = outsideRangeNotice(outsideRows.map(row => row.dataset.receiptId || ''), rangeLabel());
+  };
+  const savedReceiptFor = row => row.dataset.receiptDbId ? storeSourceReceipts.find(receipt => receipt.dbId === row.dataset.receiptDbId) : undefined;
+  // The summary card shows persisted Available receipts only (all amount ranges); pending edits are announced, never added in.
+  // Receipts whose typed values differ from what is saved (new drafts with content count too). Uses the same comparison as before: amounts as exact centavos.
+  const rowIsUnsaved = row => {
+    if (receiptStatus(row) === 'consumed') return false;
+    if (row.dataset.receiptDbId && !savedReceiptFor(row)) return false;
+    return receiptHasUnsavedChanges(rowValues(row), savedReceiptFor(row));
+  };
+  // Export-specific: the workbook writes text untrimmed, so a saved receipt counts as changed when ANY workbook field differs exactly
+  // (amounts by exact centavos). The Encoding indicator above keeps its own, trimmed comparison.
+  const rowHasUnsavedExportChanges = row => {
+    if (receiptStatus(row) === 'consumed') return false;
+    if (!row.dataset.receiptDbId) return rowIsUnsaved(row);
+    const saved = savedReceiptFor(row);
+    return saved ? changedWorkbookFields(saved, rowValues(row), { includeUpdatedAt: false }).length > 0 : false;
+  };
+  // One definition of "unsaved" for the card flag, the global count and the export preflight: the Encoding comparison (trimmed, exact centavos) OR the export comparison
+  // (every workbook field exactly). A receipt the export would refuse for unsaved edits therefore always shows the flag. Consumed receipts are never unsaved.
+  const unsavedLabels = { new: 'New, unsaved', changes: 'Unsaved changes' };
+  const unsavedKind = row => (rowIsUnsaved(row) || rowHasUnsavedExportChanges(row)) ? (row.dataset.receiptDbId ? 'changes' : 'new') : '';
+  const applyUnsavedKind = (row, kind) => {
+    if ((row.dataset.unsavedKind || '') === kind) return;
+    if (kind) row.dataset.unsavedKind = kind; else delete row.dataset.unsavedKind;
+    row.classList.toggle('is-unsaved', Boolean(kind));
+    const flag = row.querySelector('.receipt-unsaved-flag');
+    if (flag) { flag.textContent = unsavedLabels[kind] ?? ''; flag.hidden = !kind; }
+    refreshSummaryAccessibleName(row);
+  };
+  const countUnsavedReceipts = () => [...elements.list.children].filter(row => unsavedKind(row)).length;
+  const refreshUnsavedIndicator = () => {
+    let count = 0;
+    [...elements.list.children].forEach(row => { const kind = unsavedKind(row); applyUnsavedKind(row, kind); if (kind) count += 1; });
+    if (!elements.encodingUnsavedIndicator) return;
+    const text = count ? `${count} unsaved receipt${count === 1 ? '' : 's'}` : '';
+    if (elements.encodingUnsavedText.textContent !== text) elements.encodingUnsavedText.textContent = text;
+    elements.encodingUnsavedIndicator.hidden = count === 0;
+  };
+  const refreshAvailableSummary = () => {
+    const availableSaved = storeSourceReceipts.filter(receipt => normalizeReceiptStatus(receipt.status) === 'available');
+    const total = availableReceiptTotalCents(storeSourceReceipts.map(receipt => ({ status: receipt.status, cents: toCents(receipt.amount) })));
+    elements.availableTotal.textContent = format(total);
+    if (elements.availableCount) elements.availableCount.textContent = String(availableSaved.length);
+    refreshUnsavedIndicator();
   };
   const refreshEncodingCards = () => {
+    const outsideRows = [];
     [...elements.list.children].forEach(row => {
       const matchesStatus = toolbarState.status === 'all' || receiptStatus(row) === toolbarState.status;
       const matchesCompartment = receiptMatchesEncodingAmountCompartment(toCents(row.querySelector('.receipt-amount').value), encodingDisplayState.compartment);
-      row.hidden = !matchesStatus || !matchesCompartment;
+      const keepVisible = Boolean(row.dataset.filterPinned) && matchesStatus;
+      const outsideRange = !matchesCompartment && keepVisible;
+      row.hidden = !matchesStatus || (!matchesCompartment && !keepVisible);
+      if (row.classList.contains('is-outside-range') !== outsideRange) {
+        row.classList.toggle('is-outside-range', outsideRange);
+        row.querySelector('.receipt-range-flag').hidden = !outsideRange;
+        refreshSummaryAccessibleName(row);
+      }
+      if (outsideRange) outsideRows.push(row);
     });
-    const total = availableReceiptTotalCents(storeSourceReceipts.map(receipt => ({ status: receipt.status, cents: toCents(receipt.amount) })));
-    elements.availableTotal.textContent = `Available Total — ${format(total)}`;
+    renderFilterNotice(outsideRows);
+    refreshAvailableSummary();
     elements.floatingAdd.hidden = !floatingAddVisibleForStatus(toolbarState.status);
+  };
+  const applyAmountRangeChange = () => {
+    encodingDisplayState.compartment = normalizeEncodingAmountCompartment(elements.encodingAmountCompartment.value);
+    persistEncodingDisplayState();
+    releaseEditPins();
+    refreshEncodingCards();
+  };
+  const showAllAmounts = () => {
+    const target = [...elements.list.children].find(row => row.classList.contains('is-outside-range'));
+    elements.encodingAmountCompartment.value = 'all';
+    applyAmountRangeChange();
+    (target && !target.hidden ? (target.open ? target.querySelector('.receipt-store') : target.querySelector('summary')) : elements.encodingAmountCompartment)?.focus?.({ preventScroll: false });
+  };
+  const visibleReceiptRows = () => [...elements.list.children].filter(row => !row.hidden);
+  const expandAllReceipts = () => { visibleReceiptRows().forEach(row => { row.open = true; }); };
+  const collapseAllReceipts = () => {
+    const rows = visibleReceiptRows();
+    const nowHidden = releaseEditPins(rows);
+    rows.forEach(row => { row.open = false; });
+    refreshEncodingCards();
+    const hidden = nowHidden.filter(row => row.hidden).map(row => row.dataset.receiptId || '');
+    if (hidden.length) setFeedback(elements.encodingFeedback, releasedHiddenNotice(hidden), 'warning');
+  };
+  // Collapsing a pinned receipt that is outside the range hides it again; keep keyboard focus on a receipt that is still visible.
+  const releasePinAfterCollapse = row => {
+    const wasOutside = row.classList.contains('is-outside-range');
+    const focusedInside = Boolean(globalThis.document?.activeElement && row.contains?.(globalThis.document.activeElement));
+    const visibleRows = visibleReceiptRows(); const position = visibleRows.indexOf(row);
+    delete row.dataset.filterPinned;
+    refreshEncodingCards();
+    if (!wasOutside || !row.hidden) return;
+    setFeedback(elements.encodingFeedback, releasedHiddenNotice([row.dataset.receiptId || '']), 'warning');
+    if (!focusedInside) return;
+    const next = visibleReceiptRows().find(candidate => visibleRows.indexOf(candidate) > position) || visibleReceiptRows().at(-1);
+    (next ? next.querySelector('summary') : elements.encodingAmountCompartment)?.focus?.({ preventScroll: true });
   };
   const applyReceiptStatusState = row => {
     const consumed = receiptStatus(row) === 'consumed';
     row.classList.toggle('is-consumed', consumed);
     row.querySelector('.receipt-status-badge').hidden = !consumed;
     row.querySelector('.delete-receipt').hidden = consumed;
+    row.querySelector('.delete-consumed').hidden = !consumed;
     row.querySelector('.restore-receipt').hidden = !consumed;
     row.querySelector('.contribute-store').hidden = consumed;
     row.querySelectorAll('input, select').forEach(field => { field.disabled = consumed; });
+    refreshSummaryAccessibleName(row);
   };
   const refreshReceiptIds = () => {
     const rows = [...elements.list.children];
@@ -418,6 +664,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     elements.difference.textContent = 'Enter a target and receipt amounts.';
     elements.keptReceipts.replaceChildren();
     elements.adminContent.textContent = 'Run a calculation to view the selection logic.';
+    setUnsavedNotice(''); showExportBlockAction(null);
     updateResultSummary();
   };
   const optimizationEntries = () => [...elements.list.children].map((row, index) => {
@@ -437,7 +684,88 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     toolbarState.store = stores.has(selected) ? selected : '';
     elements.optimizationStoreFilter.value = toolbarState.store;
   };
+  // ---- Manual Selection (CP10-C3E-4): the rules live in domain/manualSelection.js; this is the screen side. ----
+  const rowByDbId = id => [...elements.list.children].find(row => row.dataset.receiptDbId === id);
+  const savedReceiptsById = () => new Map(storeSourceReceipts.map(receipt => [receipt.dbId, receipt]));
+  const setManualFeedback = (text = '', severity = '') => setFeedback(elements.manualFeedback, text, severity);
+  // Export messages go to the panel of the active mode: the recommendation panel for Best Match, the manual panel for Manual Selection.
+  // `mode` is the export session's own mode: a late answer must report to the mode that started the export, not to whichever mode is active by then.
+  const setExportFeedback = (text = '', severity = '', mode = exportMode) => mode === 'manual' ? setManualFeedback(text, severity) : setFeedback(elements.difference, text, severity);
+  let lastVisibleEntries = [];
+  let pendingPickFocus = null;
+  const shownEligibleIds = () => { const savedById = savedReceiptsById(); return lastVisibleEntries.filter(entry => manualEligibilityOf(entry.row.dataset.receiptDbId, savedById) === 'ok').map(entry => entry.row.dataset.receiptDbId); };
+  const renderManualSummary = () => {
+    if (!elements.manualSelectedCount) return;
+    const summary = summarizeManual(manualIds, savedReceiptsById()); // exact integer centavos; the amounts are the SAVED ones, which is what an export would contain
+    elements.manualSelectedCount.textContent = `${summary.count} of ${maximumManualSelection}`;
+    elements.manualSelectedTotal.textContent = format(summary.validCents);
+    elements.manualNoAmountGroup.hidden = summary.withoutAmount === 0;
+    elements.manualNoAmount.textContent = summary.withoutAmount ? `${summary.withoutAmount} (not counted in the total)` : '';
+    const hidden = hiddenSelectedCount(manualIds, lastVisibleEntries.map(entry => entry.row.dataset.receiptDbId));
+    elements.manualHiddenGroup.hidden = hidden === 0;
+    elements.manualHidden.textContent = hidden ? String(hidden) : '';
+    elements.manualClearSelection.disabled = manualIds.length === 0;
+    // The label says what a click will do: how many receipts it adds (never more than the room left), or that the selection is full.
+    const shownIds = shownEligibleIds(); const fresh = shownIds.filter(id => !manualIds.includes(id)).length; const room = Math.max(0, maximumManualSelection - manualIds.length);
+    const button = elements.manualSelectShown;
+    if (fresh && !room) { button.textContent = 'Select shown (full)'; button.setAttribute?.('aria-label', `Select shown: the selection is full (${maximumManualSelection} of ${maximumManualSelection}). Deselect a receipt to make room.`); }
+    else if (fresh > room) { button.textContent = `Select shown (adds ${room} of ${fresh})`; button.setAttribute?.('aria-label', `Select shown: adds the first ${room} of ${fresh} shown receipts in the current order, up to the limit of ${maximumManualSelection}`); }
+    else { button.textContent = `Select shown (${fresh})`; button.setAttribute?.('aria-label', `Select shown: adds ${fresh} shown receipt${fresh === 1 ? '' : 's'}`); }
+  };
+  const toggleManualReceipt = (dbId, label, pick) => {
+    // A stale or forged change event can never add a receipt that is not eligible now; deselecting is always allowed.
+    if (!manualIds.includes(dbId) && manualEligibilityOf(dbId) !== 'ok') { if (pick) pick.checked = false; setManualFeedback(`${label} cannot be selected: it is not a saved, Available receipt.`, 'warning'); return refreshOptimizationCards(); }
+    const result = toggleManual(manualIds, dbId);
+    if (result.rejected === 'limit') { if (pick) pick.checked = false; return setManualFeedback(manualLimitMessage(), 'warning'); }
+    setManualIds(result.ids);
+    setManualFeedback(result.action === 'added' ? `${label} selected: number ${manualIds.indexOf(dbId) + 1} in the export order, ${manualIds.length} of ${maximumManualSelection} selected.` : `${label} deselected. ${manualIds.length} of ${maximumManualSelection} selected.`);
+    pendingPickFocus = dbId;
+    refreshOptimizationCards();
+  };
+  const selectShownReceipts = () => {
+    const ids = shownEligibleIds();
+    if (!ids.length) return setManualFeedback('No selectable receipts are shown. Consumed receipts and unsaved drafts cannot be selected.', 'warning');
+    // Fills the remaining capacity from the shown receipts, in the visible sort order; never past the limit and never reordering what is already selected.
+    const result = fillShown(manualIds, ids, maximumManualSelection);
+    if (!result.added.length) return setManualFeedback(fillShownMessage(result, maximumManualSelection), result.wasFull && result.notAdded ? 'warning' : 'info');
+    setManualIds(result.ids);
+    setManualFeedback(fillShownMessage(result, maximumManualSelection), result.notAdded ? 'warning' : 'success');
+    refreshOptimizationCards();
+  };
+  const clearManualSelection = async event => {
+    if (!manualIds.length) return;
+    const session = sessionGeneration; // the confirmation belongs to the session that asked (Issue #27): a late Yes never clears another account's selection
+    if (manualIds.length >= 25 && !await confirmAction({ title: 'Clear the manual selection?', message: `This deselects all ${manualIds.length} receipts. Your receipts themselves are not changed.`, confirmLabel: 'Clear selection', cancelLabel: 'Keep selection', danger: true, trigger: event?.currentTarget })) return;
+    if (session !== sessionGeneration) return;
+    setManualIds([]);
+    setManualFeedback('Manual selection cleared.');
+    refreshOptimizationCards();
+    elements.manualSelectShown?.focus?.({ preventScroll: true });
+  };
+  // The mode only changes what is shown and exported; both selections stay exactly as they were.
+  const applyExportModeView = () => {
+    const manual = exportMode === 'manual';
+    if (elements.exportModeBestMatch) elements.exportModeBestMatch.checked = !manual;
+    if (elements.exportModeManual) elements.exportModeManual.checked = manual;
+    if (elements.bestMatchCard) elements.bestMatchCard.hidden = manual;
+    if (elements.bestMatchResult) elements.bestMatchResult.hidden = manual;
+    if (elements.manualPanel) elements.manualPanel.hidden = !manual;
+    if (elements.optimizationHeading) elements.optimizationHeading.textContent = manual ? 'My Receipt Manual Selection' : 'My Receipt Optimization';
+  };
+  const setExportMode = mode => {
+    exportMode = mode === 'manual' ? 'manual' : 'best-match';
+    applyExportModeView();
+    showExportBlockAction(null);
+    refreshOptimizationCards();
+  };
   const refreshOptimizationCards = () => {
+    // Receipts that were deleted, Consumed elsewhere or removed from the list can no longer stay selected; say so instead of dropping them silently.
+    const savedById = savedReceiptsById();
+    const pruned = pruneManual(manualIds, id => Boolean(rowByDbId(id)) && manualEligibilityOf(id, savedById) === 'ok');
+    if (pruned.removed.length) {
+      setManualIds(pruned.ids);
+      setManualFeedback(`${pruned.removed.length} selected receipt${pruned.removed.length === 1 ? ' is' : 's are'} no longer in the list or Available and ${pruned.removed.length === 1 ? 'was' : 'were'} removed from the selection.`, 'warning');
+    }
     const entries = optimizationEntries();
     updateStoreOptions(entries);
     syncToolbarControls();
@@ -454,25 +782,47 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       empty.textContent = 'No receipts match the current search and filters.';
       fragment.append(empty);
     }
+    lastVisibleEntries = visible;
+    const manualMode = exportMode === 'manual';
+    const picks = new Map();
     visible.forEach(entry => {
       const card = elements.optimizationTemplate.content.firstElementChild.cloneNode(true);
-      const selected = selectedReceiptIndexes.has(entry.index);
+      const selected = selectionIncludesRow(entry.row);
       const consumed = entry.receipt.status === 'consumed';
       card.querySelector('.compact-store').textContent = entry.receipt.store.trim() || 'Store not set';
       card.querySelector('.compact-date').textContent = formatDate(entry.receipt.receiptDate);
-      card.querySelector('.compact-amount').textContent = format(entry.amount);
+      // A blank amount is shown as "No amount" in Manual Selection (it is valid there and must never look like zero).
+      card.querySelector('.compact-amount').textContent = manualMode && parseMoneyAmount(entry.receipt.amount).blank ? 'No amount' : format(entry.amount);
       card.querySelector('.compact-status').hidden = !consumed;
       card.querySelector('.selected-badge').hidden = !selected;
+      if (manualMode && selected) card.querySelector('.selected-badge').textContent = `Selected · ${manualPosition(entry.row)}`;
+      card.classList.toggle('has-manual-pick', manualMode);
+      const pick = card.querySelector('.manual-select');
+      pick.hidden = !manualMode;
+      if (manualMode) {
+        const dbId = entry.row.dataset.receiptDbId;
+        const eligibility = manualEligibilityOf(dbId, savedById);
+        const label = `Receipt ${entry.receiptId}`;
+        pick.checked = selected;
+        // At the limit, receipts that are not selected cannot be added (selected ones stay enabled so they can be deselected and re-open a slot).
+        const atCapacity = eligibility === 'ok' && !selected && manualIds.length >= maximumManualSelection;
+        pick.disabled = eligibility !== 'ok' || atCapacity;
+        pick.setAttribute('aria-label', atCapacity ? `${label} cannot be selected: the limit of ${maximumManualSelection} receipts is reached. Deselect a receipt first` : eligibility === 'ok' ? `Select ${label}, ${entry.receipt.store.trim() || 'Store not set'}` : eligibility === 'consumed' ? `${label} is Consumed and cannot be selected` : eligibility === 'missing' ? `${label} no longer exists in your saved receipts and cannot be selected` : eligibility === 'unavailable' ? `${label} is not Available and cannot be selected` : `${label} is not saved yet. Save it before selecting it`);
+        if (eligibility === 'ok') { pick.addEventListener('change', () => toggleManualReceipt(dbId, label, pick)); picks.set(dbId, pick); }
+      }
       card.classList.toggle('is-selected', selected);
       card.classList.toggle('is-consumed', consumed);
+      card.dataset.receiptIndex = String(entry.index);
       card.querySelector('.compact-edit').hidden = consumed;
       card.querySelector('.compact-restore').hidden = !consumed;
       if (consumed) card.querySelector('.compact-restore').addEventListener('click', event => restoreReceipt(entry.index, event.currentTarget));
-      else card.querySelector('.compact-edit').addEventListener('click', () => openEditModal(entry.index));
+      else card.querySelector('.compact-edit').addEventListener('click', event => openEditModal(entry.index, event.currentTarget));
       fragment.append(card);
     });
     elements.optimizationList.replaceChildren(fragment);
-    const hiddenSelected = [...selectedReceiptIndexes].filter(index => !visible.some(entry => entry.index === index)).length;
+    if (pendingPickFocus) { picks.get(pendingPickFocus)?.focus?.({ preventScroll: true }); pendingPickFocus = null; } // the list was rebuilt: keep keyboard focus on the same receipt
+    const activeSource = exportSource();
+    const hiddenSelected = activeSource ? activeSource.entries.filter(item => !visible.some(entry => selectionEntryMatchesRow(item, entry.row))).length : 0;
     elements.optimizationResultCount.textContent = `Showing ${visible.length} of ${entries.length} receipt${entries.length === 1 ? '' : 's'}`;
     elements.optimizationFilterStatus.hidden = !hasActiveToolbarState(toolbarState);
     elements.optimizationFilterStatus.textContent = hasActiveToolbarState(toolbarState) ? 'Filters active' : '';
@@ -486,6 +836,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   };
   const setWorkspace = workspace => {
     const encoding = workspace !== 'optimization';
+    if (encoding) cancelCalculation('left'); // the calculation belongs to Receipt Optimization: leaving it for Encoding stops it
     elements.encodingWorkspace.hidden = !encoding;
     elements.optimizationWorkspace.hidden = encoding;
     elements.encodingTab.setAttribute('aria-selected', String(encoding));
@@ -493,12 +844,23 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     if (!encoding) refreshOptimizationCards();
   };
   const setModuleVisible = visible => {
+    if (!visible) cancelCalculation('left');
     elements.receiptWorkspaceSwitcher.hidden = !visible;
     elements.receiptStatusControl.hidden = !visible;
     if (!visible) { elements.encodingWorkspace.hidden = true; elements.optimizationWorkspace.hidden = true; }
   };
-  const closeEditModal = () => { elements.editModal.hidden = true; delete elements.editModal.dataset.receiptIndex; };
-  const openEditModal = index => {
+  const closeEditModal = () => {
+    elements.editModal.hidden = true;
+    delete elements.editModal.dataset.receiptIndex;
+    modalFocus?.close(elements.editModal, { fallback: elements.optimizationSearch });
+  };
+  // Optimization cards are rebuilt after a correction, so the original Edit button is replaced; focus returns to the same receipt's new Edit button.
+  const restoreEditTriggerFocus = index => {
+    const edit = elements.optimizationList.querySelector?.(`[data-receipt-index="${index}"] .compact-edit`);
+    (edit && !edit.hidden ? edit : elements.optimizationSearch)?.focus?.({ preventScroll: true });
+  };
+  // The originating Edit button is passed explicitly: browsers do not focus a clicked button everywhere, so document.activeElement is not a reliable trigger.
+  const openEditModal = (index, trigger = document.activeElement) => {
     const row = elements.list.children[index];
     if (!row || receiptStatus(row) === 'consumed') return;
     setFeedback(elements.editFeedback);
@@ -512,6 +874,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     elements.editAddress.value = receipt.address;
     elements.editTin.value = receipt.tin;
     elements.editModal.hidden = false;
+    modalFocus?.open(elements.editModal, { trigger, fallback: elements.optimizationSearch, onEscape: closeEditModal });
     elements.editStore.focus();
   };
   const installStoreAutocomplete = row => {
@@ -539,6 +902,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       row.querySelector('.receipt-tin').value = values.tin;
       row.querySelector('.receipt-vat').value = values.vat;
       refreshSummary(row);
+      refreshAvailableSummary(); // programmatic values emit no input event: refresh the unsaved flag and count here
       clearSelection();
       refreshOptimizationCards();
       closeSuggestions();
@@ -580,6 +944,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     input.addEventListener('keydown', event => {
       if (event.key === 'Escape') { if (!list.hidden) { event.preventDefault(); closeSuggestions(); } return; }
       if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Enter') return;
+      // Ctrl+Enter is the Add Receipt shortcut: it must never accept a highlighted suggestion (plain Enter still does).
+      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) return;
       if (!suggestions.length) updateSuggestions();
       if (!suggestions.length) return;
       if (event.key === 'Enter') {
@@ -594,15 +960,17 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   };
   const addReceipt = (values = {}, { refresh = true } = {}) => {
     const row = elements.template.content.firstElementChild.cloneNode(true);
+    makeTemplateIdsUnique(row, `receipt-${++receiptDomSequence}`);
     if (values.dbId) row.dataset.receiptDbId = values.dbId;
     if (values.updatedAt) row.dataset.receiptUpdatedAt = values.updatedAt;
     row.dataset.receiptStatus = normalizeReceiptStatus(values.status);
     if (values.dbId) row.dataset.persistedStoreFingerprint = persistedStoreFingerprint(values);
     for (const [key, value] of Object.entries(values)) { const field = row.querySelector(`.receipt-${key}`); if (field) field.value = value; }
-    row.querySelector('.receipt-photo').addEventListener('change', event => { const file = event.currentTarget.files[0]; if (file) scanPrintedDetails(file, row, refreshSummary); });
+    row.querySelector('.receipt-photo').addEventListener('change', event => { const file = event.currentTarget.files[0]; if (file) { const session = sessionGeneration; scanPrintedDetails(file, row, target => { if (session !== sessionGeneration) return; refreshSummary(target); refreshAvailableSummary(); }); } }); // the scan fills fields after it returns: refresh the unsaved flag and count then
     row.querySelector('.delete-receipt').addEventListener('click', createReceiptDeleteHandler({
       row,
       triggerFallback: elements.floatingAdd,
+      getSession: () => sessionGeneration,
       getCurrentUser: () => currentUser,
       getReceiptStatus: () => receiptStatus(row),
       hasDraftContent: () => Object.values(rowValues(row)).some(value => String(value || '').trim()) || row.querySelector('.receipt-photo').files.length > 0,
@@ -619,69 +987,105 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     row.querySelector('.contribute-store').addEventListener('click', async event => {
       if (receiptStatus(row) === 'consumed') return;
       const values = rowValues(row);
-      if (!currentUser || !values.store.trim() || (!values.address.trim() && !values.tin.trim())) return setFeedback(elements.encodingFeedback, 'Add a Store Name and either an Address or TIN before contributing.');
+      if (!currentUser || !values.store.trim() || (!values.address.trim() && !values.tin.trim())) return setFeedback(elements.encodingFeedback, 'Add a Store Name and either an Address or TIN before contributing.', 'warning');
       const candidate = { storeName: values.store, address: values.address, tin: values.tin, vat: values.vat };
       const resolution = resolveSharedContributionCandidate(candidate, sharedStoreProfiles);
-      if (resolution.status === 'existing') return setFeedback(elements.encodingFeedback, 'This store already exists in the Company Store Directory.');
-      if (resolution.status === 'ambiguous') return setFeedback(elements.encodingFeedback, 'Multiple Company profiles match. Add an Address or TIN before contributing.');
+      if (resolution.status === 'existing') return setFeedback(elements.encodingFeedback, 'This store already exists in the Company Store Directory.', 'info');
+      if (resolution.status === 'ambiguous') return setFeedback(elements.encodingFeedback, 'Multiple Company profiles match. Add an Address or TIN before contributing.', 'warning');
       event.currentTarget.disabled = true;
+      const generation = sessionGeneration; // an answer for an earlier session says nothing under the next account
+      const contributor = currentUser;
       try {
-        await sharedStoreService.contributeSharedStore(candidate, currentUser.id);
-        await reloadSharedStores();
-        setFeedback(elements.encodingFeedback, 'Store added to the Company Store Directory.');
+        await sharedStoreService.contributeSharedStore(candidate, contributor.id);
+        if (generation !== sessionGeneration) return;
+        await reloadSharedStores(generation);
+        if (generation !== sessionGeneration) return;
+        setFeedback(elements.encodingFeedback, 'Store added to the Company Store Directory.', 'success');
       } catch (error) {
-        if (error?.name === 'SharedStoreDuplicateError') { await reloadSharedStores(); resolveSharedContributionCandidate(candidate, sharedStoreProfiles); setFeedback(elements.encodingFeedback, 'This store was already added to the Company Store Directory.'); }
-        else setFeedback(elements.encodingFeedback, `Could not add this store: ${error.message}`);
+        if (generation !== sessionGeneration) return;
+        if (error?.name === 'SharedStoreDuplicateError') { await reloadSharedStores(generation); if (generation !== sessionGeneration) return; resolveSharedContributionCandidate(candidate, sharedStoreProfiles); setFeedback(elements.encodingFeedback, 'This store was already added to the Company Store Directory.', 'info'); }
+        else setFeedback(elements.encodingFeedback, `Could not add this store: ${error.message}`, 'error');
       } finally { event.currentTarget.disabled = false; }
     });
     row.querySelector('.restore-receipt').addEventListener('click', event => restoreReceipt([...elements.list.children].indexOf(row), event.currentTarget));
+    row.querySelector('.delete-consumed').addEventListener('click', createConsumedDeleteHandler({
+      row,
+      triggerFallback: elements.receiptStatusFilter,
+      getSession: () => sessionGeneration,
+      getCurrentUser: () => currentUser,
+      getReceiptStatus: () => receiptStatus(row),
+      confirmAction,
+      deleteConsumedReceipt: id => receiptService.deleteConsumedReceipt(id),
+      removeStoreSourceReceipt,
+      clearSelection,
+      refreshReceiptIds,
+      refreshEncodingCards,
+      refreshOptimizationCards,
+      setFeedback,
+      feedbackTarget: elements.encodingFeedback
+    }));
     installStoreAutocomplete(row);
     const storeInput = row.querySelector('.receipt-store');
     row.querySelectorAll('input, select').forEach(field => {
-      const refreshView = () => { refreshSummary(row); clearSelection(); refreshEncodingCards(); refreshOptimizationCards(); };
-      field.addEventListener('input', field === storeInput ? () => refreshSummary(row) : refreshView);
+      const refreshView = () => { clearSaveSummary(); if (!row.hidden) pinReceipt(row); refreshSummary(row); clearSelection(); refreshEncodingCards(); refreshOptimizationCards(); };
+      // Typing in Store keeps the existing "no clearSelection until blur" behavior, but it must still stop a calculation that is running on the old values.
+      field.addEventListener('input', field === storeInput ? () => { cancelCalculation('changed'); clearSaveSummary(); if (!row.hidden) pinReceipt(row); refreshSummary(row); refreshAvailableSummary(); } : refreshView);
       field.addEventListener('change', refreshView);
     });
-    row.addEventListener('toggle', () => refreshToggle(row));
+    row.addEventListener('toggle', () => { refreshToggle(row); if (!row.open && row.dataset.filterPinned) releasePinAfterCollapse(row); });
     elements.list.append(row);
     applyReceiptStatusState(row);
     if (refresh) { refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); }
     return row;
   };
   const isBlankUnsavedReceipt = row => !row.dataset.receiptDbId && Object.values(rowValues(row)).every(value => !String(value || '').trim());
+  const prefersReducedMotion = () => globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+  // Store name is the first field of a new receipt (same order as Monthly Filing): expand it, bring it into view, then focus Store (focus never scrolls on its own).
   const focusReceiptForEncoding = row => {
     row.open = true;
     requestAnimationFrame(() => {
-      row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      row.scrollIntoView({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
       row.querySelector('.receipt-store').focus({ preventScroll: true });
     });
   };
+  // Reuse a blank unsaved receipt (visible ones first) instead of stacking up blanks. The receipt is pinned so it stays visible while it is edited,
+  // even outside the selected amount range (a notice explains this). Only the Available/Consumed view can still hide it, and then it is not focused.
   const addReceiptForEncoding = () => {
-    const pendingReceipt = [...elements.list.children].find(isBlankUnsavedReceipt);
-    focusReceiptForEncoding(pendingReceipt || addReceipt());
+    const rows = [...elements.list.children];
+    const row = rows.find(candidate => isBlankUnsavedReceipt(candidate) && !candidate.hidden) || rows.find(isBlankUnsavedReceipt) || addReceipt();
+    pinReceipt(row); refreshEncodingCards();
+    if (row.hidden) return setFeedback(elements.encodingFeedback, 'The new receipt is hidden by the current view. Choose Available or All in View receipts to see it.', 'warning');
+    setFeedback(elements.encodingFeedback);
+    focusReceiptForEncoding(row);
   };
   const candidateMessage = candidate => {
     const details = [candidate.address && `Address: ${candidate.address}`, candidate.tin && `TIN: ${candidate.tin}`].filter(Boolean);
-    return `“${candidate.storeName}” is not currently in the Company Directory. Adding it will make its store details available to other FSResibo users.${details.length ? ` ${details.join(' · ')}` : ''}`;
+    return `“${candidate.storeName}” is not currently in the Company Directory. Adding it will make its store details available to other users.${details.length ? ` ${details.join(' · ')}` : ''}`;
   };
-  const contributeAfterReceiptSave = async candidate => {
+  // The save's own user and liveness check (mine) are passed in: a prompt, contribution or message that belongs to an ended session never reaches the next account.
+  const contributeAfterReceiptSave = async (candidate, user, mine) => {
     try {
-      await sharedStoreService.contributeSharedStore(candidate, currentUser.id);
+      await sharedStoreService.contributeSharedStore(candidate, user.id);
+      if (!mine()) return;
       await reloadSharedStores();
-      setFeedback(elements.encodingFeedback, 'Receipt saved. Store added to the Company Directory.');
+      if (!mine()) return;
+      setFeedback(elements.encodingFeedback, 'Receipt saved. Store added to the Company Directory.', 'success');
     } catch (error) {
+      if (!mine()) return;
       if (error?.name === 'SharedStoreDuplicateError') {
         await reloadSharedStores();
-        setFeedback(elements.encodingFeedback, 'Receipt saved. This store is already in the Company Directory.');
+        if (!mine()) return;
+        setFeedback(elements.encodingFeedback, 'Receipt saved. This store is already in the Company Directory.', 'success');
       } else {
-        setFeedback(elements.encodingFeedback, `Receipt saved, but the store could not be added to the Company Directory: ${error.message}`);
+        setFeedback(elements.encodingFeedback, `Receipt saved, but the store could not be added to the Company Directory: ${error.message}`, 'warning');
       }
     }
   };
-  const processPostSaveDirectoryCandidates = async candidates => {
+  const processPostSaveDirectoryCandidates = async (candidates, user, mine) => {
     for (const decision of deduplicateDirectoryCandidates(candidates)) {
+      if (!mine()) return;
       if (decision.status === 'ambiguous') {
-        setFeedback(elements.encodingFeedback, 'Receipt saved. Multiple Company profiles match this store; add more identifying information before adding it to the directory.');
+        setFeedback(elements.encodingFeedback, 'Receipt saved. Multiple Company profiles match this store; add more identifying information before adding it to the directory.', 'warning');
         continue;
       }
       if (decision.status !== 'new') continue;
@@ -692,52 +1096,181 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
         cancelLabel: 'Keep in My Receipt History',
         trigger: elements.saveDraft
       });
+      if (!mine()) return;
       if (!confirmed) {
-        setFeedback(elements.encodingFeedback, 'Receipt saved. Store kept in My Receipt History.');
+        setFeedback(elements.encodingFeedback, 'Receipt saved. Store kept in My Receipt History.', 'success');
         continue;
       }
-      await contributeAfterReceiptSave(decision.candidate);
+      await contributeAfterReceiptSave(decision.candidate, user, mine);
     }
   };
+  // ---- Save: dirty-only persistence with real progress (Issue #24) ----
+  // The Save progress is shown twice: a visible counter that follows every real write, and a screen-reader line that only speaks at the start, at each quarter and at the end.
+  const pluralReceipts = count => `${count} receipt${count === 1 ? '' : 's'}`;
+  const showSaveProgress = (text, { speak = '', busy = false } = {}) => {
+    if (elements.saveProgress) { elements.saveProgress.hidden = !text; elements.saveProgress.dataset.busy = busy ? '1' : ''; if (elements.saveProgressText) elements.saveProgressText.textContent = text; }
+    if (speak && elements.saveProgressLive) elements.saveProgressLive.textContent = speak;
+    elements.saveDraft.setAttribute?.('aria-busy', String(Boolean(savePending && text)));
+  };
+  const clearSaveSummary = () => { if (!savePending && elements.saveProgress && !elements.saveProgress.hidden) showSaveProgress(''); };
+  // What Save must write: modified saved receipts and new receipts with content, judged by the same authoritative comparison as the unsaved flags and the export preflight
+  // (unsavedKind). A saved receipt whose saved record is unknown cannot be proven unchanged, so it is written. Unchanged, blank and Consumed receipts are never written.
+  // Saved receipts that are unchanged but whose store details were never offered to the Company Directory (an earlier batch failed before its prompts) still get a decision.
+  const planSave = () => {
+    const work = []; const directoryOnly = [];
+    [...elements.list.children].forEach(row => {
+      if (receiptStatus(row) === 'consumed' || isBlankUnsavedReceipt(row)) return;
+      const dbId = row.dataset.receiptDbId;
+      const values = rowValues(row); // an immutable snapshot: edits made while the save runs are never written by this save, and stay flagged as unsaved
+      if (!dbId || !savedReceiptFor(row) || unsavedKind(row)) { work.push({ row, values, dbId, previousFingerprint: row.dataset.persistedStoreFingerprint }); return; }
+      const decision = postSaveDirectoryDecision({ values, previousFingerprint: row.dataset.persistedStoreFingerprint, profiles: sharedStoreProfiles });
+      if (decision.status === 'new' || decision.status === 'ambiguous') directoryOnly.push({ row, fingerprint: decision.fingerprint, decision });
+    });
+    return { work, directoryOnly };
+  };
+  // A failed create may still have been committed (the answer can be lost after the insert), so before such a receipt is created again the account is read once.
+  // Equal content is NOT proof that a receipt in the account is this one: it could be a separate identical receipt added elsewhere. So a receipt is never linked silently:
+  //   - nothing matches: the check found no copy at that moment, and the receipt is saved again (said plainly afterwards);
+  //   - exactly one Available match: the user is asked whether it is the same receipt (link) or a separate one (save as new), or to leave it unsaved;
+  //   - several matches, or a match that is not Available (Consumed or another status): it is never linked or edited; the user may only save a new receipt or leave it.
+  // A receipt the user leaves unsaved stays unconfirmed and is asked about again at the next Save.
+  const reconcileUncertainCreates = async mine => {
+    const pending = [...elements.list.children].filter(row => uncertainCreates.has(row) && !row.dataset.receiptDbId);
+    if (!pending.length) return { ok: true, adopted: [], recreated: [] };
+    let everything;
+    try { everything = await receiptService.loadReceipts(); } catch (error) { return { ok: false, severity: 'error', message: `Could not check whether an earlier attempt already saved a new receipt: ${String(error?.message || 'Unknown error').replace(/[.\s]+$/, '')}. Nothing was saved; try again.` }; }
+    if (!mine()) return { aborted: true };
+    const known = new Set(storeSourceReceipts.map(receipt => receipt.dbId)); const claimed = new Set(); const adopted = []; const recreated = []; const decidedNew = [];
+    const stop = (row, why) => ({ ok: false, severity: 'warning', message: `Nothing was saved. Receipt ${row.dataset.receiptId} is still unsaved${why ? ` (${why})` : ''}; save again when you are ready to decide.` });
+    for (const row of pending) {
+      const label = `Receipt ${row.dataset.receiptId}`;
+      const values = uncertainCreates.get(row);
+      const matches = everything.filter(candidate => !known.has(candidate.dbId) && !claimed.has(candidate.dbId) && changedWorkbookFields(candidate, values, { includeUpdatedAt: false }).length === 0);
+      if (!matches.length) { recreated.push(row.dataset.receiptId); decidedNew.push(row); continue; }
+      const onlyAvailable = matches.length === 1 && matches[0].status === 'available';
+      if (onlyAvailable) {
+        const link = await confirmAction({ title: 'Is this the same receipt?', message: `An earlier attempt to save ${label} did not report success. Your account already holds a receipt with exactly the same details that this page did not know about. It may be the earlier attempt, or it may be a separate identical receipt (for example added from another device). Link ${label} to it, or save ${label} as a new receipt.`, confirmLabel: `Link ${label} to the saved receipt`, cancelLabel: 'Do not link', trigger: elements.saveDraft });
+        if (!mine()) return { aborted: true };
+        if (link) {
+          const [match] = matches; claimed.add(match.dbId);
+          row.dataset.receiptDbId = match.dbId;
+          if (match.updatedAt) row.dataset.receiptUpdatedAt = match.updatedAt;
+          upsertStoreSourceReceipt(match);
+          applyUnsavedKind(row, unsavedKind(row));
+          uncertainCreates.delete(row);
+          adopted.push(row.dataset.receiptId);
+          continue;
+        }
+      }
+      const reason = onlyAvailable ? 'it matches a receipt already in your account' : matches.length > 1 ? `${matches.length} receipts in your account look identical to it` : `an identical receipt in your account is ${matches[0].status === 'consumed' ? 'Consumed' : 'not Available'}`;
+      const saveNew = await confirmAction({ title: 'Save as a new receipt?', message: `${label}: ${reason.charAt(0).toUpperCase()}${reason.slice(1)}. ${onlyAvailable ? '' : 'It cannot be linked or edited from here. '}Saving it as a new receipt will create another receipt with the same details; leaving it unsaved keeps your entry on screen and changes nothing in your account.`, confirmLabel: 'Save as a new receipt', cancelLabel: 'Leave unsaved', trigger: elements.saveDraft });
+      if (!mine()) return { aborted: true };
+      if (!saveNew) return stop(row, reason);
+      decidedNew.push(row);
+    }
+    decidedNew.forEach(row => uncertainCreates.delete(row)); // only now: a Save the user abandoned part-way leaves every undecided receipt unconfirmed
+    return { ok: true, adopted, recreated };
+  };
+  const adoptedNotice = adopted => adopted.length ? `${adopted.length === 1 ? `Receipt ${adopted[0]} was` : `Receipts ${adopted.join(', ')} were`} linked to ${adopted.length === 1 ? 'the matching receipt' : 'the matching receipts'} already in your account, as you chose, so ${adopted.length === 1 ? 'it was' : 'they were'} not saved twice.` : '';
+  const recreatedNotice = recreated => recreated.length ? `A check of your account just now found no matching copy of ${recreated.length === 1 ? `Receipt ${recreated[0]}` : `Receipts ${recreated.join(', ')}`}, so ${recreated.length === 1 ? 'it was' : 'they were'} saved again.` : '';
+  const removedNotice = count => count ? `${count === 1 ? 'A receipt you removed from the list was' : `${count} receipts you removed from the list were`} already being saved and ${count === 1 ? 'was' : 'were'} saved anyway; refresh the page to see ${count === 1 ? 'it' : 'them'}.` : '';
   const saveDraft = async () => {
     if (savePending) return;
-    if (!currentUser) return setFeedback(elements.encodingFeedback, 'Please sign in before saving receipts.');
+    if (!currentUser) return setFeedback(elements.encodingFeedback, 'Please sign in before saving receipts.', 'warning');
     savePending = true;
     elements.saveDraft.disabled = true;
+    const generation = saveGeneration; const mine = () => generation === saveGeneration;
+    const user = currentUser; // a save belongs to the account and session that started it
     try {
-      const { persisted, candidates, error } = await persistReceiptsBeforeDirectoryPrompts([...elements.list.children], async row => {
-        if (receiptStatus(row) === 'consumed') return undefined;
-        const receipt = rowValues(row);
-        if (isBlankUnsavedReceipt(row)) return undefined;
-        const previousFingerprint = row.dataset.persistedStoreFingerprint;
-        const saved = row.dataset.receiptDbId ? await receiptService.updateReceipt(row.dataset.receiptDbId, receipt, currentUser.id) : await receiptService.createReceipt(receipt, currentUser.id);
+      const invalidRow = [...elements.list.children].find(row => receiptStatus(row) !== 'consumed' && !isBlankUnsavedReceipt(row) && amountProblem(row));
+      if (invalidRow) {
+        invalidRow.open = true; pinReceipt(invalidRow); refreshEncodingCards();
+        setFeedback(elements.encodingFeedback, `Could not save receipt changes. ${rowAmountMessage(invalidRow, amountProblem(invalidRow))} Nothing was saved; correct the amount and save again.${invalidRow.hidden ? ' This receipt is hidden by the View receipts filter (your filter was not changed); choose Available or All to see it.' : ''}`, 'error');
+        // A receipt hidden by the Available/Consumed view cannot take focus: send focus to the control that explains why instead.
+        (invalidRow.hidden ? elements.receiptStatusFilter : invalidRow.querySelector('.receipt-amount')).focus?.({ preventScroll: false });
+        return;
+      }
+      const reconciled = await reconcileUncertainCreates(mine);
+      if (reconciled.aborted || !mine()) return;
+      if (!reconciled.ok) { showSaveProgress(''); setFeedback(elements.encodingFeedback, reconciled.message, reconciled.severity || 'error'); return; }
+      const { work, directoryOnly } = planSave();
+      const total = work.length;
+      if (!total && !directoryOnly.length) {
+        showSaveProgress('');
+        if (reconciled.adopted.length) setFeedback(elements.encodingFeedback, adoptedNotice(reconciled.adopted), 'success');
+        else setFeedback(elements.encodingFeedback, 'No changes to save.', 'info');
+        return;
+      }
+      const itemByRow = new Map(work.map(item => [item.row, item]));
+      const inList = row => [...elements.list.children].includes(row);
+      let completed = 0; let removed = 0; let orphaned = 0; let nextAnnouncement = Math.max(1, Math.ceil(total / 4));
+      if (total) showSaveProgress(`Saving 0 of ${total}`, { speak: `Saving ${pluralReceipts(total)}.`, busy: true });
+      const { persisted, candidates, error } = await persistReceiptsBeforeDirectoryPrompts(work.map(item => item.row), async row => {
+        const item = itemByRow.get(row);
+        if (!mine()) throw new Error('You were signed out or switched accounts, so the remaining receipts were not saved.');
+        if (!inList(row)) { removed += 1; return undefined; } // taken off the list before its turn: never write it
+        let saved;
+        try { saved = item.dbId ? await receiptService.updateReceipt(item.dbId, item.values, user.id) : await receiptService.createReceipt(item.values, user.id); }
+        catch (failure) { if (!item.dbId && mine()) uncertainCreates.set(row, item.values); throw failure; } // a failed create may still have been committed
+        if (!mine()) throw new Error('You were signed out or switched accounts while saving; the remaining receipts were not saved.'); // never apply this answer to another session
+        completed += 1;
+        if (!inList(row)) { orphaned += 1; return undefined; } // removed while its write was in flight: the write happened, but nothing is applied to a card that is gone
         row.dataset.receiptDbId = saved.dbId;
         if (saved.updatedAt) row.dataset.receiptUpdatedAt = saved.updatedAt;
         upsertStoreSourceReceipt(saved);
-        const fingerprint = persistedStoreFingerprint(receipt);
-        return { row, fingerprint, decision: postSaveDirectoryDecision({ values: receipt, previousFingerprint, profiles: sharedStoreProfiles }) };
+        applyUnsavedKind(row, unsavedKind(row)); // only a write the database confirmed clears this card; edits made meanwhile keep it flagged
+        showSaveProgress(`Saving ${completed} of ${total}`, { busy: true, ...(completed >= nextAnnouncement && completed < total ? { speak: `Saved ${completed} of ${total}.` } : {}) });
+        if (completed >= nextAnnouncement) nextAnnouncement += Math.max(1, Math.ceil(total / 4));
+        const fingerprint = persistedStoreFingerprint(item.values);
+        return { row, fingerprint, decision: postSaveDirectoryDecision({ values: item.values, previousFingerprint: item.previousFingerprint, profiles: sharedStoreProfiles }) };
       });
+      if (!mine()) return; // the session changed: nothing here may touch the new session's screen
+      const notices = [adoptedNotice(reconciled.adopted), removedNotice(orphaned)].filter(Boolean).join(' '); // the feedback line keeps its wording; what the check established is stated in the progress status
       if (error) {
-        setFeedback(elements.encodingFeedback, `Could not save receipt changes: ${error.message}`);
+        // Earlier rows may already be saved: refresh the saved total, count and unsaved indicator (edit pins and drafts stay as they are).
+        refreshEncodingCards();
+        refreshOptimizationCards();
+        const left = total - completed - removed;
+        const unconfirmed = [...elements.list.children].filter(row => uncertainCreates.has(row)).length;
+        // The counts live in the progress status (visible and spoken); the error line keeps its wording.
+        const detail = unconfirmed ? ` (${unconfirmed} new receipt${unconfirmed === 1 ? '' : 's'} may already be in your account; the next Save checks first)` : '';
+        showSaveProgress(`Saved ${completed} of ${total} · ${left} still unsaved${detail}`, { speak: `Saved ${completed} of ${total}. ${pluralReceipts(left)} still unsaved.${detail}` });
+        setFeedback(elements.encodingFeedback, `Could not save receipt changes: ${error.message}${unconfirmed ? ' The outcome of a failed new receipt could not be confirmed; the next Save checks the database before creating it again.' : ''}${notices ? ` ${notices}` : ''}`, 'error');
         return;
       }
-      finalizeDirectoryPromptFingerprints(persisted);
+      finalizeDirectoryPromptFingerprints([...persisted, ...directoryOnly]);
+      candidates.push(...directoryOnly.map(result => result.decision));
+      if (total) showSaveProgress(`Saved ${pluralReceipts(completed - orphaned)}${reconciled.recreated.length ? ` (${recreatedNotice(reconciled.recreated).replace(/\.$/, '').replace(/^A check/, 'a check')})` : ''}`, { speak: `Saved ${pluralReceipts(completed)}.${reconciled.recreated.length ? ` ${recreatedNotice(reconciled.recreated)}` : ''}` });
+      else if (reconciled.adopted.length) showSaveProgress(`${pluralReceipts(reconciled.adopted.length)} linked to the matching saved receipt`, { speak: adoptedNotice(reconciled.adopted) }); // stays visible even if a Company Directory prompt replaces the message below
+      const released = releaseEditPins();
       refreshEncodingCards();
       refreshOptimizationCards();
-      setFeedback(elements.encodingFeedback, 'Receipt changes saved.');
-      await processPostSaveDirectoryCandidates(candidates);
-    } catch (error) { setFeedback(elements.encodingFeedback, `Could not save receipt changes: ${error.message}`); }
-    finally { savePending = false; elements.saveDraft.disabled = false; }
+      const nowHidden = releasedHiddenNotice(released.filter(row => row.hidden).map(row => row.dataset.receiptId || ''));
+      setFeedback(elements.encodingFeedback, `Receipt changes saved.${nowHidden ? ` ${nowHidden}` : ''}${notices ? ` ${notices}` : ''}`, 'success');
+      await processPostSaveDirectoryCandidates(candidates, user, mine);
+    } catch (error) { if (!mine()) return; refreshEncodingCards(); refreshOptimizationCards(); setFeedback(elements.encodingFeedback, `Could not save receipt changes: ${error.message}`, 'error'); }
+    finally { if (mine()) { savePending = false; elements.saveDraft.disabled = false; elements.saveDraft.removeAttribute?.('aria-busy'); } } // a stale save never touches a newer save's controls
   };
-  const calculate = () => {
-    const targetCents = toCents(elements.target.value);
-    const receipts = availableOptimizerReceipts([...elements.list.children].map((row, index) => ({ index, dbId: row.dataset.receiptDbId, label: `Receipt ${row.dataset.receiptId}`, cents: toCents(row.querySelector('.receipt-amount').value), status: receiptStatus(row), ...rowValues(row) })));
-    if (!targetCents || !receipts.length) { clearSelection(); refreshOptimizationCards(); showEmpty(); return; }
-    try {
-      const strategy = setActiveStrategy(getActiveStrategy());
-      const best = findBest(receipts, targetCents, strategy);
+  // Keyboard-first encoding (CP10-C3E-3K): Ctrl+Enter = Add receipt, Ctrl+S = Save changes, nothing else. The listener sits on the Receipt Encoding workspace
+  // only, so it never sees keys typed in other workspaces or in dialogs (those are outside this element), and it reuses the buttons' own handlers.
+  const handleEncodingShortcut = event => {
+    if (!event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return; // Ctrl is required and is the only modifier
+    const key = String(event.key).toLowerCase();
+    if (key !== 'enter' && key !== 's') return;
+    if (!currentUser || elements.encodingWorkspace.hidden || modalFocus?.isOpen?.()) return;
+    if (event.isComposing || event.keyCode === 229) return; // an input method is composing text
+    event.preventDefault(); // Ctrl+S must not open the browser's Save Page dialog; Ctrl+Enter has no useful default here
+    if (event.repeat) return; // holding the keys down does not repeat the action
+    if (key === 's') { if (!elements.saveDraft.disabled) void saveDraft(); return; }
+    addReceiptForEncoding();
+  };
+  // Renders the one Best Match result (or the no-match state) exactly as before; used for small pools (synchronous) and finished long-pool runs.
+  const applyBestMatch = (best, { receipts, rows, targetCents, strategy }) => {
+      // Informational only: unsaved values may take part in the calculation, but they can never be exported.
+      const unsavedLabels = receipts.filter(receipt => rowHasUnsavedExportChanges(rows[receipt.index])).map(receipt => receipt.label);
       if (!best) {
         clearSelection();
+        setUnsavedNotice(unsavedValuesNotice({ considered: unsavedLabels }));
         elements.resultTitle.textContent = strategy === optimizationStrategies.withoutExceeding ? 'No non-zero match without exceeding' : 'No valid match found';
         elements.resultAmount.textContent = '₱0.00';
         elements.difference.textContent = strategy === optimizationStrategies.withoutExceeding ? 'No non-zero receipt combination is at or below your requested amount.' : 'No valid receipt combination is available.';
@@ -749,8 +1282,9 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       }
       const chosen = best.items.map(index => receipts[index]);
       const difference = best.total - targetCents;
-      selectedReceiptIndexes = new Set(chosen.map(receipt => receipt.index));
-      selectedReceiptIds = chosen.map(receipt => receipt.dbId).filter(Boolean);
+      arrangements['best-match'] = null; showExportBlockAction(null);
+      selection = { mode: 'best-match', entries: chosen.map(receipt => ({ dbId: receipt.dbId || null, receiptId: receipt.receiptId, label: receipt.label, used: workbookFields(receipt) })) };
+      setUnsavedNotice(unsavedValuesNotice({ selected: chosen.filter(receipt => unsavedLabels.includes(receipt.label)).map(receipt => receipt.label), considered: unsavedLabels }));
       elements.resultTitle.textContent = difference === 0 ? 'Exact match found' : strategy === optimizationStrategies.withoutExceeding ? 'Best match without exceeding' : 'Best available match';
       elements.resultAmount.textContent = format(best.total);
       elements.difference.textContent = difference === 0 ? 'This selection matches your requested amount exactly.' : `${difference > 0 ? 'Over' : 'Under'} by ${format(Math.abs(difference))}.`;
@@ -790,6 +1324,98 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       ['Strategy: ' + strategyMeta.label, 'Target: ' + format(targetCents), 'Difference: ' + (difference === 0 ? 'Exact' : format(Math.abs(difference)) + (difference > 0 ? ' over' : ' under')), rule].forEach(text => { const item = document.createElement('li'); item.textContent = text; rules.append(item); });
       elements.adminContent.append(details, rules);
       refreshOptimizationCards();
+  };
+  const poolStopMessages = {
+    changed: 'The calculation was stopped because your receipts or settings changed. No recommendation was produced. Run Find Best Match again.',
+    cancelled: 'Calculation cancelled. No recommendation was produced.',
+    left: 'The calculation was stopped when you left Receipt Optimization. No recommendation was produced. Run Find Best Match again.',
+    timeout: 'The calculation took too long and was stopped. No recommendation was produced.',
+    error: 'The calculation could not be completed. No recommendation was produced.',
+    overBudget: 'Exact result cannot be computed safely with these values on this device; no recommendation was produced.',
+    unavailable: 'Exact result cannot be computed safely on this device: it cannot run the background calculation this many receipts need. No recommendation was produced.'
+  };
+  // The signature of everything a long-pool answer depends on: the account, the strategy, the target, and every receipt's identity, status and amount.
+  // Every workbook-relevant value of every row (the raw amount text included), so a metadata edit that fires no stop event is still caught.
+  const poolSignature = () => [currentUser?.id ?? '', getActiveStrategy(), elements.target.value.trim(), ...[...elements.list.children].map(row => `${row.dataset.receiptDbId ?? ''}|${row.dataset.receiptId ?? ''}|${receiptStatus(row)}|${JSON.stringify(rowValues(row))}`)].join('\n');
+  const setCalculationBusy = (busy, fraction = 0) => {
+    elements.calculate.disabled = busy;
+    if (busy) elements.calculate.setAttribute?.('aria-busy', 'true'); else elements.calculate.removeAttribute?.('aria-busy');
+    if (elements.calculationProgress) elements.calculationProgress.hidden = !busy;
+    if (elements.calculationProgressBar) elements.calculationProgressBar.value = Math.round(fraction * 100);
+    if (elements.calculationProgressText) elements.calculationProgressText.textContent = busy ? 'Calculating the exact best match… 0%' : '';
+  };
+  const updateCalculationProgress = (run, fraction) => {
+    const percent = Math.max(0, Math.min(100, Math.floor(fraction * 100)));
+    if (elements.calculationProgressBar) elements.calculationProgressBar.value = percent;
+    // Announce in 10% steps only, so a screen reader is not flooded.
+    if (Math.floor(percent / 10) !== run.announced && elements.calculationProgressText) { run.announced = Math.floor(percent / 10); elements.calculationProgressText.textContent = `Calculating the exact best match… ${percent}%`; }
+  };
+  const showNoRecommendation = (reason, detail = '') => {
+    clearSelection(); showEmpty();
+    elements.resultTitle.textContent = 'No recommendation';
+    elements.difference.textContent = poolStopMessages[reason];
+    if (detail) elements.adminContent.textContent = detail;
+    refreshOptimizationCards();
+  };
+  const restoreFocusAfterCalculation = () => {
+    const active = document.activeElement;
+    if (!active || active === document.body || active === elements.cancelCalculation) elements.calculate.focus?.({ preventScroll: true });
+  };
+  const overBudgetDetail = plan => {
+    const million = value => `${Math.max(1, Math.round(value / 1e6)).toLocaleString('en-US')} million`;
+    const parts = [`Searching all ${plan.receipts} Available receipts exactly would need about ${million(plan.cells)} steps and ${Math.max(1, Math.round(plan.bytes / 1048576)).toLocaleString('en-US')} MB of memory on this device.`];
+    parts.push('That is above the safe limit, so nothing was calculated. Your receipts were not changed.');
+    return parts.join(' ');
+  };
+  // Stops the running long-pool calculation (if any). reason: shown to the user; omitted for a silent stop (a newer calculation, sign-in or sign-out).
+  const cancelCalculation = reason => {
+    if (!calculationRun) return false;
+    const run = calculationRun; calculationRun = null; calculationGeneration += 1;
+    run.cancel(); setCalculationBusy(false);
+    if (reason) { showNoRecommendation(reason); restoreFocusAfterCalculation(); }
+    return true;
+  };
+  const startPoolCalculation = context => {
+    const { receipts, targetCents, strategy } = context;
+    clearSelection(); showEmpty(); // a previous result must never stay on screen under a new calculation
+    const run = { generation: ++calculationGeneration, signature: poolSignature(), user: currentUser, announced: 0, cancel: () => {} };
+    calculationRun = run;
+    elements.resultTitle.textContent = 'Calculating the exact best match…';
+    elements.difference.textContent = `Searching all ${receipts.length} Available receipts. Changing a receipt or a setting, or leaving Receipt Optimization, stops the calculation.`;
+    const hadFocus = document.activeElement === elements.calculate;
+    setCalculationBusy(true);
+    if (hadFocus) elements.cancelCalculation?.focus?.({ preventScroll: true });
+    const job = poolOptimizer.run({ cents: receipts.map(receipt => receipt.cents), target: targetCents, strategy, onProgress: fraction => { if (calculationRun === run) updateCalculationProgress(run, fraction); } });
+    run.cancel = job.cancel;
+    job.promise.then(outcome => {
+      // Anything but the current run for the same account and the very same pool, target and strategy is discarded without a word on screen.
+      if (calculationRun !== run || run.generation !== calculationGeneration) return;
+      calculationRun = null; setCalculationBusy(false);
+      if (currentUser !== run.user || poolSignature() !== run.signature) { showNoRecommendation('changed'); restoreFocusAfterCalculation(); return; }
+      try {
+        if (outcome.status === 'exact') applyBestMatch(outcome.result, context);
+        else if (outcome.status === 'over-budget') showNoRecommendation('overBudget', overBudgetDetail(outcome.plan));
+        else if (outcome.status === 'unavailable') showNoRecommendation('unavailable', overBudgetDetail(outcome.plan));
+        else if (outcome.status === 'timeout') showNoRecommendation('timeout');
+        else if (outcome.status === 'cancelled') showNoRecommendation('cancelled');
+        else showNoRecommendation('error');
+      } catch (error) { elements.difference.textContent = error.message || 'Could not calculate a receipt combination.'; }
+      restoreFocusAfterCalculation();
+    });
+  };
+  const calculate = () => {
+    cancelCalculation(); // a newer calculation silently supersedes an earlier one
+    const targetCents = toCents(elements.target.value);
+    const invalidRow = [...elements.list.children].find(row => receiptStatus(row) === 'available' && amountProblem(row));
+    if (invalidRow) { clearSelection(); refreshOptimizationCards(); showEmpty(); elements.difference.textContent = `${rowAmountMessage(invalidRow, amountProblem(invalidRow))} Correct it before running Find Best Match.`; return; }
+    const rows = [...elements.list.children];
+    const receipts = availableOptimizerReceipts(rows.map((row, index) => ({ index, dbId: row.dataset.receiptDbId, receiptId: row.dataset.receiptId, label: `Receipt ${row.dataset.receiptId}`, cents: amountCents(row), status: receiptStatus(row), ...rowValues(row) })));
+    if (!targetCents || !receipts.length) { clearSelection(); refreshOptimizationCards(); showEmpty(); return; }
+    try {
+      const strategy = setActiveStrategy(getActiveStrategy());
+      const context = { receipts, rows, targetCents, strategy };
+      if (receipts.length > ENGINE_RECEIPT_LIMIT) return startPoolCalculation(context);
+      applyBestMatch(findBest(receipts, targetCents, strategy), context);
     } catch (error) { elements.difference.textContent = error.message || 'Could not calculate a receipt combination.'; }
   };
   const importLegacyDraft = async user => {
@@ -799,85 +1425,313 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     if (!draft || localStorage.getItem(migrationKey)) return false;
     let data;
     try { data = JSON.parse(draft); } catch { return false; }
+    const generation = sessionGeneration;
     if (!data.receipts?.length || !await confirmAction({ title: 'Import saved browser receipts?', message: `Import ${data.receipts.length} saved browser receipt${data.receipts.length === 1 ? '' : 's'} into your account? Your local draft will be kept as a backup.`, confirmLabel: 'Import receipts', cancelLabel: 'Not now', trigger: document.activeElement })) return false;
+    if (generation !== sessionGeneration) return false; // the account changed while the question was open: nothing is imported for it
     importPending = true;
     try {
       const imported = await receiptService.importReceipts(data.receipts, user.id);
-      localStorage.setItem(migrationKey, 'true');
+      localStorage.setItem(migrationKey, 'true'); // the import itself happened for that account, so it is recorded as done for that account only
+      if (generation !== sessionGeneration) return false; // ...but its receipts are never drawn under the next account
       if (data.target) elements.target.value = data.target;
       imported.forEach(receipt => { addReceipt(receipt); upsertStoreSourceReceipt(receipt); });
-      setFeedback(elements.encodingFeedback, 'Import completed. Your original browser draft was kept as a backup.');
+      setFeedback(elements.encodingFeedback, 'Import completed. Your original browser draft was kept as a backup.', 'success');
       return true;
     } catch (error) {
-      setFeedback(elements.encodingFeedback, `Could not import saved browser receipts: ${error.message}`);
+      if (generation !== sessionGeneration) return false;
+      setFeedback(elements.encodingFeedback, `Could not import saved browser receipts: ${error.message}`, 'error');
       return false;
     } finally { importPending = false; }
   };
   let exportPending = false;
+  // ---- Review & Arrange (CP10-C3E-2). The view only presents; the order lives in `arrangement`, the dialog's data in `exportSession`. ----
+  const showReviewState = () => { if (exportSession) elements.confirmExport.disabled = exportPending || (exportSession.needsAck && !exportSession.acknowledged); };
+  const unsavedFieldText = value => value === '' ? '(empty)' : `"${value}"`;
+  const changeNotes = (softProblems, reference, snapshotRows) => {
+    const byId = new Map(snapshotRows.map(row => [row.dbId, row]));
+    return new Map(softProblems.map(problem => {
+      const shown = problem.fields.filter(field => field !== 'updatedAt');
+      const detail = shown.length ? describeFieldChanges(reference.get(problem.dbId), byId.get(problem.dbId), shown).map(change => `${change.label}: ${unsavedFieldText(change.before)} to ${unsavedFieldText(change.after)}`).join('; ') : 'saved again in another session; the receipt values are unchanged';
+      return [problem.dbId, `Updated since selection — ${detail}.`];
+    }));
+  };
+  const renderReview = () => {
+    const session = exportSession;
+    const arrangement = activeArrangement();
+    if (!session || !arrangement) return;
+    const saved = new Map(session.baseline.rows.map(row => [row.dbId, row]));
+    const entries = new Map(session.entries.map(entry => [entry.dbId, entry]));
+    const sums = summarizeAmounts(arrangement.order.map(id => saved.get(id)));
+    const changed = session.notes.size;
+    reviewView.render({
+      rows: arrangement.order.map(id => buildReviewRow(entries.get(id), saved.get(id), session.notes.get(id), { format, formatDate })),
+      totalText: format(sums.validCents),
+      withoutAmount: sums.withoutAmount,
+      canReset: arrangement.order.some((id, index) => id !== arrangement.initial[index]),
+      acknowledgement: session.needsAck ? { text: `${changed} receipt${changed === 1 ? ' was' : 's were'} changed in the database after ${changed === 1 ? 'it was' : 'they were'} selected. The values below are the current saved values. Review the highlighted receipt${changed === 1 ? '' : 's'}, then confirm that you have reviewed ${changed === 1 ? 'it' : 'them'} to enable the export.`, checked: session.acknowledged } : null
+    });
+  };
+  const reviewView = createExportReview({
+    list: elements.exportReviewList,
+    announcer: elements.exportReviewAnnouncer,
+    summary: { count: elements.exportReviewCount, total: elements.exportReviewTotal, noAmountGroup: elements.exportReviewNoAmountGroup, noAmount: elements.exportReviewNoAmount },
+    acknowledgement: { group: elements.exportReviewAck, text: elements.exportReviewAckText, input: elements.exportReviewAckInput },
+    reset: elements.exportReviewReset,
+    onMove: (id, toIndex) => { const arrangement = activeArrangement(); if (arrangement) { arrangement.order = moveId(arrangement.order, id, toIndex); renderReview(); } },
+    onReset: () => { const arrangement = activeArrangement(); if (arrangement) { arrangement.order = [...arrangement.initial]; renderReview(); } },
+    onAcknowledge: checked => { if (exportSession) { exportSession.acknowledged = checked; showReviewState(); } },
+    // On a phone the action buttons are pinned over the bottom of the scrolling sheet: the drag's auto-scroll edge is where they start.
+    pointerOptions: { obstructions: () => [elements.confirmExport?.parentElement].filter(Boolean) }
+  });
+  // Unsaved edits, drafts and amounts typed but not saved are fixed in Encoding: say which receipts, and offer the shortcut.
+  const blockForEncoding = problems => {
+    const fixable = problems.filter(problem => ['unsaved', 'draft', 'resultStale', 'invalidAmount'].includes(problem.type));
+    showExportBlockAction(exportSource().entries.filter(entry => fixable.some(problem => problem.label === entry.label)).map(rowForSelectionEntry).filter(Boolean));
+    return setExportFeedback(preflightMessage(problems, { mode: exportMode }));
+  };
+  // "Go to Encoding": offered when unsaved edits (or drafts) block an export. It only navigates and focuses; nothing is saved or discarded.
+  let exportBlockRows = [];
+  const showExportBlockAction = rows => {
+    exportBlockRows = rows ?? [];
+    const show = exportBlockRows.length > 0;
+    if (elements.exportGoToEncoding) elements.exportGoToEncoding.hidden = !(show && exportMode !== 'manual');
+    if (elements.manualGoToEncoding) elements.manualGoToEncoding.hidden = !(show && exportMode === 'manual');
+  };
+  const goToEncoding = () => {
+    const row = exportBlockRows.find(candidate => candidate.isConnected !== false);
+    if (!row) return;
+    elements.encodingTab.click?.();
+    setWorkspace('encoding');
+    pinReceipt(row); refreshEncodingCards();
+    if (row.hidden) return setFeedback(elements.encodingFeedback, `Receipt ${row.dataset.receiptId || ''} is hidden by the current view. Choose Available or All in View receipts to see it.`, 'warning');
+    focusReceiptForEncoding(row);
+  };
+  // Escape belongs to an active receipt drag first (it cancels the drag and keeps the dialog open); otherwise it closes the dialog as before.
+  const escapeReview = () => { if (reviewView.cancelDrag()) return; closeExportConfirmation(); };
   const closeExportConfirmation = ({ force = false } = {}) => {
     if (exportPending && !force) return;
+    exportSession = null;
+    reviewView.clear();
     elements.exportConfirmModal.hidden = true;
+    modalFocus?.close(elements.exportConfirmModal, { fallback: exportMode === 'manual' ? elements.manualSelectShown : elements.calculate });
     elements.confirmExport.disabled = false;
     elements.confirmExport.removeAttribute('aria-busy');
     elements.confirmExport.textContent = 'Export & Mark Consumed';
   };
-  const selectedReceiptsForExport = () => selectedReceiptIds.map(id => {
-    const row = [...elements.list.children].find(candidate => candidate.dataset.receiptDbId === id);
-    return row && receiptStatus(row) === 'available' ? { ...rowValues(row), dbId: id, status: 'available' } : null;
-  }).filter(Boolean);
-  const openExportConfirmation = () => {
-    const receipts = selectedReceiptsForExport();
-    if (!receipts.length || receipts.length !== selectedReceiptIndexes.size) return setFeedback(elements.difference, 'Run Find Best Match with saved Available receipts before exporting.');
-    elements.exportConfirmMessage.textContent = `Export ${receipts.length} selected receipt${receipts.length === 1 ? '' : 's'}? After the export is prepared, these receipts will be marked as Consumed and excluded from future optimization.`;
-    elements.exportConfirmModal.hidden = false;
-    elements.confirmExport.focus();
+  // ---- Export (CP10-C3E-1): the workbook is built from database snapshots, never from the values typed on screen. ----
+  // Review (Snapshot A) happens before the confirmation dialog opens; the final read (Snapshot B) happens when the user confirms.
+  let exportReviewPending = false;
+  let exportSession = null; // { selection, entries, baseline } while the confirmation dialog is open
+  // A runner belongs to the session that created it (Issue #27): once that session has ended, none of its steps may start a read, generate a workbook or send a
+  // status update. A step already sent cannot be recalled; its answer is ignored by the continuation, and its server-side effect stays owner-scoped.
+  const newExportRunner = () => {
+    const generation = sessionGeneration; const live = () => generation === sessionGeneration;
+    const ended = () => new Error('The signed-in account changed, so this export was stopped.');
+    return createReceiptExportRunner({
+      fetchSnapshot: async ids => { if (!live()) throw ended(); const rows = await receiptService.loadReceiptsByIds(ids); if (!live()) throw ended(); return rows; },
+      generateWorkbook: rows => { if (!live()) throw ended(); return downloadSelectedReceipts(rows); },
+      consume: async ids => { if (!live()) throw ended(); return receiptService.consumeReceipts(ids); }
+    });
+  };
+  let exportRunner = newExportRunner();
+  // Everything an earlier account's review, export and dialogs left behind. Every new session runs it BEFORE its first await, so nothing of the previous account
+  // (an open Review & Arrange or Edit dialog, a pending export or review, a manual selection) is ever visible, or blocking, under the next one.
+  const endTransientAccountState = () => {
+    exportPending = false; exportReviewPending = false; editSavePending = false; exportSession = null; exportRunner = newExportRunner();
+    exportMode = 'best-match'; knownMissingIds.clear(); setManualIds([]); setManualFeedback(''); applyExportModeView();
+    const editSubmit = elements.editForm?.querySelector?.('button[type="submit"]'); if (editSubmit) editSubmit.disabled = false; // the shared button belongs to the session that disabled it: a new session starts with it free
+    if (!elements.editModal.hidden) closeEditModal(); // only an open dialog is closed: an idle one has nothing to hand focus back from
+    if (!elements.exportConfirmModal.hidden) closeExportConfirmation({ force: true });
+  };
+  const errorText = error => String(error?.message || 'Unknown error').replace(/[.\s]+$/, '');
+  const rowForSelectionEntry = entry => [...elements.list.children].find(row => selectionEntryMatchesRow(entry, row));
+  const exportEntries = () => exportSource().entries.map(({ dbId, label, used }) => ({ dbId, label, used }));
+  // Everything that can be checked from the screen alone. A saved receipt must not carry unsaved edits, and nothing is ever saved or discarded here.
+  const preflightSelection = () => preflightExport(exportSource().entries.map(entry => {
+    const row = rowForSelectionEntry(entry);
+    return {
+      label: entry.label,
+      dbId: entry.dbId,
+      savedSinceResult: Boolean(row?.dataset.receiptDbId),
+      present: Boolean(row),
+      status: row ? receiptStatus(row) : 'consumed',
+      unsaved: row ? rowHasUnsavedExportChanges(row) : false,
+      amountProblem: row ? amountProblem(row) : ''
+    };
+  }));
+  // The database is the truth: refresh the on-screen rows that it reports as changed or Consumed. Selected rows have no unsaved edits at this point
+  // (the preflight guarantees it), so nothing the user typed is overwritten.
+  const syncRowsFromSnapshot = (snapshotRows, problems) => {
+    const affected = new Set(problems.filter(problem => problem.type === 'changed' || problem.type === 'unavailable' || problem.type === 'optimizerChanged').map(problem => problem.dbId));
+    snapshotRows.filter(saved => affected.has(saved.dbId)).forEach(saved => {
+      const row = [...elements.list.children].find(candidate => candidate.dataset.receiptDbId === saved.dbId);
+      if (row) {
+        ['amount', 'receiptDate', 'vat', 'invoice', 'store', 'address', 'tin'].forEach(key => { row.querySelector(`.receipt-${key}`).value = saved[key] ?? ''; });
+        row.dataset.receiptStatus = normalizeReceiptStatus(saved.status); // display state only; the saved record keeps the exact database status
+        row.dataset.receiptUpdatedAt = saved.updatedAt || '';
+        row.dataset.persistedStoreFingerprint = persistedStoreFingerprint(saved);
+        applyReceiptStatusState(row);
+        refreshSummary(row);
+      }
+      upsertStoreSourceReceipt(saved);
+    });
+  };
+  // The optimizer result no longer matches the database: refresh what changed, drop the result and say exactly what to do.
+  const rejectStaleResult = (snapshotRows, problems, stage, mode = exportMode) => {
+    problems.filter(problem => problem.type === 'missing' && problem.dbId).forEach(problem => knownMissingIds.add(problem.dbId));
+    if (mode === 'manual') return rejectManualSelection(snapshotRows, problems, stage);
+    syncRowsFromSnapshot(snapshotRows, problems);
+    clearSelection();
+    refreshEncodingCards();
+    refreshOptimizationCards();
+    showEmpty();
+    elements.resultTitle.textContent = 'Result out of date';
+    setFeedback(elements.difference, snapshotProblemMessage(problems, { stage }));
+  };
+  // Manual Selection: the affected receipts now show their saved values; receipts that are gone or Consumed leave the selection, everything else stays.
+  const rejectManualSelection = (snapshotRows, problems, stage) => {
+    syncRowsFromSnapshot(snapshotRows, problems);
+    const gone = new Set(problems.filter(problem => problem.type === 'missing' || problem.type === 'unavailable').map(problem => problem.dbId));
+    if (gone.size) setManualIds(manualIds.filter(id => !gone.has(id)));
+    refreshEncodingCards();
+    refreshOptimizationCards();
+    setManualFeedback(snapshotProblemMessage(problems, { stage, mode: 'manual' }), 'warning');
+  };
+  const openExportConfirmation = async () => {
+    if (exportPending || exportReviewPending) return;
+    const source = exportSource();
+    if (!source) return setExportFeedback(exportMode === 'manual' ? 'Select at least one receipt before exporting.' : 'Run Find Best Match with saved Available receipts before exporting.');
+    showExportBlockAction(null);
+    const local = preflightSelection();
+    if (!local.ok) return blockForEncoding(local.problems);
+    const reviewed = source;
+    const mode = exportMode; // the mode and selection this review belongs to: checked again after every await
+    const generation = sessionGeneration; // and the session: an answer for an earlier account opens nothing and says nothing
+    const button = exportButton();
+    const entries = exportEntries();
+    exportReviewPending = true;
+    button.setAttribute('aria-busy', 'true');
+    try {
+      let baseline;
+      try { baseline = await exportRunner.loadBaseline(entries.map(entry => entry.dbId)); }
+      catch (error) { if (generation !== sessionGeneration) return; return setExportFeedback(`Could not load the latest saved receipt values: ${errorText(error)}. Nothing was exported.`, '', mode); }
+      if (generation !== sessionGeneration) return;
+      if (exportMode !== mode || exportSource() !== reviewed) return setExportFeedback('The selection changed while the receipts were being checked. Nothing was exported; choose Export Selected again.', '', mode);
+      const reference = new Map(storeSourceReceipts.map(receipt => [receipt.dbId, receipt]));
+      const verdict = classifyExportSnapshot({ entries, snapshotRows: baseline.rows, reference });
+      // Missing, Consumed, invalid or an amount that differs from the optimizer's: never acknowledgeable, the result must be recalculated.
+      const { hard, soft } = partitionExportProblems(verdict.problems);
+      if (hard.length) return rejectStaleResult(baseline.rows, verdict.problems, 'review', mode);
+      const notes = changeNotes(soft, reference, baseline.rows);
+      if (soft.length) { syncRowsFromSnapshot(baseline.rows, soft); refreshEncodingCards(); refreshOptimizationCards(); }
+      const ids = entries.map(entry => entry.dbId);
+      const kept = arrangements[mode];
+      if (!kept || kept.selection !== reviewed || !sameMembers(kept.order, ids)) arrangements[mode] = { selection: reviewed, initial: ids, order: [...ids] };
+      exportSession = { selection: reviewed, mode, entries, baseline, notes, needsAck: soft.length > 0, acknowledged: false };
+      const alreadyPrepared = exportRunner.uncertainIds().some(id => entries.some(entry => entry.dbId === id));
+      elements.exportConfirmMessage.textContent = `Export ${entries.length} selected receipt${entries.length === 1 ? '' : 's'}? After the export is prepared, these receipts will be marked as Consumed and excluded from future optimization.${alreadyPrepared ? ' A workbook for some of them was already prepared earlier and its status update could not be confirmed. The database now confirms they are still Available. Exporting again downloads another workbook.' : ''}`;
+      elements.exportConfirmModal.hidden = false;
+      renderReview();
+      showReviewState();
+      modalFocus?.open(elements.exportConfirmModal, { trigger: button, fallback: mode === 'manual' ? elements.manualSelectShown : elements.calculate, onEscape: escapeReview });
+      (exportSession.needsAck ? elements.exportReviewAckInput : elements.confirmExport).focus();
+    } finally {
+      if (generation === sessionGeneration) { exportReviewPending = false; button.removeAttribute('aria-busy'); }
+    }
   };
   const exportAndConsume = async () => {
     if (exportPending) return;
+    if (exportSession?.needsAck && !exportSession.acknowledged) return reviewView.announce('Review the updated values and tick the box before exporting.');
     exportPending = true;
     elements.confirmExport.disabled = true;
     elements.confirmExport.setAttribute('aria-busy', 'true');
     elements.confirmExport.textContent = 'Preparing export…';
-    const receipts = selectedReceiptsForExport();
-    if (!receipts.length || receipts.length !== selectedReceiptIndexes.size) { exportPending = false; closeExportConfirmation(); return setFeedback(elements.difference, 'The selected result is no longer exportable. Run Find Best Match again.'); }
-    try { downloadSelectedReceipts(receipts); } catch (error) { exportPending = false; closeExportConfirmation(); return setFeedback(elements.difference, `Could not prepare the XLSX export: ${error.message}`); }
-    try {
-      const consumed = await receiptService.consumeReceipts(receipts.map(receipt => receipt.dbId));
-      consumed.forEach(saved => {
-        const row = [...elements.list.children].find(candidate => candidate.dataset.receiptDbId === saved.dbId);
-        if (row) { row.dataset.receiptStatus = saved.status; row.dataset.receiptUpdatedAt = saved.updatedAt || ''; applyReceiptStatusState(row); }
-        upsertStoreSourceReceipt(saved);
-      });
+    const stop = message => { exportPending = false; closeExportConfirmation(); return setExportFeedback(message, '', session?.mode ?? exportMode); };
+    const session = exportSession;
+    const source = exportSource();
+    if (!session || !source || session.selection !== source || session.mode !== exportMode) return stop((session?.mode ?? exportMode) === 'manual' ? 'The selection changed. Nothing was exported; choose Export Selected again.' : 'The selected result is no longer exportable. Run Find Best Match again.');
+    const local = preflightSelection();
+    if (!local.ok) { exportPending = false; closeExportConfirmation(); return blockForEncoding(local.problems); }
+    // The confirmed order decides the order of the receipts handed to the workbook; membership is the reviewed selection.
+    const byId = new Map(session.entries.map(entry => [entry.dbId, entry]));
+    const arrangement = arrangements[session.mode];
+    const confirmedOrder = arrangement && arrangement.selection === session.selection && sameMembers(arrangement.order, session.entries.map(entry => entry.dbId)) ? arrangement.order : session.entries.map(entry => entry.dbId);
+    const generation = sessionGeneration;
+    const result = await exportRunner.run({ entries: confirmedOrder.map(id => byId.get(id)), baseline: session.baseline });
+    if (generation !== sessionGeneration) return; // the account changed while this export ran: nothing is applied, announced or unlocked for the next account
+    if (result.state === 'busy') return stop('An export is already in progress.');
+    if (result.state === 'verification-required') return stop('Receipt status changed since this review. Choose Export Selected again so the receipts are verified with the database first. Nothing was exported.');
+    if (result.state === 'snapshot-failed') return stop(`Could not verify the latest saved receipt values: ${errorText(result.error)}. Nothing was exported or marked Consumed.`);
+    if (result.state === 'blocked') {
+      const { hard, soft } = partitionExportProblems(result.problems);
+      if (hard.length) { exportPending = false; closeExportConfirmation(); return rejectStaleResult(result.snapshotRows, result.problems, 'confirm', session.mode); }
+      // Only other workbook fields changed since the reviewed snapshot: stay in the dialog, show the new values and ask for a fresh acknowledgement.
+      session.notes = changeNotes(soft, new Map(session.baseline.rows.map(row => [row.dbId, row])), result.snapshotRows);
+      syncRowsFromSnapshot(result.snapshotRows, soft); refreshEncodingCards(); refreshOptimizationCards();
+      session.baseline = { rows: result.snapshotRows, generation: session.baseline.generation };
+      session.needsAck = true; session.acknowledged = false;
       exportPending = false;
-      closeExportConfirmation();
-      clearSelection();
+      elements.confirmExport.removeAttribute('aria-busy');
+      elements.confirmExport.textContent = 'Export & Mark Consumed';
+      renderReview(); showReviewState();
+      reviewView.announce('Receipt values changed while you were reviewing. Review the updated values, tick the box and confirm again. Nothing was exported.');
+      return elements.exportReviewAckInput.focus?.();
+    }
+    if (result.state === 'generation-failed') return stop(`Could not prepare the XLSX export: ${errorText(result.error)}. No receipt was marked Consumed.`);
+    // The outcome is unknown: the update may have failed, or been committed with only the answer lost.
+    if (result.state === 'consume-failed') return stop(`The XLSX export was prepared, but the receipt status update could not be confirmed: ${errorText(result.error)}. The workbook may already have been downloaded, and some or all of these receipts may already be Consumed. Check each receipt's status before exporting again; the next export is verified against the database first.`);
+    const consumed = result.consumed;
+    consumed.forEach(saved => {
+      const row = [...elements.list.children].find(candidate => candidate.dataset.receiptDbId === saved.dbId);
+      if (row) { row.dataset.receiptStatus = saved.status; row.dataset.receiptUpdatedAt = saved.updatedAt || ''; applyReceiptStatusState(row); }
+      upsertStoreSourceReceipt(saved);
+    });
+    exportPending = false;
+    closeExportConfirmation();
+    const driftLabels = result.drift.map(item => session.entries.find(entry => entry.dbId === item.dbId)?.label).filter(Boolean);
+    const doneText = `${consumed.length} receipt${consumed.length === 1 ? '' : 's'} exported and marked as Consumed.${driftLabels.length ? ` Warning: ${driftLabels.join(', ')} changed in another session while the export was being prepared. Check the workbook against your saved receipts.` : ''}`;
+    if (session.mode === 'manual') {
+      // Exactly the confirmed receipts are Consumed; the manual selection and its arrangement are finished. A Best Match result that contained any of them is stale now.
+      const exported = new Set(consumed.map(saved => saved.dbId));
+      const staleBest = Boolean(selection?.entries.some(entry => entry.dbId && exported.has(entry.dbId)));
+      setManualIds([]);
+      if (staleBest) clearSelection();
       refreshReceiptIds();
       refreshEncodingCards();
       refreshOptimizationCards();
-      showEmpty();
-      elements.resultTitle.textContent = 'Export complete';
-      elements.difference.textContent = `${consumed.length} receipt${consumed.length === 1 ? '' : 's'} exported and marked as Consumed.`;
-    } catch (error) {
-      exportPending = false;
-      closeExportConfirmation();
-      setFeedback(elements.difference, `The XLSX export was prepared, but receipt status could not be updated: ${error.message} Review the receipt status before exporting again.`);
+      if (staleBest) { showEmpty(); elements.resultTitle.textContent = 'Result out of date'; elements.difference.textContent = 'Some receipts in this result were exported with Manual Selection. Run Find Best Match again.'; }
+      setManualFeedback(doneText, 'success');
+      elements.manualSelectShown?.focus?.({ preventScroll: true });
+      return;
     }
+    clearSelection();
+    refreshReceiptIds();
+    refreshEncodingCards();
+    refreshOptimizationCards(); // also removes any of these receipts from the manual selection (with a message)
+    showEmpty();
+    elements.resultTitle.textContent = 'Export complete';
+    elements.difference.textContent = doneText;
+    // The Export button is disabled once the selection is cleared, so keep keyboard focus on a control that still works.
+    (elements.exportSelected.disabled ? elements.calculate : elements.exportSelected).focus?.({ preventScroll: true });
   };
   const restoreReceipt = async (index, trigger) => {
     const row = elements.list.children[index];
     if (!row || receiptStatus(row) !== 'consumed' || !row.dataset.receiptDbId) return;
+    const generation = sessionGeneration; // an answer for an earlier session must not put its receipt into the next account's history, or speak on its screen (Issue #27)
     if (!await confirmAction({ title: 'Mark receipt Available?', message: 'It will return to normal editing and optimization.', confirmLabel: 'Mark Available', cancelLabel: 'Keep Consumed', trigger })) return;
+    if (generation !== sessionGeneration) return;
     if (trigger) trigger.disabled = true;
     try {
       const saved = await receiptService.updateReceiptStatus(row.dataset.receiptDbId, 'available');
+      if (generation !== sessionGeneration) return;
       row.dataset.receiptStatus = saved.status;
       row.dataset.receiptUpdatedAt = saved.updatedAt || '';
       applyReceiptStatusState(row);
       upsertStoreSourceReceipt(saved);
       refreshEncodingCards();
       refreshOptimizationCards();
-      setFeedback(elements.encodingFeedback, 'Receipt marked as Available.');
-    } catch (error) { setFeedback(elements.encodingFeedback, `Could not restore this receipt: ${error.message}`); if (trigger) trigger.disabled = false; }
+      setFeedback(elements.encodingFeedback, 'Receipt marked as Available.', 'success');
+    } catch (error) { if (generation !== sessionGeneration) return; setFeedback(elements.encodingFeedback, `Could not restore this receipt: ${error.message}`, 'error'); if (trigger) trigger.disabled = false; }
   };
   const saveModalCorrection = async event => {
     event.preventDefault();
@@ -887,22 +1741,37 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     if (!row) return closeEditModal();
     if (receiptStatus(row) === 'consumed') return closeEditModal();
     const values = { amount: elements.editAmount.value, receiptDate: elements.editReceiptDate.value, vat: elements.editVat.value, invoice: elements.editInvoice.value, store: elements.editStore.value, address: elements.editAddress.value, tin: elements.editTin.value };
+    const parsedAmount = parseMoneyAmount(values.amount);
+    if (parsedAmount.valid === false) return setFeedback(elements.editFeedback, `Could not save correction: ${parsedAmount.message}`, 'error');
     editSavePending = true;
+    const generation = sessionGeneration; const owner = currentUser;
     const submitButton = event.submitter;
     if (submitButton) submitButton.disabled = true;
     if (row.dataset.receiptDbId && currentUser) {
       try {
-        const saved = await receiptService.updateReceipt(row.dataset.receiptDbId, values, currentUser.id);
+        const saved = await receiptService.updateReceipt(row.dataset.receiptDbId, values, owner.id);
+        if (generation !== sessionGeneration) return; // an earlier account's correction: nothing is applied or said under the next one, and the shared button is not touched (the new session reset it)
         if (saved.updatedAt) row.dataset.receiptUpdatedAt = saved.updatedAt;
         upsertStoreSourceReceipt(saved);
-      } catch (error) { setFeedback(elements.editFeedback, `Could not save correction: ${error.message}`); editSavePending = false; if (submitButton) submitButton.disabled = false; return; }
+      } catch (error) { if (generation !== sessionGeneration) return; setFeedback(elements.editFeedback, `Could not save correction: ${error.message}`, 'error'); editSavePending = false; if (submitButton) submitButton.disabled = false; return; }
     }
+    cancelCalculation('changed'); // a correction to any receipt stales a calculation that is still running
+    // A correction to a receipt in the current Find Best Match result makes that result stale: clear it and say why, rather than exporting different values.
+    const staleResultLabel = bestIncludesRow(row) ? `Receipt ${row.dataset.receiptId}` : '';
     Object.entries(values).forEach(([key, value]) => { row.querySelector(`.receipt-${key}`).value = value; });
     refreshSummary(row);
     closeEditModal();
+    if (staleResultLabel) {
+      clearSelection();
+      showEmpty();
+      elements.resultTitle.textContent = 'Result out of date';
+      setFeedback(elements.difference, `${staleResultLabel} was corrected after Find Best Match ran, so the previous result was cleared. Run Find Best Match again.`);
+    }
     refreshEncodingCards();
     refreshOptimizationCards();
+    restoreEditTriggerFocus(index);
     editSavePending = false;
+    if (submitButton) submitButton.disabled = false; // released by the session that disabled it: every await above was checked against `generation`, and nothing below awaits, so this is still that session (Issue #33)
   };
   const applyToolbarChange = () => {
     toolbarState = readToolbarState();
@@ -919,13 +1788,25 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     refreshOptimizationCards();
   };
   return {
+    // Every sign-in is a new session (the same account again included). Whatever an earlier session left on screen is wiped first, and an earlier session's late
+    // answers (its load, its Company Directory list, its legacy import) are stale: they render nothing and say nothing under the next account (Issue #27, AUTH-10).
     async loadForUser(user) {
+      cancelCalculation();
+      resetSaveState();
+      const generation = ++sessionGeneration;
+      endTransientAccountState();
       currentUser = user;
-      const receipts = await receiptService.loadReceipts();
+      elements.list.replaceChildren(); storeSourceReceipts = []; sharedStoreProfiles = []; rebuildStoreProfiles(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty();
+      let receipts;
+      try { receipts = await receiptService.loadReceipts(); } catch (error) { if (generation !== sessionGeneration) return; throw error; }
+      if (generation !== sessionGeneration) return;
       storeSourceReceipts = receipts;
       rebuildStoreProfiles();
-      await reloadSharedStores();
+      await reloadSharedStores(generation);
+      if (generation !== sessionGeneration) return;
       elements.list.replaceChildren();
+      exportRunner = newExportRunner(); exportSession = null;
+      exportMode = 'best-match'; knownMissingIds.clear(); setManualIds([]); setManualFeedback(''); applyExportModeView(); // a different user starts with nothing selected
       clearSelection();
       receipts.forEach(receipt => addReceipt(receipt, { refresh: false }));
       refreshReceiptIds();
@@ -948,18 +1829,32 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     },
     setWorkspace,
     setModuleVisible,
-    clearForLogout() { currentUser = undefined; sharedStoreProfiles = []; toolbarState = defaultOptimizationToolbarState(); encodingDisplayState = { compartment: 'all' }; storeSourceReceipts = []; rebuildStoreProfiles(); syncToolbarControls(); elements.encodingAmountCompartment.value = 'all'; setActiveStrategy(optimizationStrategies.closest, { persist: false }); elements.list.replaceChildren(); elements.target.value = ''; clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); closeEditModal(); closeExportConfirmation({ force: true }); },
+    clearForLogout() { cancelCalculation(); sessionGeneration += 1; resetSaveState(); currentUser = undefined; sharedStoreProfiles = []; toolbarState = defaultOptimizationToolbarState(); encodingDisplayState = { compartment: 'all' }; storeSourceReceipts = []; rebuildStoreProfiles(); syncToolbarControls(); elements.encodingAmountCompartment.value = 'all'; setActiveStrategy(optimizationStrategies.closest, { persist: false }); elements.list.replaceChildren(); elements.target.value = ''; endTransientAccountState(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); closeEditModal(); closeExportConfirmation({ force: true }); },
     importLegacyDraft,
     start() {
       renderEncodingAmountCompartmentOptions();
       elements.calculate.addEventListener('click', calculate);
+      elements.cancelCalculation?.addEventListener('click', () => cancelCalculation('cancelled'));
+      // A different target or strategy would make a running answer stale: stop rather than apply it.
+      elements.target.addEventListener('input', () => cancelCalculation('changed'));
+      elements.optimizationStrategy.addEventListener('input', () => cancelCalculation('changed'));
+      elements.optimizationStrategy.addEventListener('change', () => cancelCalculation('changed'));
+      reviewView.start();
+      elements.exportGoToEncoding?.addEventListener('click', goToEncoding);
+      elements.manualGoToEncoding?.addEventListener('click', goToEncoding);
+      elements.exportModeBestMatch?.addEventListener('change', () => { if (elements.exportModeBestMatch.checked) setExportMode('best-match'); });
+      elements.exportModeManual?.addEventListener('change', () => { if (elements.exportModeManual.checked) setExportMode('manual'); });
+      elements.manualExportSelected?.addEventListener('click', openExportConfirmation);
+      elements.manualSelectShown?.addEventListener('click', selectShownReceipts);
+      elements.manualClearSelection?.addEventListener('click', clearManualSelection);
       elements.exportSelected.addEventListener('click', openExportConfirmation);
       elements.confirmExport.addEventListener('click', exportAndConsume);
       elements.cancelExport.addEventListener('click', closeExportConfirmation);
       elements.exportConfirmBackdrop.addEventListener('click', closeExportConfirmation);
       elements.saveDraft.addEventListener('click', saveDraft);
       elements.clearAll.addEventListener('click', async event => {
-        if (!elements.list.children.length || await confirmAction({ title: 'Clear receipts from this form?', message: 'Saved receipts remain in your account and return after a refresh.', confirmLabel: 'Clear form', cancelLabel: 'Keep receipts', danger: true, trigger: event.currentTarget })) { elements.list.replaceChildren(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); }
+        const session = sessionGeneration; // a late Yes from an earlier session never erases the next account's form
+        if (!elements.list.children.length || await confirmAction({ title: 'Clear receipts from this form?', message: 'Saved receipts remain in your account and return after a refresh.', confirmLabel: 'Clear form', cancelLabel: 'Keep receipts', danger: true, trigger: event.currentTarget })) { if (session !== sessionGeneration) return; elements.list.replaceChildren(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); }
       });
       elements.floatingAdd.addEventListener('click', addReceiptForEncoding);
       elements.editForm.addEventListener('submit', saveModalCorrection);
@@ -975,13 +1870,18 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       [elements.optimizationMinAmount, elements.optimizationMaxAmount].forEach(field => field.addEventListener('input', applyToolbarChange));
       elements.clearOptimizationSearch.addEventListener('click', () => { clearTimeout(searchDebounce); elements.optimizationSearch.value = ''; applyToolbarChange(); elements.optimizationSearch.focus(); });
       elements.clearOptimizationFilters.addEventListener('click', clearFilters);
-      elements.receiptStatusFilter.addEventListener('change', applyToolbarChange);
-      elements.encodingAmountCompartment.addEventListener('change', () => {
-        encodingDisplayState.compartment = normalizeEncodingAmountCompartment(elements.encodingAmountCompartment.value);
-        persistEncodingDisplayState();
-        refreshEncodingCards();
-      });
-      document.addEventListener('keydown', event => { if (event.key === 'Escape' && !elements.editModal.hidden) closeEditModal(); else if (event.key === 'Escape' && !elements.exportConfirmModal.hidden) closeExportConfirmation(); });
+      elements.receiptStatusFilter.addEventListener('change', () => { releaseEditPins(); applyToolbarChange(); });
+      elements.encodingAmountCompartment.addEventListener('change', applyAmountRangeChange);
+      elements.showAllAmounts?.addEventListener('click', showAllAmounts);
+      elements.expandAllReceipts?.addEventListener('click', expandAllReceipts);
+      elements.collapseAllReceipts?.addEventListener('click', collapseAllReceipts);
+      // The same two handlers are reachable from the sticky action bar, so long sessions never need a scroll back to the list header.
+      elements.barExpandAllReceipts?.addEventListener('click', expandAllReceipts);
+      elements.barCollapseAllReceipts?.addEventListener('click', collapseAllReceipts);
+      document.addEventListener('keydown', event => { if (modalFocus) return; if (event.key === 'Escape' && !elements.editModal.hidden) closeEditModal(); else if (event.key === 'Escape' && !elements.exportConfirmModal.hidden) escapeReview(); });
+      collapseKeptReceiptsOnShortWindows(elements.keptReceipts);
+      trackTextEntry(elements.encodingWorkspace);
+      elements.encodingWorkspace.addEventListener('keydown', handleEncodingShortcut);
       refreshReceiptIds();
       setActiveStrategy(getActiveStrategy(), { persist: false });
       refreshOptimizationCards();

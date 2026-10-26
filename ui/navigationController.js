@@ -1,3 +1,6 @@
+import { tabbableWithin } from './modalFocus.js';
+import { installTablistKeyboard, syncRovingTabIndex } from './tablistKeyboard.js';
+
 export const receiptRoutes = Object.freeze({
   encoding: 'receipts/encoding',
   optimization: 'receipts/optimization'
@@ -42,7 +45,22 @@ export function createNavigationController({ window = globalThis.window, documen
     elements.drawerBackdrop.hidden = !isMobile() || !open;
     elements.drawer.setAttribute('aria-hidden', String(!visible));
     elements.menuButton.setAttribute('aria-expanded', String(isMobile() && open));
+    // While the drawer overlays the page on phones, the page behind it is inert and does not scroll.
+    const overlay = isMobile() && open;
+    if (elements.content) { if (overlay) elements.content.setAttribute('inert', ''); else elements.content.removeAttribute('inert'); }
+    document.body?.classList?.toggle('drawer-open', overlay);
     if (!open && restoreFocus && isMobile()) elements.menuButton.focus();
+  };
+
+  // While the drawer overlays the page, Tab cycles through the menu button and the drawer's own controls only.
+  const containDrawerTab = event => {
+    if (event.key !== 'Tab' || event.defaultPrevented || event.ctrlKey || event.altKey || event.metaKey) return;
+    if (!isMobile() || elements.drawer.hidden) return;
+    const stops = [elements.menuButton, ...(elements.drawer.querySelectorAll ? tabbableWithin(elements.drawer) : [])];
+    const index = stops.indexOf(document.activeElement);
+    const next = event.shiftKey ? (index <= 0 ? stops.length - 1 : index - 1) : (index < 0 || index === stops.length - 1 ? 0 : index + 1);
+    event.preventDefault();
+    stops[next].focus?.();
   };
 
   const renderRoute = route => {
@@ -53,6 +71,7 @@ export function createNavigationController({ window = globalThis.window, documen
     Object.entries(moduleNavigation).forEach(([module, item]) => item.setAttribute('aria-current', module === metadata.module ? 'page' : 'false'));
     elements.encodingTab.setAttribute('aria-selected', String(!optimization));
     elements.optimizationTab.setAttribute('aria-selected', String(optimization));
+    syncRovingTabIndex([elements.encodingTab, elements.optimizationTab], optimization ? 1 : 0);
     onRoute(metadata.workspace ?? metadata.module, metadata);
   };
 
@@ -81,7 +100,13 @@ export function createNavigationController({ window = globalThis.window, documen
   const start = ({ fallbackRoute } = {}) => {
     if (!started) {
       started = true;
-      elements.menuButton.addEventListener('click', () => setDrawer(elements.drawer.hidden));
+      elements.menuButton.addEventListener('click', () => {
+        const opening = elements.drawer.hidden;
+        setDrawer(opening);
+        if (opening && isMobile()) elements.receiptsNav.focus?.({ preventScroll: true });
+      });
+      elements.menuButton.addEventListener('keydown', containDrawerTab);
+      elements.drawer.addEventListener('keydown', containDrawerTab);
       elements.drawerBackdrop.addEventListener('click', () => setDrawer(false, { restoreFocus: true }));
       Object.entries(moduleNavigation).forEach(([module, item]) => item.addEventListener('click', () => {
         navigate(moduleDefaultRoutes[module]);
@@ -89,6 +114,7 @@ export function createNavigationController({ window = globalThis.window, documen
       }));
       elements.encodingTab.addEventListener('click', () => navigate(receiptRoutes.encoding));
       elements.optimizationTab.addEventListener('click', () => navigate(receiptRoutes.optimization));
+      installTablistKeyboard({ tabs: [elements.encodingTab, elements.optimizationTab], activate: index => navigate(index === 0 ? receiptRoutes.encoding : receiptRoutes.optimization) });
       window.addEventListener('hashchange', () => applyLocation());
       document.addEventListener('keydown', event => { if (event.key === 'Escape' && !elements.drawer.hidden) setDrawer(false, { restoreFocus: true }); });
       window.addEventListener('resize', () => setDrawer(false));

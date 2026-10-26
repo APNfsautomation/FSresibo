@@ -1,0 +1,260 @@
+name: PR Readiness (read-only)
+
+# Informational only (Issue #36, Phase 1). Not a required check, not a review, not a merge or release authorization.
+# Runs on pull requests that target the UAT branch. It never checks out pull request code, uses no secrets and
+# no third-party actions, and performs only GET requests against the GitHub REST API (no comment, label, status,
+# push or merge). A pull request can edit this file, so treat the output as advisory; see docs/03_Development_Workflow.md.
+on:
+  pull_request:
+    branches:
+      - claude/ui-ux-refinement
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+
+permissions: {}
+
+concurrency:
+  group: pr-readiness-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-readiness:
+    name: pr-readiness
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      UAT_BRANCH: claude/ui-ux-refinement
+      REQUIRED_CHECK: node-tests
+      POLL_MAX_SECONDS: '900'
+      POLL_INTERVAL_SECONDS: '20'
+    steps:
+      - name: Assess readiness (GET requests only; no checkout)
+        shell: bash
+        run: |
+          node --input-type=module - <<'NODE'
+          // PR readiness assessment (Issue #36, Phase 1). Informational and read-only.
+          // Only GET requests to the GitHub REST API. No checkout, no secrets, no writes, no PR code is executed.
+          // Untrusted text (PR title, body, branch names, file names) is never printed; logins pass an allow-list filter.
+          import { appendFileSync } from 'node:fs';
+
+          const env = process.env;
+          const num = (value, fallback) => { const n = Number.parseFloat(value); return Number.isFinite(n) && n >= 0 ? n : fallback; };
+          const API = String(env.GITHUB_API_URL || 'https://api.github.com').replace(/\/+$/, '');
+          const REPO = env.GH_REPO || '';
+          const PR = env.PR_NUMBER || '';
+          const EVENT_HEAD = env.EVENT_HEAD_SHA || '';
+          const EVENT_BASE = env.EVENT_BASE_SHA || '';
+          const UAT = env.UAT_BRANCH || '';
+          const CHECK = env.REQUIRED_CHECK || '';
+          const ACTIONS_APP_ID = 15368;
+          const POLL_MAX_MS = num(env.POLL_MAX_SECONDS, 900) * 1000;
+          const POLL_INTERVAL_MS = num(env.POLL_INTERVAL_SECONDS, 20) * 1000;
+          const MERGEABLE_RETRIES = Math.floor(num(env.MERGEABLE_RETRIES, 6));
+          const MERGEABLE_RETRY_MS = num(env.MERGEABLE_RETRY_SECONDS, 5) * 1000;
+          const RETRY_MS = num(env.API_RETRY_DELAY_MS, 3000);
+          const MAX_FILE_PAGES = 30;
+          const BANNER = 'CI/metadata checked — HUMAN REVIEW AND PO APPROVAL REQUIRED';
+
+          const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+          const clean = (value, max = 100) => String(value ?? '').replace(/[^A-Za-z0-9._\/@+-]/g, '?').slice(0, max);
+          const escapeCommand = text => String(text).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+
+          const reasons = new Map();
+          const add = (kind, code, text) => { if (!reasons.has(code)) reasons.set(code, { kind, code, text }); };
+          const verdictOf = () => {
+            const kinds = [...reasons.values()].map(reason => reason.kind);
+            if (kinds.includes('notready')) return 'NOT READY';
+            if (kinds.includes('inconclusive')) return 'INCONCLUSIVE';
+            return 'READY';
+          };
+
+          class ApiError extends Error {}
+          async function api(path) {
+            let last = 'error';
+            for (let attempt = 1; attempt <= 3; attempt += 1) {
+              try {
+                const response = await fetch(API + path, {
+                  method: 'GET',
+                  headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'fsresibo-pr-readiness', Authorization: `Bearer ${env.GH_TOKEN || ''}` },
+                  signal: AbortSignal.timeout(30000),
+                });
+                if (response.status >= 500) last = `HTTP ${response.status}`;
+                else if (!response.ok) throw new ApiError(`HTTP ${response.status}`);
+                else return await response.json();
+              } catch (error) {
+                if (error instanceof ApiError) throw error;
+                last = error?.name || 'error';
+              }
+              if (attempt < 3) await sleep(RETRY_MS);
+            }
+            throw new ApiError(last);
+          }
+
+          async function readPr() {
+            let pr;
+            for (let attempt = 0; attempt <= MERGEABLE_RETRIES; attempt += 1) {
+              pr = await api(`/repos/${REPO}/pulls/${PR}`);
+              if (pr.state !== 'open' || pr.mergeable === true || pr.mergeable === false) break;
+              if (attempt < MERGEABLE_RETRIES) await sleep(MERGEABLE_RETRY_MS);
+            }
+            return {
+              // draft is tri-state (true, false, or null = unknown) and changed is a non-negative integer or null = unknown: only a literal boolean or integer counts.
+              state: pr.state, draft: pr.draft === true ? true : pr.draft === false ? false : null, base: pr.base?.ref ?? '', head: pr.head?.sha ?? '',
+              headRepo: pr.head?.repo?.full_name ?? null, mergeable: pr.mergeable === true ? true : pr.mergeable === false ? false : null,
+              author: pr.user?.login ?? '', changed: Number.isInteger(pr.changed_files) && pr.changed_files >= 0 ? pr.changed_files : null, additions: pr.additions, deletions: pr.deletions,
+            };
+          }
+
+          const hardBlocked = s => s.state !== 'open' || s.draft === true || s.base !== UAT || s.head !== EVENT_HEAD;
+          function evaluate(s) {
+            if (s.state !== 'open') add('notready', 'PR_NOT_OPEN', 'The pull request is not open.');
+            if (s.draft === true) add('notready', 'PR_DRAFT', 'The pull request is a draft.');
+            else if (s.draft !== false) add('inconclusive', 'PR_DRAFT_UNKNOWN', 'GitHub did not report a boolean draft status; only an explicit false counts as not a draft.');
+            if (s.base !== UAT) add('notready', 'BASE_NOT_UAT', 'The pull request does not target the UAT branch.');
+            if (s.head !== EVENT_HEAD) add('notready', 'HEAD_SUPERSEDED', 'SUPERSEDED: the pull request head is no longer the commit this run started with.');
+            if (!hardBlocked(s)) {
+              if (s.mergeable === false) add('notready', 'MERGE_CONFLICT', 'GitHub reports the pull request cannot be merged cleanly.');
+              else if (s.mergeable !== true) add('inconclusive', 'MERGEABLE_UNKNOWN', 'GitHub could not determine mergeability; only a verified true counts.');
+            }
+          }
+
+          async function observeCi(facts) {
+            const deadline = Date.now() + POLL_MAX_MS;
+            const query = `/repos/${REPO}/commits/${EVENT_HEAD}/check-runs?check_name=${encodeURIComponent(CHECK)}&per_page=100`;
+            let latest = null; let apiFailed = false; let ignored = 0; let count = 'ok';
+            for (;;) {
+              try {
+                const body = await api(query);
+                apiFailed = false;
+                const runs = Array.isArray(body.check_runs) ? body.check_runs : [];
+                // total_count counts only if GitHub reports a non-negative integer; the list is complete only when it equals the number of runs returned.
+                count = !Number.isInteger(body.total_count) || body.total_count < 0 ? 'unknown' : body.total_count > runs.length ? 'truncated' : body.total_count < runs.length ? 'inconsistent' : 'ok';
+                const genuine = runs.filter(run => run.name === CHECK && run.head_sha === EVENT_HEAD && run.app?.id === ACTIONS_APP_ID && run.app?.slug === 'github-actions');
+                ignored = runs.length - genuine.length;
+                latest = genuine.sort((a, b) => b.id - a.id)[0] ?? null;
+                if (latest?.status === 'completed') break;
+              } catch { apiFailed = true; }
+              if (Date.now() >= deadline) break;
+              await sleep(POLL_INTERVAL_MS);
+            }
+            if (ignored > 0) add('advisory', 'CI_FOREIGN_CHECKS_IGNORED', `${ignored} check run(s) named ${clean(CHECK)} were ignored (wrong app or commit).`);
+            if (!latest) {
+              facts.ci = apiFailed ? 'api-error' : 'missing';
+              add('inconclusive', apiFailed ? 'API_CHECKS' : 'CI_MISSING', apiFailed ? 'Could not read check runs.' : `No ${clean(CHECK)} check run from GitHub Actions exists for the authored head.`);
+            } else if (latest.status !== 'completed') {
+              facts.ci = clean(latest.status); facts.ciRun = String(Number(latest.id) || '');
+              add('inconclusive', 'CI_PENDING', `${clean(CHECK)} did not complete within the polling window (status: ${clean(latest.status)}).`);
+            } else {
+              facts.ci = clean(latest.conclusion); facts.ciRun = String(Number(latest.id) || '');
+              if (latest.conclusion !== 'success') add('notready', 'CI_NOT_SUCCESS', `${clean(CHECK)} concluded: ${clean(latest.conclusion)}.`);
+            }
+            if (count === 'unknown') add('inconclusive', 'CI_COUNT_UNKNOWN', 'GitHub did not report a valid check-run total_count, so the list cannot be shown to be complete.');
+            else if (count === 'truncated') add('inconclusive', 'CI_TRUNCATED', 'The check-run list was truncated.');
+            else if (count === 'inconsistent') add('inconclusive', 'CI_COUNT_INCONSISTENT', 'GitHub reported a check-run total_count smaller than the list it returned.');
+          }
+
+          async function inventory(facts, expected) {
+            const names = [];
+            try {
+              for (let page = 1; page <= MAX_FILE_PAGES; page += 1) {
+                const batch = await api(`/repos/${REPO}/pulls/${PR}/files?per_page=100&page=${page}`);
+                for (const file of batch) names.push(String(file.filename ?? ''), ...(file.previous_filename ? [String(file.previous_filename)] : []));
+                facts.fileEntries = (facts.fileEntries ?? 0) + batch.length;
+                if (batch.length < 100) break;
+              }
+            } catch (error) {
+              add('inconclusive', 'FILES_API', `Could not read the changed-file list (${clean(error.message)}).`);
+              return;
+            }
+            const complete = Number.isInteger(expected) && expected <= MAX_FILE_PAGES * 100 && facts.fileEntries === expected;
+            facts.filesComplete = complete;
+            if (!complete) add('inconclusive', 'FILES_INCOMPLETE', `Changed-file inventory is incomplete (${facts.fileEntries} of ${Number.isInteger(expected) ? expected : 'unknown'}; GitHub exposes at most ${MAX_FILE_PAGES * 100}). Sensitive-path counts are not reliable.`);
+            const lower = names.map(name => name.toLowerCase());
+            const count = test => lower.filter(test).length;
+            const workflows = count(name => name.startsWith('.github/workflows/') || name.startsWith('.github/actions/'));
+            facts.workflowFiles = workflows;
+            if (workflows) add('advisory', 'WORKFLOW_FILES_CHANGED', `WORKFLOW FILES CHANGED (${workflows}). A green ${clean(CHECK)} may not prove the test program ran, and PR-controlled workflow code runs with the permissions it declares: review the workflow diff before trusting any result.`);
+            if (lower.includes('.github/workflows/tests.yml')) add('advisory', 'TESTS_WORKFLOW_CHANGED', 'The required tests workflow (tests.yml) is modified in this pull request.');
+            const other = count(name => name.startsWith('.github/') && !(name.startsWith('.github/workflows/') || name.startsWith('.github/actions/')));
+            if (other) add('advisory', 'GITHUB_CONFIG_CHANGED', `${other} other .github file(s) changed.`);
+            for (const [code, prefix, label] of [['SUPABASE_CHANGED', 'supabase/', 'Supabase'], ['VENDOR_CHANGED', 'vendor/', 'vendored dependency'], ['CONFIG_CHANGED', 'config/', 'config'], ['TESTS_CHANGED', 'tests/', 'test']]) {
+              const n = count(name => name.startsWith(prefix));
+              if (n) add('advisory', code, `${n} ${label} file(s) changed.`);
+            }
+          }
+
+          async function main(facts) {
+            if (!/^[0-9]+$/.test(PR) || !/^[0-9a-f]{40}$/.test(EVENT_HEAD) || !/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(REPO) || !UAT || !CHECK) {
+              add('inconclusive', 'BAD_INPUT', 'Workflow inputs failed validation.'); return;
+            }
+            if (typeof fetch !== 'function') { add('inconclusive', 'RUNTIME', 'This runner has no fetch support.'); return; }
+            let first;
+            try { first = await readPr(); } catch (error) { add('inconclusive', 'API_PR', `Could not read the pull request (${clean(error.message)}).`); return; }
+            let final = first;
+            if (!hardBlocked(first)) {
+              await observeCi(facts);
+              try {
+                final = await readPr();
+                if (first.draft !== false) add('inconclusive', 'PR_DRAFT_UNKNOWN', 'GitHub did not report a boolean draft status; only an explicit false counts as not a draft.');
+                if (final.head !== first.head || final.base !== first.base || final.state !== first.state || (typeof final.draft === 'boolean' && typeof first.draft === 'boolean' && final.draft !== first.draft)) add('notready', 'CHANGED_DURING_ASSESSMENT', 'The pull request changed while CI was being observed.');
+              } catch (error) { add('inconclusive', 'API_PR_FINAL', `Could not re-read the pull request after observing CI (${clean(error.message)}).`); }
+            } else facts.ci = 'not-checked';
+            evaluate(final);
+            facts.final = final;
+            facts.mergeable = final.mergeable === null ? 'unknown' : String(final.mergeable);
+            // The expected file count must be a valid integer at both reads and identical between them; otherwise it is unknown and the inventory is incomplete.
+            await inventory(facts, first.changed !== null && first.changed === final.changed ? final.changed : null);
+            try {
+              const branch = await api(`/repos/${REPO}/branches/${encodeURIComponent(UAT)}`);
+              facts.uatNow = String(branch.commit?.sha ?? '');
+              if (!/^[0-9a-f]{40}$/.test(facts.uatNow)) throw new ApiError('bad sha');
+              if (/^[0-9a-f]{40}$/.test(EVENT_BASE) && EVENT_BASE !== facts.uatNow) add('advisory', 'UAT_MOVED', `UAT moved since this run started (${EVENT_BASE.slice(0, 12)} to ${facts.uatNow.slice(0, 12)}); CI may not reflect the current merge.`);
+            } catch { add('inconclusive', 'API_UAT', 'Could not read the live UAT branch head.'); }
+            if (final.headRepo !== REPO) add('advisory', 'FORK_HEAD', 'The pull request head is not in this repository (fork or deleted repository).');
+          }
+
+          const facts = { ci: 'unknown', ciRun: '', mergeable: 'unknown', filesComplete: false, workflowFiles: 0, uatNow: '', fileEntries: 0, final: null };
+          try { await main(facts); } catch (error) { add('inconclusive', 'INTERNAL_ERROR', `Unexpected error: ${clean(error?.message)}.`); }
+
+          const verdict = verdictOf();
+          const f = facts.final;
+          const list = [...reasons.values()];
+          const label = { notready: 'BLOCKING', inconclusive: 'INCONCLUSIVE', advisory: 'ADVISORY' };
+          const summary = [
+            `## PR readiness: ${verdict}`,
+            `**${BANNER}.** Informational only: this is not a review, a merge authorization, a release approval or proof that the tests ran. The author, pusher and reviewer are the same GitHub account in this repository, so this report cannot show who approved anything.`,
+            ...(reasons.has('WORKFLOW_FILES_CHANGED') ? ['', `> **WARNING: ${list.find(r => r.code === 'WORKFLOW_FILES_CHANGED').text}**`] : []),
+            '', '| Item | Value |', '|---|---|',
+            `| PR | #${clean(PR, 12)} |`,
+            `| Base (live, final read) | \`${clean(f?.base || '?')}\` |`,
+            `| Authored head SHA (evidence key) | \`${clean(EVENT_HEAD, 40)}\` |`,
+            `| Live head at final read | \`${clean(f?.head || '?', 40)}\` |`,
+            `| Merge commit used by GITHUB_SHA | \`${clean(env.GITHUB_SHA || 'unknown', 40)}\` (synthetic pull-request merge ref, not the authored head) |`,
+            `| ${clean(CHECK)} on authored head (GitHub Actions app ${ACTIONS_APP_ID}) | \`${clean(facts.ci)}\`${facts.ciRun ? ` (check run ${facts.ciRun})` : ''} |`,
+            `| Mergeable (verified at final read) | \`${clean(facts.mergeable)}\` |`,
+            `| Changed files | ${clean(f?.changed ?? '?', 8)}, inventory ${facts.filesComplete ? 'complete' : 'INCOMPLETE'} (${facts.fileEntries} read) |`,
+            `| Lines | +${clean(f?.additions ?? '?', 8)} / -${clean(f?.deletions ?? '?', 8)} |`,
+            `| UAT head now | \`${clean(facts.uatNow.slice(0, 12) || '?')}\` |`,
+            `| PR author (filtered) | \`${clean(f?.author || '?')}\` |`,
+            '', ...(list.length ? list.map(r => `- ${label[r.kind]} [${r.code}]: ${r.text}`) : ['- No findings.']),
+            '', 'Limits: test counts are not available to this workflow; no comment is posted; this check is not required by the UAT ruleset; a pull request can alter its own workflow file, so treat this output as advisory.', '',
+          ].join('\n');
+          try { if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, summary + '\n'); } catch { /* summary is best effort */ }
+
+          const head12 = clean(EVENT_HEAD, 40).slice(0, 12);
+          console.log(`::notice title=PR readiness::${escapeCommand(`${verdict} for PR #${clean(PR, 12)} head ${head12}. ${BANNER}.`)}`);
+          for (const reason of list) console.log(`::${reason.kind === 'advisory' ? 'warning' : 'error'} title=PR readiness ${label[reason.kind].toLowerCase()}::${escapeCommand(`[${reason.code}] ${reason.text}`)}`);
+          console.log(`PR_READINESS verdict=${verdict.replace(' ', '_')} pr=${clean(PR, 12)} head=${clean(EVENT_HEAD, 40)} base=${clean(f?.base || 'unknown')} ci=${clean(facts.ci)} ci_check_run=${clean(facts.ciRun || 'none')} mergeable=${clean(facts.mergeable)} files=${clean(f?.changed ?? 'unknown', 8)} files_complete=${facts.filesComplete} workflow_files=${facts.workflowFiles} human_review_required=true`);
+          for (const reason of list) console.log(`PR_READINESS_REASON kind=${reason.kind} code=${reason.code}`);
+          console.log(BANNER);
+          process.exitCode = verdict === 'READY' ? 0 : 1;
+          NODE

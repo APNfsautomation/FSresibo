@@ -1,12 +1,12 @@
 import { getSupabaseClient } from '../config/supabase.js';
+import { normalizeMoneyAmount } from '../domain/moneyAmount.js';
 
-function toDatabaseReceipt(receipt, userId) {
-  const amount = String(receipt.amount ?? '').trim();
-  const numericAmount = Number(amount);
+export function toDatabaseReceipt(receipt, userId) {
+  // A blank amount is stored as NULL; a malformed non-blank amount is rejected here, never turned into NULL.
   return {
     user_id: userId,
     store_name: receipt.store || '',
-    amount: amount && Number.isFinite(numericAmount) ? numericAmount : null,
+    amount: normalizeMoneyAmount(receipt.amount),
     receipt_date: receipt.receiptDate || null,
     address: receipt.address || null,
     tin: receipt.tin || null,
@@ -15,7 +15,9 @@ function toDatabaseReceipt(receipt, userId) {
   };
 }
 
-function fromDatabaseReceipt(receipt) {
+// The status is passed through exactly as the database holds it: Available and Consumed are the only lifecycle states the app acts on, and anything else
+// (an unexpected, empty or missing value) must stay recognisable as "not Available" so it can never be selected or exported. The UI normalizes it for display only.
+export function fromDatabaseReceipt(receipt) {
   return {
     dbId: receipt.id,
     amount: receipt.amount ?? '',
@@ -26,7 +28,7 @@ function fromDatabaseReceipt(receipt) {
     address: receipt.address ?? '',
     tin: receipt.tin ?? '',
     updatedAt: receipt.updated_at ?? '',
-    status: receipt.status === 'consumed' ? 'consumed' : 'available'
+    status: receipt.status ?? ''
   };
 }
 
@@ -39,6 +41,17 @@ async function clientOrThrow() {
 export async function loadReceipts() {
   const client = await clientOrThrow();
   const { data, error } = await client.from('receipts').select('*').order('created_at', { ascending: true });
+  if (error) throw error;
+  return data.map(fromDatabaseReceipt);
+}
+
+// Read-only snapshot of specific receipts for export. Row-level security still limits the read to the signed-in user's own receipts;
+// an id that is not returned is missing (deleted, or never visible to this user).
+export async function loadReceiptsByIds(ids) {
+  const uniqueIds = [...new Set(ids)].filter(Boolean);
+  if (!uniqueIds.length) return [];
+  const client = await clientOrThrow();
+  const { data, error } = await client.from('receipts').select('*').in('id', uniqueIds);
   if (error) throw error;
   return data.map(fromDatabaseReceipt);
 }
@@ -64,6 +77,17 @@ export async function deleteReceipt(id) {
   if (error) throw error;
 }
 
+// Permanently deletes ONE receipt, and only while its status in the database is still 'consumed'.
+// Row-level security already limits deletes to the caller's own rows; the status condition is added here so a receipt that another session
+// has meanwhile restored to Available is never deleted. The call succeeds only if the database confirms exactly one deleted row.
+export async function deleteConsumedReceipt(id) {
+  if (!id) throw new Error('A saved receipt is required.');
+  const client = await clientOrThrow();
+  const { data, error } = await client.from('receipts').delete().eq('id', id).eq('status', 'consumed').select('id');
+  if (error) throw error;
+  if (!Array.isArray(data) || data.length !== 1 || data[0]?.id !== id) throw new Error('The receipt is no longer Consumed (or no longer exists), so it was not deleted. Refresh to see its current status.');
+}
+
 export async function updateReceiptStatus(id, status) {
   if (!['available', 'consumed'].includes(status)) throw new Error('Unsupported receipt status.');
   const client = await clientOrThrow();
@@ -85,7 +109,8 @@ export async function consumeReceipts(ids) {
 export async function importReceipts(receipts, userId) {
   if (!receipts.length) return [];
   const client = await clientOrThrow();
-  const { data, error } = await client.from('receipts').insert(receipts.map(receipt => toDatabaseReceipt(receipt, userId))).select();
+  const rows = receipts.map((receipt, index) => { try { return toDatabaseReceipt(receipt, userId); } catch (error) { throw new Error(`Browser draft receipt ${index + 1}: ${error.message}`); } });
+  const { data, error } = await client.from('receipts').insert(rows).select();
   if (error) throw error;
   return data.map(fromDatabaseReceipt);
 }

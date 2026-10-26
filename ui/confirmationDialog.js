@@ -1,4 +1,4 @@
-export function createConfirmationDialog({ modal, backdrop, title, message, confirmButton, cancelButton, documentRef = document }) {
+export function createConfirmationDialog({ modal, backdrop, title, message, confirmButton, cancelButton, documentRef = document, modalFocus = null }) {
   let resolvePending;
   let returnFocus;
   const close = confirmed => {
@@ -8,7 +8,9 @@ export function createConfirmationDialog({ modal, backdrop, title, message, conf
     modal.hidden = true;
     confirmButton.disabled = false;
     confirmButton.removeAttribute('aria-busy');
-    returnFocus?.focus?.({ preventScroll: true });
+    // The shared focus manager also makes the page interactive again before returning focus to the control that opened the dialog.
+    if (modalFocus) modalFocus.close(modal);
+    else returnFocus?.focus?.({ preventScroll: true });
     returnFocus = undefined;
     resolve(confirmed);
   };
@@ -21,15 +23,19 @@ export function createConfirmationDialog({ modal, backdrop, title, message, conf
     modal.classList.toggle('is-danger', Boolean(danger));
     returnFocus = trigger;
     modal.hidden = false;
+    modalFocus?.open(modal, { trigger, onEscape: () => close(false) });
     return new Promise(resolve => {
       resolvePending = resolve;
-      queueMicrotask(() => confirmButton.focus({ preventScroll: true }));
+      // Destructive confirmations start on the safe action so Enter or Space cannot confirm by accident.
+      const initialFocus = danger ? cancelButton : confirmButton;
+      queueMicrotask(() => initialFocus.focus({ preventScroll: true }));
     });
   };
   confirmButton.addEventListener('click', () => close(true));
   cancelButton.addEventListener('click', () => close(false));
   backdrop.addEventListener('click', () => close(false));
-  documentRef.addEventListener('keydown', event => {
+  // With a shared focus manager Escape is routed to the topmost dialog by the manager; this listener serves standalone use.
+  if (!modalFocus) documentRef.addEventListener('keydown', event => {
     if (event.key === 'Escape' && !modal.hidden) {
       event.preventDefault();
       close(false);

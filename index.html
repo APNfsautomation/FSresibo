@@ -3,23 +3,26 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>FSResibo</title>
+    <title>FS Receipt Management Tool</title>
+    <meta name="application-name" content="FS Receipt Management Tool" />
+    <meta name="apple-mobile-web-app-title" content="FS Receipt Management Tool" />
+    <meta name="description" content="FS Receipt Management Tool: receipt encoding, optimization and monthly filing by FS Automation." />
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="auth.css" />
   </head>
   <body>
-    <label class="theme-control" for="themePreference">Theme<select id="themePreference"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
     <section class="auth-shell" id="authView" hidden>
       <div class="auth-card">
-        <p class="eyebrow brand-mark">FSRESIBO</p>
-        <h1>Welcome back.</h1>
-        <p class="lede">Sign in to access your receipts.</p>
+        <img class="auth-logo" src="assets/fs-automation-logo.png" width="680" height="207" alt="FS Automation" />
+        <h1 data-app-name>FS Receipt Management Tool</h1>
+        <p class="lede">Sign in to continue.</p>
         <form id="loginForm" class="auth-form">
           <label>Email<input id="loginEmail" type="email" autocomplete="email" required /></label>
           <label>Password<input id="loginPassword" type="password" autocomplete="current-password" required /></label>
           <button class="primary" type="submit">Log in</button>
           <button class="text-button" id="showReset" type="button">Forgot password?</button>
-          <p class="auth-form-copy">FSResibo accounts are managed by FS Automation. Contact an administrator if you need access.</p>
+          <p class="auth-form-copy">Accounts are managed by FS Automation. Contact an administrator if you need access.</p>
         </form>
         <form id="registerForm" class="auth-form" hidden>
           <label>Email<input id="registerEmail" type="email" autocomplete="email" required /></label>
@@ -37,74 +40,90 @@
         </form>
         <form id="recoveryForm" class="auth-form" hidden>
           <h2>Set new password</h2>
-          <p class="auth-form-copy">Choose a new password for your FSResibo account.</p>
+          <p class="auth-form-copy">Choose a new password for your account.</p>
           <label>New password<input id="recoveryPassword" type="password" autocomplete="new-password" minlength="6" required /></label>
           <label>Confirm new password<input id="recoveryConfirmPassword" type="password" autocomplete="new-password" minlength="6" required /></label>
           <button class="primary" type="submit">Save new password</button>
           <button class="text-button" id="backFromRecovery" type="button">Request another reset link</button>
         </form>
         <p id="authMessage" class="auth-message" aria-live="polite"></p>
-        <p class="application-version auth-version" id="authVersion"></p>
+        <div class="auth-footer"><label class="theme-control" for="authThemePreference"><span class="theme-label">Theme</span><select id="authThemePreference"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label><p class="application-version auth-version" id="authVersion"></p></div>
       </div>
     </section>
 
     <main class="app-shell" id="appView" hidden>
-      <button class="navigation-menu-button" id="navigationMenuButton" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="navigationDrawer">Menu</button>
+      <div class="mobile-topbar" aria-hidden="true"><span class="brand-slash"></span><span class="brand-name" data-app-name>FS Receipt Management Tool</span></div>
+      <button class="navigation-menu-button" id="navigationMenuButton" type="button" aria-label="Menu" aria-expanded="false" aria-controls="navigationDrawer">Menu</button>
       <div class="navigation-backdrop" id="navigationDrawerBackdrop" hidden></div>
       <aside class="application-navigation" id="navigationDrawer" aria-label="Application navigation" aria-hidden="false">
-        <p class="navigation-brand">FSRESIBO</p>
-        <p class="navigation-label">WORKFLOWS</p>
-        <nav>
-          <button class="navigation-item" id="receiptsNavigationItem" type="button" aria-current="page">Receipts</button>
+        <p class="navigation-brand"><span class="brand-slash" aria-hidden="true"></span><span class="brand-name" data-app-name>FS Receipt Management Tool</span></p>
+        <nav aria-label="Workflows">
+          <button class="navigation-item" id="receiptsNavigationItem" type="button" aria-current="page">My Receipts</button>
           <button class="navigation-item" id="monthlyFilingNavigationItem" type="button" aria-current="false">Monthly Filing</button>
           <button class="navigation-item" id="quickOptimizerNavigationItem" type="button" aria-current="false">Quick Optimizer</button>
         </nav>
+        <div class="account" id="accountSlot">
+          <span class="user-email" id="userEmail"></span>
+          <span class="session-feedback" id="sessionFeedback" role="status"></span>
+          <div class="account-controls"><label class="theme-control" for="themePreference"><span class="theme-label">Theme</span><select id="themePreference"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label><button class="ghost" id="logout" type="button">Log out</button></div>
+          <span class="application-version app-version" id="appVersion"></span>
+        </div>
       </aside>
       <div class="application-content">
-      <header class="app-header">
-        <div>
-          <p class="eyebrow brand-mark">FSRESIBO</p>
-          <h1>Receipt workflows</h1>
-          <p class="lede">Encode, file, or calculate the receipt combination you need.</p>
-        </div>
-        <div class="header-actions">
-          <div class="session-meta"><span class="user-email" id="userEmail"></span><span class="application-version app-version" id="appVersion"></span><span class="session-feedback" id="sessionFeedback" role="status"></span></div>
-          <button class="ghost" id="logout" type="button">Log out</button>
-        </div>
-      </header>
 
-      <nav class="workspace-switcher" id="receiptWorkspaceSwitcher" aria-label="Receipt workspaces" role="tablist">
-        <button class="workspace-tab" id="encodingTab" type="button" role="tab" aria-controls="encodingWorkspace" aria-selected="true">Receipt Encoding</button>
-        <button class="workspace-tab" id="optimizationTab" type="button" role="tab" aria-controls="optimizationWorkspace" aria-selected="false">Receipt Optimization</button>
-      </nav>
-      <label class="receipt-status-filter" id="receiptStatusControl">View receipts<select id="receiptStatusFilter"><option value="available">Available</option><option value="consumed">Consumed</option><option value="all">All</option></select></label>
+      <div class="receipts-bar" id="receiptsBar">
+        <nav class="workspace-switcher" id="receiptWorkspaceSwitcher" aria-label="Receipt workspaces" role="tablist">
+          <button class="workspace-tab" id="encodingTab" type="button" role="tab" aria-controls="encodingWorkspace" aria-selected="true">Encoding</button>
+          <button class="workspace-tab" id="optimizationTab" type="button" role="tab" aria-controls="optimizationWorkspace" aria-selected="false">Optimization</button>
+        </nav>
+        <label class="receipt-status-filter" id="receiptStatusControl">View receipts<select id="receiptStatusFilter"><option value="available">Available</option><option value="consumed">Consumed</option><option value="all">All</option></select></label>
+      </div>
 
       <section class="workspace-view encoding-workspace" id="encodingWorkspace" role="tabpanel" aria-labelledby="encodingTab">
         <div class="workspace-heading">
-          <div><p class="eyebrow">WORKSPACE 1</p><h2>Receipt Encoding</h2><p>Capture and correct receipt details without optimization distractions.</p></div>
-          <div class="encoding-workspace-tools"><p id="availableTotal" class="available-total">Available Total — ₱0.00</p><label class="encoding-compartment-filter" for="encodingAmountCompartment">Amount compartment<select id="encodingAmountCompartment"></select></label></div>
+          <h1>My Receipt Encoding</h1>
+          <div class="encoding-workspace-tools">
+            <section class="available-summary" aria-label="Saved Available receipts">
+              <div class="summary-metric"><svg class="summary-icon" viewBox="0 0 24 24" width="22" height="22" focusable="false" aria-hidden="true"><path d="M3.5 7.5A2.5 2.5 0 0 1 6 5h11.5a1.5 1.5 0 0 1 1.5 1.5V8M3.5 7.5V17A2.5 2.5 0 0 0 6 19.5h12.5A1.5 1.5 0 0 0 20 18V9.5A1.5 1.5 0 0 0 18.5 8H6a2.5 2.5 0 0 1-2.5-2.5M15.5 13.75h2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><div><p class="summary-label">Available total</p><p class="summary-value" id="availableTotal">₱0.00</p></div></div>
+              <div class="summary-metric"><svg class="summary-icon" viewBox="0 0 24 24" width="22" height="22" focusable="false" aria-hidden="true"><path d="M6 3.5h12v17l-2.25-1.5L13.5 20.5 12 19l-1.5 1.5L8.25 19 6 20.5v-17ZM9 8.5h6M9 12h6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><div><p class="summary-label">Available receipts</p><p class="summary-value" id="availableCount">0</p></div></div>
+            </section>
+            <label class="encoding-compartment-filter" for="encodingAmountCompartment">Amount compartment<select id="encodingAmountCompartment"></select></label></div>
+        </div>
+        <div class="encoding-actions action-bar" id="encodingActions">
+          <span class="action-bar-label" aria-hidden="true">RECEIPT ACTIONS</span>
+          <button class="ghost danger" id="clearAll" type="button">Clear form</button>
+          <span class="action-bar-spacer" aria-hidden="true"></span>
+          <span class="unsaved-status" role="status"><span class="unsaved-indicator" id="encodingUnsavedIndicator" hidden><span class="unsaved-dot" aria-hidden="true">●</span> <span id="encodingUnsavedText"></span></span></span>
+          <span class="save-progress" id="saveProgress" hidden aria-hidden="true"><span class="save-spinner" aria-hidden="true"></span><span id="saveProgressText"></span></span><span class="visually-hidden" id="saveProgressLive" role="status" aria-live="polite" aria-atomic="true"></span>
+          <span class="bar-tools" role="group" aria-label="Expand or collapse the shown receipts"><button class="ghost list-tool bar-tool" id="barExpandAllReceipts" type="button" aria-label="Expand all shown receipts"><svg class="button-icon" viewBox="0 0 16 16" width="14" height="14" focusable="false" aria-hidden="true"><path d="M3.5 6 8 10.5 12.5 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="bar-tool-text">Expand all</span></button><button class="ghost list-tool bar-tool" id="barCollapseAllReceipts" type="button" aria-label="Collapse all shown receipts"><svg class="button-icon" viewBox="0 0 16 16" width="14" height="14" focusable="false" aria-hidden="true"><path d="M3.5 10 8 5.5 12.5 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="bar-tool-text">Collapse all</span></button></span>
+          <button class="secondary floating-add" id="floatingAddReceipt" type="button" aria-keyshortcuts="Control+Enter"><span aria-hidden="true">+</span> Add receipt <kbd class="shortcut-hint" aria-hidden="true">Ctrl+Enter</kbd></button>
+          <button class="primary action-save" id="saveDraft" type="button" aria-keyshortcuts="Control+S">Save changes <kbd class="shortcut-hint" aria-hidden="true">Ctrl+S</kbd></button>
+          <p class="workflow-feedback" id="encodingFeedback" role="status" aria-live="polite"></p>
         </div>
         <div class="panel encoding-panel">
-          <div class="panel-heading"><div><h3>Your receipts</h3><p id="receiptCount">No receipts added</p></div></div>
+          <div class="panel-heading"><div><h2>Your receipts</h2><p id="receiptCount">No receipts added</p></div>
+            <div class="list-tools"><button class="ghost list-tool" id="expandAllReceipts" type="button"><svg class="button-icon" viewBox="0 0 16 16" width="14" height="14" focusable="false" aria-hidden="true"><path d="M3.5 6 8 10.5 12.5 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Expand all</span></button><button class="ghost list-tool" id="collapseAllReceipts" type="button"><svg class="button-icon" viewBox="0 0 16 16" width="14" height="14" focusable="false" aria-hidden="true"><path d="M3.5 10 8 5.5 12.5 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Collapse all</span></button></div></div>
+          <div class="filter-notice" id="encodingFilterNotice" role="status" hidden><svg class="notice-icon" viewBox="0 0 24 24" width="22" height="22" focusable="false" aria-hidden="true"><path d="M12 3.75 21 19.5H3L12 3.75ZM12 10v4.25M12 17h.01" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><p id="encodingFilterNoticeText"></p><button class="secondary" id="showAllAmounts" type="button">Show all amounts</button></div>
           <div id="receiptList" class="encoding-list" aria-live="polite"></div>
-          <div class="photo-note"><span>⌁</span><p><strong>Free printed-text OCR.</strong> Scan a receipt to fill printed store details. Handwritten amounts should be entered and checked manually.</p></div>
+          <div class="photo-note"><span aria-hidden="true">⌁</span><p><strong>Free printed-text OCR.</strong> Open a receipt and choose Scan printed details to fill printed store details. Check handwritten amounts manually.</p></div>
         </div>
-        <div class="encoding-actions">
-          <button class="primary action-save" id="saveDraft" type="button">Save changes</button>
-          <button class="ghost danger" id="clearAll" type="button">Clear form</button>
-        </div>
-        <p class="workflow-feedback" id="encodingFeedback" role="status" aria-live="polite"></p>
-        <button class="floating-add" id="floatingAddReceipt" type="button" aria-label="Add a receipt">+ <span>Add Receipt</span></button>
       </section>
 
       <section class="workspace-view optimization-workspace" id="optimizationWorkspace" role="tabpanel" aria-labelledby="optimizationTab" hidden>
-        <div class="workspace-heading"><div><p class="eyebrow">WORKSPACE 2</p><h2>Receipt Optimization</h2><p>Find and review the closest combination from your encoded receipts.</p></div></div>
+        <div class="workspace-heading"><h1>My Receipt Optimization</h1></div>
+        <fieldset class="export-mode">
+          <legend class="visually-hidden">Receipt selection method</legend>
+          <div class="export-mode-options">
+            <label><input type="radio" name="exportMode" id="exportModeBestMatch" value="best-match" checked /><span>Best Match</span></label>
+            <label><input type="radio" name="exportMode" id="exportModeManual" value="manual" /><span>Manual Selection</span></label>
+          </div>
+        </fieldset>
         <div class="optimization-layout">
           <section class="optimization-controls" aria-label="Optimization controls">
             <div class="target-card" aria-labelledby="target-label">
               <label id="target-label" for="targetAmount">Amount to fill</label>
               <div class="currency-input target-input"><span>₱</span><input id="targetAmount" inputmode="decimal" placeholder="0.00" aria-label="Target amount" /></div>
-              <label class="strategy-label" for="optimizationStrategy">Optimization strategy</label>
+              <label class="strategy-label" for="optimizationStrategy">Strategy</label>
               <select id="optimizationStrategy" class="optimization-strategy">
                 <option value="closest">Closest Match</option>
                 <option value="fewest">Fewest Receipts</option>
@@ -113,11 +132,18 @@
               <p id="optimizationStrategyHelper" class="strategy-helper">Finds the combination nearest to your target.</p>
               <button class="primary" id="calculate" type="button">Find best match</button>
               <button class="secondary export-selected" id="exportSelected" type="button" disabled>Export Selected (0)</button>
+              <div id="calculationProgress" class="calculation-progress" hidden>
+                <p id="calculationProgressText" class="calculation-progress-text" role="status" aria-live="polite"></p>
+                <progress id="calculationProgressBar" max="100" value="0" aria-label="Calculation progress"></progress>
+                <button class="secondary" id="cancelCalculation" type="button">Cancel calculation</button>
+              </div>
             </div>
             <aside class="panel result-panel" aria-live="polite">
-              <p class="eyebrow">RECOMMENDATION</p><h3 id="resultTitle">Add receipts to begin</h3>
+              <p class="result-label">Recommendation</p><h2 id="resultTitle">Add receipts to begin</h2>
               <div id="resultAmount" class="result-amount">₱0.00</div>
               <p id="difference" class="difference">Enter a target and receipt amounts.</p>
+              <p id="optimizationUnsavedNotice" class="unsaved-values-notice" role="status" hidden></p>
+              <button class="secondary export-go-encoding" id="exportGoToEncoding" type="button" hidden>Go to Encoding</button>
               <dl id="optimizationResultSummary" class="optimization-result-summary" hidden>
                 <div><dt>Target</dt><dd id="summaryTarget">—</dd></div>
                 <div><dt>Matched</dt><dd id="summaryMatched">—</dd></div>
@@ -125,24 +151,40 @@
                 <div><dt>Receipts</dt><dd id="summaryReceiptCount">—</dd></div>
                 <div><dt>Strategy</dt><dd id="summaryStrategy">—</dd></div>
               </dl>
-              <div id="keptReceipts" class="kept-receipts"></div>
+              <details class="kept-details" open><summary>Receipts to pull</summary><div id="keptReceipts" class="kept-receipts"></div></details>
               <details class="admin"><summary>Calculation details</summary><div id="adminContent" class="admin-content">Run a calculation to view the selection logic.</div></details>
             </aside>
+            <section class="panel manual-panel" id="manualPanel" aria-label="Manual selection" hidden>
+              <p class="manual-help">Check the receipts to export, in the order you want them listed (you can rearrange them before exporting). Choose up to 100 saved, Available receipts.</p>
+              <dl class="manual-summary" id="manualSummary">
+                <div><dt>Selected</dt><dd id="manualSelectedCount">0 of 100</dd></div>
+                <div><dt>Total amount</dt><dd id="manualSelectedTotal">₱0.00</dd></div>
+                <div id="manualNoAmountGroup" hidden><dt>No amount</dt><dd id="manualNoAmount"></dd></div>
+                <div id="manualHiddenGroup" hidden><dt>Hidden by filters</dt><dd id="manualHidden"></dd></div>
+              </dl>
+              <div class="manual-actions">
+                <button class="secondary" id="manualSelectShown" type="button">Select shown</button>
+                <button class="ghost" id="manualClearSelection" type="button" disabled>Clear selection</button>
+                <button class="primary" id="manualExportSelected" type="button" disabled>Export Selected (0)</button>
+                <button class="secondary export-go-encoding" id="manualGoToEncoding" type="button" hidden>Go to Encoding</button>
+              </div>
+              <p class="workflow-feedback" id="manualFeedback" role="status" aria-live="polite"></p>
+            </section>
           </section>
           <section class="panel optimization-receipts-panel" aria-label="Encoded receipts">
-            <div class="panel-heading receipt-browser-heading"><div><h3>Encoded receipts</h3><p>Search, filter, and review your available receipts.</p></div></div>
+            <div class="panel-heading receipt-browser-heading"><div><h2>Encoded receipts</h2><p>Search, filter, and review your available receipts.</p></div></div>
             <div class="optimization-toolbar" aria-label="Receipt search and filters">
               <label class="optimization-search-label" for="optimizationSearch">Search receipts</label>
               <div class="optimization-search-wrap">
                 <input id="optimizationSearch" type="search" autocomplete="off" placeholder="Search store, invoice number, TIN, or receipt…" />
                 <button id="clearOptimizationSearch" class="toolbar-clear-search" type="button" aria-label="Clear receipt search" hidden>Clear</button>
               </div>
+              <label class="toolbar-sort">Sort<select id="optimizationSort"><option value="default">Receipt number: current order</option><option value="receipt-asc">Receipt number: ascending</option><option value="receipt-desc">Receipt number: descending</option><option value="date-desc">Date: newest first</option><option value="date-asc">Date: oldest first</option><option value="amount-desc">Amount: highest first</option><option value="amount-asc">Amount: lowest first</option><option value="store-asc">Store: A–Z</option><option value="store-desc">Store: Z–A</option></select></label>
               <div class="optimization-toolbar-status">
                 <p id="optimizationResultCount" aria-live="polite">Showing 0 of 0 receipts</p>
                 <p id="optimizationFilterStatus" class="filter-status" aria-live="polite" hidden>Filters active</p>
                 <button id="clearOptimizationFilters" class="ghost toolbar-clear-filters" type="button" hidden>Clear filters</button>
               </div>
-              <label class="toolbar-sort">Sort<select id="optimizationSort"><option value="default">Receipt number: current order</option><option value="receipt-asc">Receipt number: ascending</option><option value="receipt-desc">Receipt number: descending</option><option value="date-desc">Date: newest first</option><option value="date-asc">Date: oldest first</option><option value="amount-desc">Amount: highest first</option><option value="amount-asc">Amount: lowest first</option><option value="store-asc">Store: A–Z</option><option value="store-desc">Store: Z–A</option></select></label>
               <details class="more-filters" id="optimizationMoreFilters">
                 <summary>More filters</summary>
                 <div class="filter-fields">
@@ -162,27 +204,55 @@
       </section>
 
       <section class="workspace-view monthly-filing-workspace" id="monthlyFilingWorkspace" hidden aria-label="Monthly Filing">
-        <div class="workspace-heading"><div><p class="eyebrow">WORKFLOW 2</p><h2>Monthly Filing</h2><p>A separate monthly receipt workspace. It does not affect long-term receipt totals or optimization.</p></div></div>
-        <div class="panel monthly-filing-panel"><div class="panel-heading"><div><h3>Monthly Filing receipts</h3><p>All Active entries are exported together. Archived entries are read-only until returned to Active.</p></div></div><div class="monthly-filing-tabs" role="tablist" aria-label="Monthly Filing receipt status"><button class="workspace-tab" id="monthlyFilingActiveTab" type="button" role="tab" aria-selected="true" aria-controls="monthlyFilingList">Active (0)</button><button class="workspace-tab" id="monthlyFilingArchivedTab" type="button" role="tab" aria-selected="false" aria-controls="monthlyFilingList" tabindex="-1">Archived (0)</button></div><div id="monthlyFilingList" class="monthly-filing-list" role="tabpanel" aria-live="polite"></div></div>
-        <div class="encoding-actions" id="monthlyFilingActiveActions"><button class="primary" id="monthlyFilingSave" type="button">Save Changes</button><button class="secondary" id="monthlyFilingExportActive" type="button">Export &amp; Archive Active</button><button class="ghost" id="monthlyFilingAdd" type="button">Add Receipt</button></div><p class="form-helper" id="monthlyFilingExportHelper">Unsaved Active changes are saved automatically before export.</p><div class="encoding-actions" id="monthlyFilingArchivedActions" hidden><button class="delete-receipt" id="monthlyFilingClearArchived" type="button">Clear Archived Receipts</button></div><details class="monthly-more-actions"><summary>More Actions</summary><button class="delete-receipt" id="monthlyFilingClear" type="button">Clear All Monthly Filing</button></details>
-        <p class="workflow-feedback" id="monthlyFilingFeedback" role="status" aria-live="polite"></p>
+        <!-- Row 1: heading and Active / Archived tabs -->
+        <div class="workspace-heading monthly-header">
+          <div><h1>Monthly Filing</h1><p class="page-sub">Separate from long-term receipt totals. Active entries export together; Archived entries are read-only.</p></div>
+          <div class="monthly-filing-tabs" role="tablist" aria-label="Monthly Filing receipt status"><button class="workspace-tab" id="monthlyFilingActiveTab" type="button" role="tab" aria-selected="true" aria-controls="monthlyFilingList">Active (0)</button><button class="workspace-tab" id="monthlyFilingArchivedTab" type="button" role="tab" aria-selected="false" aria-controls="monthlyFilingList" tabindex="-1">Archived (0)</button></div>
+        </div>
+        <!-- Row 2: actions, a separate region from the tabs -->
+        <div class="monthly-actions-bar" id="monthlyActionsBar">
+          <div class="monthly-actions" id="monthlyFilingActiveActions">
+            <button class="ghost monthly-add" id="monthlyFilingAdd" type="button"><span aria-hidden="true">+</span> Add receipt</button>
+            <span class="monthly-unsaved-note" id="monthlyUnsavedNote" role="status" hidden></span>
+            <p class="monthly-active-total" id="monthlyActiveTotal" hidden><strong class="monthly-total-main" id="monthlyActiveTotalMain"></strong><span class="monthly-total-detail" id="monthlyActiveTotalDetail"></span></p>
+            <span class="action-bar-spacer" aria-hidden="true"></span>
+            <button class="secondary monthly-save" id="monthlyFilingSave" type="button">Save changes</button>
+            <button class="primary monthly-export" id="monthlyFilingExportActive" type="button">Export &amp; archive active</button>
+          </div>
+          <div class="monthly-actions" id="monthlyFilingArchivedActions" hidden>
+            <span class="action-bar-spacer" aria-hidden="true"></span>
+            <button class="delete-receipt" id="monthlyFilingClearArchived" type="button">Clear archived receipts</button>
+          </div>
+          <p class="workflow-feedback" id="monthlyFilingFeedback" role="status" aria-live="polite"></p>
+        </div>
+        <p class="form-helper monthly-helper" id="monthlyFilingExportHelper">Unsaved Active changes are saved automatically before export.</p>
+        <div class="monthly-filing-panel"><div id="monthlyFilingList" class="monthly-filing-list" role="tabpanel" aria-live="polite"></div></div>
+        <details class="monthly-more-actions"><summary>More actions</summary><button class="delete-receipt" id="monthlyFilingClear" type="button">Clear all Monthly Filing</button></details>
       </section>
 
       <section class="workspace-view quick-optimizer-workspace" id="quickOptimizerWorkspace" hidden aria-labelledby="quickOptimizerTitle">
-        <div class="workspace-heading"><div><p class="eyebrow">AMOUNT CALCULATOR</p><h2 id="quickOptimizerTitle">Quick Optimizer</h2><p>Temporary amounts only. Up to 32 receipts; nothing is saved.</p></div></div>
+        <div class="workspace-heading"><div><h1 id="quickOptimizerTitle">Quick Optimizer</h1><p class="page-sub">Temporary amounts only. Up to 32 receipts; nothing is saved.</p></div></div>
         <div class="quick-optimizer-grid">
-          <div class="panel quick-controls">
-            <label for="quickTarget">Target Amount</label><input id="quickTarget" data-quick="target" type="text" inputmode="decimal" autocomplete="off">
-            <label for="quickStrategy">Optimization Strategy</label><select id="quickStrategy" data-quick="strategy" aria-describedby="quickStrategyHelper"><option value="closest">Closest Match</option><option value="fewest">Fewest Receipts</option><option value="without-exceeding">Do Not Exceed Target</option></select>
+          <div class="panel quick-setup quick-controls">
+            <div class="quick-setup-fields">
+              <div class="field"><label for="quickTarget">Target amount</label><input id="quickTarget" data-quick="target" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00"></div>
+              <div class="field"><label for="quickStrategy">Strategy</label><select id="quickStrategy" data-quick="strategy" aria-describedby="quickStrategyHelper"><option value="closest">Closest Match</option><option value="fewest">Fewest Receipts</option><option value="without-exceeding">Do Not Exceed Target</option></select></div>
+              <button type="button" class="primary quick-calculate" data-quick="calculate">Find Best Match</button>
+            </div>
             <p class="form-helper" id="quickStrategyHelper" data-quick="helper">Maximum ₱50.00 above target.</p>
-            <h3>Receipt Amount List</h3><p class="form-helper">Maximum 32 receipt amounts. Blank rows are ignored.</p><div data-quick="rows" class="quick-amount-list"></div>
-            <button type="button" class="ghost" data-quick="add">Add Amount</button>
-            <label for="quickBulk">Bulk Paste — one amount per line</label><textarea id="quickBulk" data-quick="bulk" rows="5" placeholder="500&#10;1,500.00&#10;500"></textarea>
-            <button type="button" class="secondary" data-quick="append">Append Amounts</button>
-            <div class="quick-actions"><button type="button" class="ghost" data-quick="clear">Clear Calculator</button><button type="button" class="primary" data-quick="calculate">Find Best Match</button></div>
             <p class="workflow-feedback" data-quick="feedback" role="status" aria-live="polite"></p>
           </div>
-          <div class="panel quick-results-panel"><h3>Recommended combinations</h3><div data-quick="results" class="quick-results" aria-busy="false"></div><h3>Selected receipt breakdown</h3><ul data-quick="breakdown"><li>No match selected.</li></ul></div>
+          <div class="panel quick-results-panel" id="quickResultsPanel">
+            <div class="panel-heading"><h2>Recommended combinations</h2><button type="button" class="ghost quick-edit-amounts" data-quick="edit-amounts" hidden>Edit amounts</button></div>
+            <div data-quick="results" class="quick-results" aria-busy="false"></div>
+            <h2>Selected receipt breakdown</h2><ul data-quick="breakdown"><li>No match selected.</li></ul>
+          </div>
+          <div class="panel quick-entry quick-controls" id="quickEntryPanel">
+            <div class="panel-heading"><div><h2 id="quickEntryHeading" data-quick="entry-heading" tabindex="-1">Receipt amounts</h2><p class="form-helper">Maximum 32 amounts. Blank rows are ignored.</p></div><button type="button" class="ghost" data-quick="clear">Clear Calculator</button></div>
+            <div data-quick="rows" class="quick-amount-list"></div>
+            <div class="quick-entry-actions"><button type="button" class="secondary" data-quick="add">Add Amount</button></div>
+            <details class="quick-bulk"><summary>Bulk paste</summary><label for="quickBulk">One amount per line</label><textarea id="quickBulk" data-quick="bulk" rows="5" placeholder="500&#10;1,500.00&#10;500"></textarea><button type="button" class="secondary" data-quick="append">Append Amounts</button></details>
+          </div>
         </div>
       </section>
       </div>
@@ -208,28 +278,21 @@
 
     <template id="receiptTemplate">
       <details class="receipt-card">
-        <summary class="receipt-summary" aria-label="Show receipt details" title="Show receipt details"><span class="summary-id">Receipt 1</span><span class="summary-store">Store not set</span><strong class="summary-amount">₱0.00</strong><span class="receipt-status-badge" hidden>Consumed</span><span class="summary-toggle" aria-hidden="true"><span class="toggle-label">Details</span><span class="toggle-icon">⌄</span></span></summary>
+        <summary class="receipt-summary" title="Show receipt details"><span class="summary-id">Receipt 1</span><span class="summary-store">Store not set</span><strong class="summary-amount">₱0.00</strong><span class="summary-flags"><span class="receipt-status-badge" hidden>Consumed</span><span class="receipt-range-flag" hidden>Outside range</span><span class="receipt-unsaved-flag" hidden></span></span><span class="summary-toggle" aria-hidden="true"><span class="toggle-label">Details</span><svg class="toggle-icon" viewBox="0 0 16 16" width="16" height="16" focusable="false" aria-hidden="true"><path d="M3.5 6.25 8 10.75l4.5-4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></summary>
         <div class="receipt-content">
-          <section class="receipt-form-group" aria-labelledby="receipt-details-title">
-            <p class="form-group-title" id="receipt-details-title">Receipt details</p>
-            <div class="receipt-fields receipt-core-fields">
-              <label>Amount<input class="receipt-amount" inputmode="decimal" placeholder="0.00" /></label>
-              <label>Receipt date<input class="receipt-receiptDate" type="date" /></label>
-              <label>VAT status<select class="receipt-vat"><option value="">Not set</option><option value="VAT">VAT</option><option value="Non-VAT">Non-VAT</option></select></label>
-              <label>Invoice number<input class="receipt-invoice" placeholder="Invoice / OR number" /></label>
-            </div>
-          </section>
-          <section class="receipt-form-group" aria-labelledby="store-details-title">
-            <p class="form-group-title" id="store-details-title">Store details</p>
-            <div class="receipt-fields receipt-store-fields">
-              <label class="wide store-name-field">Store name<input class="receipt-store" placeholder="Store or business name" autocomplete="off" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" /><ul class="store-suggestions" role="listbox" hidden></ul></label>
-              <label class="wide">Store address<input class="receipt-address" placeholder="Store address" /></label>
-              <label>Store TIN<input class="receipt-tin" placeholder="000-000-000-000" /></label>
-              <label class="scan-label">Receipt photo<input class="receipt-photo" type="file" accept="image/*" capture="environment" /><span class="scan-button">⌁ Scan printed details</span></label>
-            </div>
-          </section>
+          <!-- One grid, so the keyboard (DOM) order is also the visual reading order: Store, Address, Amount, Receipt date, TIN, VAT, Invoice, Scan. No tabindex is used. -->
+          <div class="receipt-fields receipt-editor-fields">
+            <label class="field-store store-name-field">Store name<input class="receipt-store" placeholder="Store or business name" autocomplete="off" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" /><ul class="store-suggestions" role="listbox" tabindex="-1" hidden></ul></label>
+            <label class="field-address">Store address<input class="receipt-address" placeholder="Store address" /></label>
+            <label class="field-amount">Amount<input class="receipt-amount" inputmode="decimal" placeholder="0.00" /></label>
+            <label class="field-date">Receipt date<input class="receipt-receiptDate" type="date" /></label>
+            <label class="field-tin">Store TIN<input class="receipt-tin" placeholder="000-000-000-000" /></label>
+            <label class="field-vat">VAT status<select class="receipt-vat"><option value="">Not set</option><option value="VAT">VAT</option><option value="Non-VAT">Non-VAT</option></select></label>
+            <label class="field-invoice">Invoice number<input class="receipt-invoice" placeholder="Invoice / OR number" /></label>
+            <label class="scan-label field-scan">Receipt photo<input class="receipt-photo" type="file" accept="image/*" capture="environment" /><span class="scan-button">⌁ Scan printed details</span></label>
+          </div>
           <div class="receipt-form-footer">
-            <button class="ghost contribute-store" type="button">Add to Store Directory</button><button class="delete-receipt" type="button">Delete receipt</button><button class="secondary restore-receipt" type="button" hidden>Mark Available</button>
+            <button class="ghost contribute-store" type="button">Add to Store Directory</button><button class="delete-receipt" type="button">Delete receipt</button><button class="delete-consumed" type="button" hidden>Delete permanently</button><button class="secondary restore-receipt" type="button" hidden>Mark Available</button>
           </div>
           <p class="ocr-status" aria-live="polite"></p>
         </div>
@@ -238,22 +301,41 @@
 
     <template id="optimizationReceiptTemplate">
       <article class="optimization-receipt-card">
+        <input class="manual-select" type="checkbox" hidden />
         <div class="compact-receipt-details"><strong class="compact-store">Store not set</strong><span class="compact-date">Date not set</span><span class="compact-status" hidden>Consumed</span></div>
         <strong class="compact-amount">₱0.00</strong>
         <span class="selected-badge" hidden>Selected</span>
         <button class="ghost compact-edit" type="button">Edit</button><button class="secondary compact-restore" type="button" hidden>Mark Available</button>
       </article>
     </template>
-    <template id="monthlyFilingReceiptTemplate"><article class="receipt-card monthly-card"><div class="receipt-content"><div class="receipt-form-group"><p class="form-group-title">Monthly Filing receipt <span class="monthly-status" hidden></span></p><div class="receipt-fields"><label class="wide store-name-field">Store<input class="monthly-store" placeholder="Store name" autocomplete="off" /><div class="store-suggestions monthly-suggestions" hidden></div></label><label class="wide">Address<input class="monthly-address" placeholder="Address" /></label><label>TIN<input class="monthly-tin" placeholder="TIN" /></label><label>VAT Status<select class="monthly-vat"><option value="">Not set</option><option value="VAT">VAT</option><option value="Non-VAT">Non-VAT</option></select></label><label>Amount<input class="monthly-amount" inputmode="decimal" placeholder="0.00" /></label><label>Receipt Date<input class="monthly-receiptDate" type="date" /></label><label>Invoice Number<input class="monthly-invoice" placeholder="Invoice / OR number" /></label></div></div><div class="receipt-form-footer"><button class="delete-receipt monthly-delete" type="button">Delete receipt</button><button class="secondary monthly-return-active" type="button" hidden>Return to Active</button></div></div></article></template>
-    <section class="edit-modal" id="exportConfirmModal" role="dialog" aria-modal="true" aria-labelledby="exportConfirmTitle" hidden>
+    <template id="monthlyFilingReceiptTemplate"><article class="receipt-card monthly-card"><button class="monthly-summary" type="button" aria-expanded="true"><span class="monthly-summary-id">Receipt 1</span><span class="monthly-summary-store">Store not set</span><strong class="monthly-summary-amount">₱0.00</strong><span class="monthly-summary-date">No date</span><span class="monthly-summary-flags"></span><span class="monthly-summary-chevron" aria-hidden="true"><svg class="chevron-icon" viewBox="0 0 16 16" width="16" height="16" focusable="false" aria-hidden="true"><path d="M3.5 6.25 8 10.75l4.5-4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button><div class="receipt-content"><div class="receipt-form-group"><p class="form-group-title"><span class="monthly-receipt-id">Receipt 1</span> <span class="monthly-status" hidden></span> <span class="monthly-unsaved" hidden></span></p><div class="receipt-fields"><label class="wide store-name-field">Store<input class="monthly-store" placeholder="Store name" autocomplete="off" /><div class="store-suggestions monthly-suggestions" hidden></div></label><label class="wide">Address<input class="monthly-address" placeholder="Address" /></label><label>TIN<input class="monthly-tin" placeholder="TIN" /></label><label>VAT status<select class="monthly-vat"><option value="">Not set</option><option value="VAT">VAT</option><option value="Non-VAT">Non-VAT</option></select></label><label>Amount<input class="monthly-amount" inputmode="decimal" placeholder="0.00" /><span class="monthly-amount-error" hidden></span></label><label>Receipt date<input class="monthly-receiptDate" type="date" /></label><label>Invoice number<input class="monthly-invoice" placeholder="Invoice / OR number" /></label></div></div><div class="receipt-form-footer"><button class="delete-receipt monthly-delete" type="button">Delete receipt</button><button class="secondary monthly-return-active" type="button" hidden>Return to Active</button></div></div></article></template>
+    <section class="edit-modal export-review-modal" id="exportConfirmModal" role="dialog" aria-modal="true" aria-labelledby="exportConfirmTitle" aria-describedby="exportConfirmMessage" hidden>
       <div class="modal-backdrop" id="exportConfirmBackdrop"></div>
-      <div class="modal-card export-confirm-card"><p class="eyebrow">EXPORT SELECTED</p><h2 id="exportConfirmTitle">Export selected receipts?</h2><p id="exportConfirmMessage">After the export is prepared, these receipts will be marked as Consumed and excluded from future optimization.</p><div class="modal-actions"><button class="primary" id="confirmExport" type="button">Export &amp; Mark Consumed</button><button class="ghost" id="cancelExport" type="button">Cancel</button></div></div>
+      <div class="modal-card export-confirm-card export-review-card">
+        <p class="eyebrow">REVIEW &amp; ARRANGE</p>
+        <h2 id="exportConfirmTitle">Review &amp; arrange before export</h2>
+        <p id="exportConfirmMessage">After the export is prepared, these receipts will be marked as Consumed and excluded from future optimization.</p>
+        <dl class="export-review-summary" id="exportReviewSummary">
+          <div><dt>Selected receipts</dt><dd id="exportReviewCount">0</dd></div>
+          <div><dt>Total selected amount</dt><dd id="exportReviewTotal">₱0.00</dd></div>
+          <div id="exportReviewNoAmountGroup" hidden><dt>No amount</dt><dd id="exportReviewNoAmount"></dd></div>
+        </dl>
+        <p class="export-review-hint" id="exportReviewHint">Put the receipts in the order of your paper copies. Item No. in the workbook follows this order. Drag a receipt (on a touch screen, press and hold first), use the Move up and Move down buttons, or focus a receipt and press the arrow keys (Home and End jump to the first and last position).</p>
+        <ol class="export-review-list" id="exportReviewList" aria-label="Receipts in export order"></ol>
+        <div class="export-review-ack" id="exportReviewAck" hidden>
+          <p id="exportReviewAckText"></p>
+          <label class="export-review-ack-label"><input type="checkbox" id="exportReviewAckInput" /> I have reviewed the updated values</label>
+        </div>
+        <p class="visually-hidden" id="exportReviewAnnouncer" role="status" aria-live="polite"></p>
+        <div class="modal-actions export-review-actions"><button class="ghost export-review-reset" id="exportReviewReset" type="button">Reset order</button><button class="primary" id="confirmExport" type="button">Export &amp; Mark Consumed</button><button class="ghost" id="cancelExport" type="button">Cancel</button></div>
+      </div>
     </section>
     <section class="edit-modal confirmation-modal" id="confirmationModal" role="dialog" aria-modal="true" aria-labelledby="confirmationTitle" aria-describedby="confirmationMessage" hidden>
       <div class="modal-backdrop" id="confirmationBackdrop"></div>
       <div class="modal-card confirmation-card"><p class="eyebrow">CONFIRM ACTION</p><h2 id="confirmationTitle">Confirm action</h2><p id="confirmationMessage"></p><div class="modal-actions"><button class="primary" id="confirmationConfirm" type="button">Confirm</button><button class="ghost" id="confirmationCancel" type="button">Cancel</button></div></div>
     </section>
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script src="vendor/supabase/supabase-js-2.118.0.umd.js" integrity="sha384-TcHRA3zBbn+Lexh5n+Oil4guNPOS3rjNDpGRAN46u/s/mB2IZ50ceC6TYDU2yvgK"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js" integrity="sha384-GJqSu7vueQ9qN0E9yLPb3Wtpd7OrgK8KmYzC8T1IysG1bcvxvIO4qtYR/D3A991F" crossorigin="anonymous"></script>
     <script type="module" src="app.js"></script>
   </body>
 </html>

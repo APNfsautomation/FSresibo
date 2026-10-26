@@ -7,9 +7,10 @@ import { findBest, optimizationStrategies, toCents } from './services/optimizati
 import * as receiptService from './services/receiptService.js';
 import * as monthlyFilingService from './services/monthlyFilingService.js';
 import * as sharedStoreService from './services/sharedStoreService.js';
-import { renderApplicationIdentity } from './ui/appIdentity.js';
+import { renderApplicationIdentity, renderApplicationName } from './ui/appIdentity.js';
 import { createAuthPanel } from './ui/authPanel.js';
 import { createConfirmationDialog } from './ui/confirmationDialog.js';
+import { createModalFocus } from './ui/modalFocus.js';
 import { createNavigationController, receiptRoutes } from './ui/navigationController.js';
 import { createReceiptUi } from './ui/receiptUi.js';
 import { createMonthlyFilingUi } from './ui/monthlyFilingUi.js';
@@ -20,11 +21,12 @@ import { createThemeController } from './ui/themeController.js';
 const elements = {
   list: document.querySelector('#receiptList'), template: document.querySelector('#receiptTemplate'), target: document.querySelector('#targetAmount'),
   calculate: document.querySelector('#calculate'), optimizationStrategy: document.querySelector('#optimizationStrategy'), optimizationStrategyHelper: document.querySelector('#optimizationStrategyHelper'), saveDraft: document.querySelector('#saveDraft'),
-  clearAll: document.querySelector('#clearAll'), receiptCount: document.querySelector('#receiptCount'), receiptStatusFilter: document.querySelector('#receiptStatusFilter'), encodingAmountCompartment: document.querySelector('#encodingAmountCompartment'), availableTotal: document.querySelector('#availableTotal'), resultTitle: document.querySelector('#resultTitle'),
-  resultAmount: document.querySelector('#resultAmount'), difference: document.querySelector('#difference'), keptReceipts: document.querySelector('#keptReceipts'),
+  clearAll: document.querySelector('#clearAll'), receiptCount: document.querySelector('#receiptCount'), receiptStatusFilter: document.querySelector('#receiptStatusFilter'), encodingAmountCompartment: document.querySelector('#encodingAmountCompartment'), availableTotal: document.querySelector('#availableTotal'), availableCount: document.querySelector('#availableCount'), encodingUnsavedIndicator: document.querySelector('#encodingUnsavedIndicator'),
+  encodingUnsavedText: document.querySelector('#encodingUnsavedText'), encodingFilterNotice: document.querySelector('#encodingFilterNotice'), encodingFilterNoticeText: document.querySelector('#encodingFilterNoticeText'), showAllAmounts: document.querySelector('#showAllAmounts'), expandAllReceipts: document.querySelector('#expandAllReceipts'), collapseAllReceipts: document.querySelector('#collapseAllReceipts'), resultTitle: document.querySelector('#resultTitle'),
+  resultAmount: document.querySelector('#resultAmount'), difference: document.querySelector('#difference'), optimizationUnsavedNotice: document.querySelector('#optimizationUnsavedNotice'), keptReceipts: document.querySelector('#keptReceipts'),
   optimizationResultSummary: document.querySelector('#optimizationResultSummary'), summaryTarget: document.querySelector('#summaryTarget'), summaryMatched: document.querySelector('#summaryMatched'), summaryDifference: document.querySelector('#summaryDifference'), summaryReceiptCount: document.querySelector('#summaryReceiptCount'), summaryStrategy: document.querySelector('#summaryStrategy'),
   adminContent: document.querySelector('#adminContent'), encodingWorkspace: document.querySelector('#encodingWorkspace'), optimizationWorkspace: document.querySelector('#optimizationWorkspace'),
-  encodingTab: document.querySelector('#encodingTab'), optimizationTab: document.querySelector('#optimizationTab'), floatingAdd: document.querySelector('#floatingAddReceipt'),
+  encodingTab: document.querySelector('#encodingTab'), optimizationTab: document.querySelector('#optimizationTab'), floatingAdd: document.querySelector('#floatingAddReceipt'), calculationProgress: document.querySelector('#calculationProgress'), calculationProgressText: document.querySelector('#calculationProgressText'), calculationProgressBar: document.querySelector('#calculationProgressBar'), cancelCalculation: document.querySelector('#cancelCalculation'),
   optimizationList: document.querySelector('#optimizationReceiptList'), optimizationTemplate: document.querySelector('#optimizationReceiptTemplate'),
   optimizationSearch: document.querySelector('#optimizationSearch'), clearOptimizationSearch: document.querySelector('#clearOptimizationSearch'),
   optimizationStoreFilter: document.querySelector('#optimizationStoreFilter'), optimizationStartDate: document.querySelector('#optimizationStartDate'), optimizationEndDate: document.querySelector('#optimizationEndDate'),
@@ -35,15 +37,15 @@ const elements = {
   closeEditModal: document.querySelector('#closeEditModal'), cancelEditModal: document.querySelector('#cancelEditModal'), editAmount: document.querySelector('#editAmount'),
   editReceiptDate: document.querySelector('#editReceiptDate'), editVat: document.querySelector('#editVat'), editInvoice: document.querySelector('#editInvoice'),
   editStore: document.querySelector('#editStore'), editAddress: document.querySelector('#editAddress'), editTin: document.querySelector('#editTin'),
-  exportConfirmModal: document.querySelector('#exportConfirmModal'), exportConfirmBackdrop: document.querySelector('#exportConfirmBackdrop'), exportConfirmMessage: document.querySelector('#exportConfirmMessage'), confirmExport: document.querySelector('#confirmExport'), cancelExport: document.querySelector('#cancelExport'),
+  exportConfirmModal: document.querySelector('#exportConfirmModal'), exportConfirmBackdrop: document.querySelector('#exportConfirmBackdrop'), exportConfirmMessage: document.querySelector('#exportConfirmMessage'), confirmExport: document.querySelector('#confirmExport'), cancelExport: document.querySelector('#cancelExport'), exportReviewList: document.querySelector('#exportReviewList'), exportReviewCount: document.querySelector('#exportReviewCount'), exportReviewTotal: document.querySelector('#exportReviewTotal'), exportReviewNoAmountGroup: document.querySelector('#exportReviewNoAmountGroup'), exportReviewNoAmount: document.querySelector('#exportReviewNoAmount'), exportReviewAck: document.querySelector('#exportReviewAck'), exportReviewAckText: document.querySelector('#exportReviewAckText'), exportReviewAckInput: document.querySelector('#exportReviewAckInput'), exportReviewAnnouncer: document.querySelector('#exportReviewAnnouncer'), exportReviewReset: document.querySelector('#exportReviewReset'), exportGoToEncoding: document.querySelector('#exportGoToEncoding'), saveProgress: document.querySelector('#saveProgress'), saveProgressText: document.querySelector('#saveProgressText'), saveProgressLive: document.querySelector('#saveProgressLive'), barExpandAllReceipts: document.querySelector('#barExpandAllReceipts'), barCollapseAllReceipts: document.querySelector('#barCollapseAllReceipts'), exportModeBestMatch: document.querySelector('#exportModeBestMatch'), exportModeManual: document.querySelector('#exportModeManual'), optimizationHeading: document.querySelector('#optimizationWorkspace h1'), bestMatchCard: document.querySelector('.target-card'), bestMatchResult: document.querySelector('.result-panel'), manualPanel: document.querySelector('#manualPanel'), manualSelectedCount: document.querySelector('#manualSelectedCount'), manualSelectedTotal: document.querySelector('#manualSelectedTotal'), manualNoAmountGroup: document.querySelector('#manualNoAmountGroup'), manualNoAmount: document.querySelector('#manualNoAmount'), manualHiddenGroup: document.querySelector('#manualHiddenGroup'), manualHidden: document.querySelector('#manualHidden'), manualSelectShown: document.querySelector('#manualSelectShown'), manualClearSelection: document.querySelector('#manualClearSelection'), manualExportSelected: document.querySelector('#manualExportSelected'), manualGoToEncoding: document.querySelector('#manualGoToEncoding'), manualFeedback: document.querySelector('#manualFeedback'),
   confirmationModal: document.querySelector('#confirmationModal'), confirmationBackdrop: document.querySelector('#confirmationBackdrop'), confirmationTitle: document.querySelector('#confirmationTitle'), confirmationMessage: document.querySelector('#confirmationMessage'), confirmationConfirm: document.querySelector('#confirmationConfirm'), confirmationCancel: document.querySelector('#confirmationCancel'),
   encodingFeedback: document.querySelector('#encodingFeedback'), editFeedback: document.querySelector('#editFeedback'), sessionFeedback: document.querySelector('#sessionFeedback'),
-  themePreference: document.querySelector('#themePreference'), authVersion: document.querySelector('#authVersion'), appVersion: document.querySelector('#appVersion'), receiptWorkspaceSwitcher: document.querySelector('#receiptWorkspaceSwitcher'), receiptStatusControl: document.querySelector('#receiptStatusControl')
+  themePreference: document.querySelector('#themePreference'), authThemePreference: document.querySelector('#authThemePreference'), authVersion: document.querySelector('#authVersion'), appVersion: document.querySelector('#appVersion'), receiptWorkspaceSwitcher: document.querySelector('#receiptWorkspaceSwitcher'), receiptStatusControl: document.querySelector('#receiptStatusControl')
   , monthlyFilingWorkspace: document.querySelector('#monthlyFilingWorkspace'), monthlyFilingList: document.querySelector('#monthlyFilingList'), monthlyFilingTemplate: document.querySelector('#monthlyFilingReceiptTemplate'), monthlyFilingAdd: document.querySelector('#monthlyFilingAdd'), monthlyFilingSave: document.querySelector('#monthlyFilingSave'), monthlyFilingExportActive: document.querySelector('#monthlyFilingExportActive'), monthlyFilingClear: document.querySelector('#monthlyFilingClear'), monthlyFilingFeedback: document.querySelector('#monthlyFilingFeedback')
 };
 
 const navigationElements = {
-  menuButton: document.querySelector('#navigationMenuButton'), drawer: document.querySelector('#navigationDrawer'), drawerBackdrop: document.querySelector('#navigationDrawerBackdrop'),
+  content: document.querySelector('.application-content'), menuButton: document.querySelector('#navigationMenuButton'), drawer: document.querySelector('#navigationDrawer'), drawerBackdrop: document.querySelector('#navigationDrawerBackdrop'),
   receiptsNav: document.querySelector('#receiptsNavigationItem'), monthlyNav: document.querySelector('#monthlyFilingNavigationItem'), quickNav: document.querySelector('#quickOptimizerNavigationItem'), encodingTab: elements.encodingTab, optimizationTab: elements.optimizationTab
 };
 
@@ -57,14 +59,17 @@ const authElements = {
 };
 
 void supabaseConfig;
-const confirmationDialog = createConfirmationDialog({ modal: elements.confirmationModal, backdrop: elements.confirmationBackdrop, title: elements.confirmationTitle, message: elements.confirmationMessage, confirmButton: elements.confirmationConfirm, cancelButton: elements.confirmationCancel });
-const receiptUi = createReceiptUi({ elements, findBest, optimizationStrategies, toCents, scanPrintedDetails, downloadSelectedReceipts, receiptService, sharedStoreService, confirmAction: confirmationDialog.confirm });
-const monthlyFilingUi = createMonthlyFilingUi({ elements: { workspace: elements.monthlyFilingWorkspace, list: elements.monthlyFilingList, template: elements.monthlyFilingTemplate, activeTab: document.querySelector('#monthlyFilingActiveTab'), archivedTab: document.querySelector('#monthlyFilingArchivedTab'), activeActions: document.querySelector('#monthlyFilingActiveActions'), archivedActions: document.querySelector('#monthlyFilingArchivedActions'), exportHelper: document.querySelector('#monthlyFilingExportHelper'), add: elements.monthlyFilingAdd, save: elements.monthlyFilingSave, exportActive: elements.monthlyFilingExportActive, clearArchived: document.querySelector('#monthlyFilingClearArchived'), clearAll: elements.monthlyFilingClear, feedback: elements.monthlyFilingFeedback }, monthlyFilingService, sharedStoreService, downloadExpenseDetailedReport, confirmAction: confirmationDialog.confirm });
+const modalFocus = createModalFocus();
+const confirmationDialog = createConfirmationDialog({ modal: elements.confirmationModal, backdrop: elements.confirmationBackdrop, title: elements.confirmationTitle, message: elements.confirmationMessage, confirmButton: elements.confirmationConfirm, cancelButton: elements.confirmationCancel, modalFocus });
+const receiptUi = createReceiptUi({ elements, findBest, optimizationStrategies, toCents, scanPrintedDetails, downloadSelectedReceipts, receiptService, sharedStoreService, confirmAction: confirmationDialog.confirm, modalFocus });
+const monthlyFilingUi = createMonthlyFilingUi({ elements: { workspace: elements.monthlyFilingWorkspace, list: elements.monthlyFilingList, template: elements.monthlyFilingTemplate, activeTab: document.querySelector('#monthlyFilingActiveTab'), archivedTab: document.querySelector('#monthlyFilingArchivedTab'), activeActions: document.querySelector('#monthlyFilingActiveActions'), archivedActions: document.querySelector('#monthlyFilingArchivedActions'), exportHelper: document.querySelector('#monthlyFilingExportHelper'), add: elements.monthlyFilingAdd, save: elements.monthlyFilingSave, exportActive: elements.monthlyFilingExportActive, clearArchived: document.querySelector('#monthlyFilingClearArchived'), clearAll: elements.monthlyFilingClear, feedback: elements.monthlyFilingFeedback, unsavedNote: document.querySelector('#monthlyUnsavedNote'), activeTotal: document.querySelector('#monthlyActiveTotal'), activeTotalMain: document.querySelector('#monthlyActiveTotalMain'), activeTotalDetail: document.querySelector('#monthlyActiveTotalDetail') }, monthlyFilingService, sharedStoreService, downloadExpenseDetailedReport, confirmAction: confirmationDialog.confirm });
 const quickOptimizerUi = createQuickOptimizerUi({ root: document.querySelector('#quickOptimizerWorkspace') });
 const applicationWorkspaces = createApplicationWorkspaces({ receiptUi, monthlyFilingUi, quickOptimizerUi });
 const navigationController = createNavigationController({ elements: navigationElements, onRoute: applicationWorkspaces.renderRoute });
-const themeController = createThemeController({ select: elements.themePreference });
+const themeController = createThemeController({ selects: [elements.themePreference, elements.authThemePreference] });
 const authPanel = createAuthPanel(authElements, {
+  // Leaving the application (logout, expired session, recovery) must never leave the phone drawer's inert/scroll-lock state behind.
+  onShow: () => navigationController.setDrawer(false),
   onLogin: login,
   onRegister: (email, password) => register(email, password, authRedirectUrl('signup')),
   onPasswordReset: email => requestPasswordReset(email, authRedirectUrl('recovery')),
@@ -72,6 +77,11 @@ const authPanel = createAuthPanel(authElements, {
 });
 let activeUserId;
 let activatingUserId;
+// Advanced by every new activation, sign-out, recovery event and missing session. An activation that started under an earlier value is stale: after each await it
+// stops, so it can never load another module, start navigation, or mark itself (or any account) active once the account has changed (Issue #27, AUTH-10).
+let activationEpoch = 0;
+// A confirmation prompt belongs to the account that opened it: it is dismissed when that account ends or changes.
+const endAccountPrompts = () => confirmationDialog.close(false);
 let recoveryMode = hasPasswordRecoveryIntent();
 let recoverySessionEstablished = false;
 let recoveryCompleted = false;
@@ -83,22 +93,37 @@ const clearRecoveryUrl = () => {
 };
 
 async function showAuthenticatedUser(user) {
-  if (activeUserId === user.id || activatingUserId === user.id) return;
+  // The latest request decides. While another account's activation is pending, the account that was active before it no longer counts as "already active":
+  // an A, B, A sequence must start a fresh A activation and end the held B one, while a redundant event for the account being activated stays ignored.
+  if ((activatingUserId ?? activeUserId) === user.id) return;
+  const epoch = ++activationEpoch;
+  const current = () => epoch === activationEpoch;
+  activeUserId = undefined; // this activation replaces the previous account's controller sessions, so no account is active until it completes
+  endAccountPrompts();
+  monthlyFilingUi.clearForLogout(); // a new activation ends the previous account's Monthly Filing session and screen at once, before any slow load can leave them visible
   applicationWorkspaces.setUser(user.id);
   activatingUserId = user.id;
   try {
     authPanel.hide();
     authElements.userEmail.textContent = user.email;
     await receiptUi.loadForUser(user);
+    if (!current()) return;
     await monthlyFilingUi.loadForUser(user);
+    if (!current()) return;
     await receiptUi.importLegacyDraft(user);
+    if (!current()) return;
     navigationController.start({ fallbackRoute: receiptUi.consumeLegacyWorkspace() === 'optimization' ? receiptRoutes.optimization : receiptRoutes.encoding });
     activeUserId = user.id;
-  } finally { activatingUserId = undefined; }
+  } catch (error) {
+    if (current()) throw error; // a failure of an ended activation is inert
+  } finally { if (current()) activatingUserId = undefined; }
 }
 
 async function handleAuthState(event, nextSession) {
   if (event === 'PASSWORD_RECOVERY') {
+    activationEpoch += 1; activeUserId = undefined; activatingUserId = undefined; endAccountPrompts();
+    receiptUi.clearForLogout(); // recovery ends every controller session: pending loads, saves, exports and open dialogs of the account that was signed in
+    monthlyFilingUi.clearForLogout();
     applicationWorkspaces.clearForLogout();
     recoveryMode = true;
     recoverySessionEstablished = Boolean(nextSession?.user);
@@ -109,6 +134,7 @@ async function handleAuthState(event, nextSession) {
   }
   if (recoveryMode && event !== 'SIGNED_OUT') return;
   if (event === 'SIGNED_OUT') {
+    activationEpoch += 1; endAccountPrompts();
     activeUserId = undefined;
     activatingUserId = undefined;
     receiptUi.clearForLogout();
@@ -118,11 +144,12 @@ async function handleAuthState(event, nextSession) {
     recoveryCompleted = false;
     recoveryMode = false;
     recoverySessionEstablished = false;
-    authPanel.show(message);
+    authPanel.show(message, { clearPasswords: true });
     return;
   }
   if (nextSession?.user) await showAuthenticatedUser(nextSession.user);
   else {
+    activationEpoch += 1; endAccountPrompts();
     activeUserId = undefined;
     activatingUserId = undefined;
     receiptUi.clearForLogout();
@@ -137,6 +164,7 @@ authElements.logout.addEventListener('click', async () => {
 });
 
 async function start() {
+  renderApplicationName(document, appMetadata);
   renderApplicationIdentity([elements.authVersion, elements.appVersion], appMetadata);
   themeController.restore();
   receiptUi.start();
@@ -148,13 +176,16 @@ async function start() {
     return;
   }
   await onAuthStateChange((event, nextSession) => { void handleAuthState(event, nextSession); });
+  // Any sign-in, sign-out or recovery event that arrives while this lookup is pending is newer than its answer, which is then stale and applied to nothing.
+  const startupEpoch = activationEpoch;
   const session = await getCurrentSession();
   if (recoveryMode) {
     await new Promise(resolve => window.setTimeout(resolve, 0));
     const error = recoveryCallbackError();
     if (recoverySessionEstablished) authPanel.showRecovery();
     else { authPanel.showRecoveryUnavailable(error || undefined); clearRecoveryUrl(); }
-  } else if (session?.user) await showAuthenticatedUser(session.user);
+  } else if (startupEpoch !== activationEpoch) return;
+  else if (session?.user) await showAuthenticatedUser(session.user);
   else { applicationWorkspaces.clearForLogout(); authPanel.show(); }
 }
 
