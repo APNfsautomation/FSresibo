@@ -111,15 +111,15 @@ The source on the UAT branch is version `3.6.0` (`config/appMetadata.js`). It is
 
 ### Completed acceptance criteria
 - Issues #27 (Monthly Filing session isolation, with the AUTH-10 fix), #29 (large-pool optimizer), #32 (dependency pinning) and #33 (Edit Save correction) are closed with recorded Product Owner UAT acceptance for their recorded scope (Issue #41).
-- Password recovery (genuine email link, new-password form) passed Product Owner testing (reported).
-- Administrator invitations passed Product Owner testing (reported).
+- Email confirmation (C4-1), password recovery (C4-2, genuine email link and new-password form) and administrator invitations each passed Product Owner testing (reported). These are Product Owner acceptances, not independent technical verification: Supabase Auth settings and email templates cannot be read from this repository and no screenshot or log is stored here.
+- The Product Owner confirmed that the Supabase Site URL points to GitHub Pages and that the Synology redirect is intentionally kept as an allowed alternative (reported).
 - U01-A (Issue #22) accepted, with A7 deferred; U01-B (Issue #24) accepted at milestone level.
 
 ### Verified infrastructure
 - `main` ruleset `25866288` and UAT ruleset `25738688` are active; both require a pull request and a passing `node-tests` check from GitHub Actions (integration 15368), block deletion and force pushes, have no bypass actors, and require 0 approving reviews. Enforcement on `main` was exercised by a disposable failing pull request that GitHub reported as BLOCKED (PR #45, closed unmerged).
 - `tests.yml` exists on `main` and UAT (identical); `pr-readiness.yml` (Issue #36, informational) is UAT-only.
 - Hosted Supabase: production cleanup completed on 2026-10-26 (reported). Twenty receipts belonging to accounts outside the approved cleanup scope remain and **must be preserved**. All 8 authentication accounts were preserved. Monthly Filing and the Shared Store Directory were cleared. Schema, migrations and RLS were not changed by the cleanup.
-- A database backup and an isolated restore rehearsal were completed successfully (reported).
+- A database backup was completed on 2026-10-26 and an isolated restore rehearsal succeeded; the restore comparison reported 176 records with zero field differences (reported). The evidence is kept outside the repository, in a separately maintained administrator backup inventory.
 - Public sign-up was disabled in Supabase by the Product Owner (reported). A direct sign-up request against the hosted project has not been probed from this repository.
 
 ### Pending production tasks
@@ -128,7 +128,6 @@ The source on the UAT branch is version `3.6.0` (`config/appMetadata.js`). It is
 - GitHub Pages production cutover (source branch change), then validation of the live published commit. **This has not occurred.**
 - Production smoke checks on the deployed build (`08_Integration_UAT_Checklist.md`, "Production release smoke checks").
 - Review and classification of the Supabase security advisories (mutable `search_path` on three functions, `rls_auto_enable()` executable by `anon` and `authenticated`, leaked-password protection disabled). They remain under review; **no database change is authorized**.
-- Confirmation of the Supabase Auth redirect allow-list and email templates for the production URL (the sign-up confirmation email path is not reachable with sign-up disabled; invitation and recovery links passed).
 
 ### Deferred improvements
 - OCR dirty-indicator test **A7** (Epic 4). Not passed.

@@ -37,7 +37,7 @@ This release adds no database migration. Migrations `002` to `004` are unchanged
 - Explicit contribution of new profiles, branch-aware matching and duplicate/conflict handling. A signed-in account also gets suggestions from its own receipt history.
 
 ### Authentication and session safety
-- Deployment-aware confirmation and recovery redirects, and a dedicated Set New Password experience. Recovery and administrator invitation passed Product Owner live testing (reported).
+- Deployment-aware confirmation and recovery redirects, and a dedicated Set New Password experience. Email confirmation, password recovery and administrator invitation each passed Product Owner live testing (reported; Product Owner acceptance, not independent technical verification).
 - Public sign-up was disabled in Supabase by the Product Owner (reported). The application has no visible sign-up control.
 - Session isolation (Issue #27): every asynchronous operation belongs to the session that started it, so one account's late results never appear for the next account. Closed with Product Owner acceptance.
 

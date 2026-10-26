@@ -46,7 +46,7 @@ Each citation names a test file in backticks, then › and the start of a test t
 | ID | Expected result | Automated evidence | Gap / disposition | Live PO UAT |
 |---|---|---|---|---|
 | AUTH-01 | Redirect URLs keep the GitHub Pages sub-path; recovery intent is recognized from query or fragment before any session. (A, S) | `authService.test.mjs` › "runtime auth redirect preserves the GitHub Pages repository subpath"; `authService.test.mjs` › "recovery-intent callbacks are recognized from query or fragment" | Logic only. Real emails and real redirects are not exercised. | NOT RUN (see CP10-C4) |
-| AUTH-02 | An email confirmation link lands on the deployed app, and a recovery link opens the new-password form. | none | **Unverified.** The Product Owner earlier observed confirmation links reaching an obsolete Synology address and recovery links entering the app without a reset. Needs live Supabase URL/redirect configuration and a functional retest. Assigned to **CP10-C4**. Unit tests must not be read as resolving it. **Update (2026-10-26, Product Owner report in Issue #41; no artifact stored here):** the genuine recovery link and the administrator invitation passed live testing; the sign-up confirmation path is no longer reachable because sign-up was disabled; the redirect allow-list for the production URL is still to be confirmed. | PARTIAL (recovery and invitation reported PASS) |
+| AUTH-02 | An email confirmation link lands on the deployed app, and a recovery link opens the new-password form. | none | **Unverified.** The Product Owner earlier observed confirmation links reaching an obsolete Synology address and recovery links entering the app without a reset. Needs live Supabase URL/redirect configuration and a functional retest. Assigned to **CP10-C4**. Unit tests must not be read as resolving it. **Update (2026-10-26, Product Owner report in Issue #41; no artifact stored here):** the email confirmation link, the genuine recovery link and the administrator invitation each passed live Product Owner testing. This is Product Owner acceptance, not independent technical verification. The Product Owner also confirmed that the Supabase Site URL points to GitHub Pages and that the Synology redirect remains an intentionally allowed alternative. | PASS (Product Owner tested; reported) |
 | AUTH-03 | All password fields are emptied on sign-out, on the recovery screen and when the panel closes; a failed login keeps typing. (A) | `c3Polish.test.mjs` › "AUTH-03: all five password fields are emptied" | None | NOT RUN |
 | AUTH-04 | A user change or logout clears the receipt manual selection, both arrangements and known-missing ids. (A) | `arrangementIsolation.test.mjs` › "R01: logout and a user change clear both arrangements"; `asyncExportIsolation.test.mjs` › "R03: logout and a user change reset the manual selection" | None | NOT RUN |
 | AUTH-05 | Quick Optimizer keeps its state for the same account and clears it on an account switch, logout and null session. (A) | `quickOptimizer.integration.test.mjs` › "same account retains calculator; account switch, logout and repeated null cleanup clear it" | None | NOT RUN |
@@ -240,7 +240,7 @@ Observations, not defects claimed:
 
 ## 7. CP10-C4 queue (historical; status at release in section 10)
 
-> This is the queue as recorded at the checkpoint. Items 2, 3 and 5 and the data reset in item 6 have since been closed or completed as reported in section 10.
+> This is the queue as recorded at the checkpoint. Items 1, 2 and 5 and the data reset in item 6 have since been closed or completed, and item 3 is partly addressed, as reported in section 10.
 
 1. **Confirmation link redirect.** Confirmation emails reached an obsolete Synology `192.168.0.94` address. Requires Supabase Auth URL configuration and a live functional retest (AUTH-02).
 2. **Password-reset flow.** Recovery links entered the app without showing a reset form. Requires a live functional retest (AUTH-02). Unit tests cover only link recognition and the expired/invalid state.
@@ -304,11 +304,12 @@ Kept separate from the checkpoint rows above, which are historical. "Reported" m
 | Administrator invitation | Live Product Owner test, reported | PASS |
 | Public sign-up disabled (SEC-06) | Product Owner configuration change, reported | Setting changed; direct-API refusal not probed |
 | Production cleanup (`receipts`, `monthly_filing_receipts`, `shared_store_directory`) | Reported, 2026-10-26 | Completed. 20 receipts of accounts outside the cleanup scope remain and must be preserved; 8 authentication accounts preserved; Monthly Filing and the Shared Store Directory cleared |
-| Database backup and isolated restore rehearsal | Reported | Completed. A **fresh** pre-release backup is still required (`09_Release_Runbook.md`) |
+| Database backup and isolated restore rehearsal | Reported (evidence kept outside the repository) | Backup completed 2026-10-26; restore rehearsal succeeded with 176 records compared and zero field differences. A **fresh** verified pre-release backup is still required (`09_Release_Runbook.md`) |
 | `main` and UAT rulesets | Verified through the GitHub API | Active; `node-tests` required from GitHub Actions |
 | Supabase security advisories | Under review | **Open**; no database change is authorized |
 | Cross-user RLS on the hosted database for this build (SEC-05) | Not re-run | Unverified for this build; earlier live two-user validation is recorded in `01_Architecture.md` |
-| Confirmation-email redirect (C4-1) | Not separately recorded | Not claimed; moot while sign-up is disabled |
+| Email confirmation (C4-1) | Live Product Owner test, reported | PASS (Product Owner tested) |
+| Supabase Site URL and redirect allow-list | Product Owner confirmation, reported | Site URL points to GitHub Pages; the Synology redirect is intentionally an allowed alternative. Not independently verified |
 | Production smoke checks on the deployed build | Not yet run | NOT RUN (`08_Integration_UAT_Checklist.md`) |
 | GitHub Pages production cutover | Not performed | NOT DONE; Pages still serves the UAT branch |
 | OCR A7; 400 new receipts; Tesseract asset integrity | Deferred | DEFERRED, never PASS |

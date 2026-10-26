@@ -57,11 +57,11 @@ Status as of 2026-10-26. "Reported" means stated by the Product Owner or Technic
 
 | # | Check | Status | Notes |
 |---|---|---|---|
-| C4-1 | A genuine email **confirmation link** opens the deployed app, not the obsolete Synology `192.168.0.94` address | NOT RUN | Previously observed to fail. Not separately retested; public sign-up is now disabled, so the sign-up confirmation email is not reachable. Administrator invitation links passed (below). Confirm the production redirect allow-list before cutover |
-| C4-2 | A genuine **password-recovery link** shows the new-password form and completes a reset | PASS (Product Owner report) | Previously observed to enter the app without a reset |
-| C4-3 | **Public sign-up** is refused by the hosted project | PARTIAL | Sign-up was disabled in Supabase by the Product Owner (reported). A direct sign-up request has not been probed |
+| C4-1 | A genuine email **confirmation link** opens the deployed app, not the obsolete Synology `192.168.0.94` address | PASS (Product Owner tested) | Previously observed to fail; retested by the Product Owner (reported). The Product Owner also confirmed that the Supabase Site URL points to GitHub Pages and that the Synology redirect remains an intentionally allowed alternative. Product Owner acceptance, not independent technical verification |
+| C4-2 | A genuine **password-recovery link** shows the new-password form and completes a reset | PASS (Product Owner tested) | Previously observed to enter the app without a reset |
+| C4-3 | **Public sign-up** is refused by the hosted project | PARTIAL | Disabled in Supabase by the Product Owner (reported). Direct API refusal has not been independently tested |
 | C4-4 | Dependency pinning and integrity (Issue #32). After deployment: the sign-in page loads, a real sign-in, sign-out and token refresh work, and an OCR scan of a non-sensitive printed receipt fills the card. The browser console shows no integrity, CORS or MIME error | NOT RUN on the hosted build | Issue #32 is closed with Product Owner acceptance, and automated checks and a localhost browser run are in its pull request. Hosted GitHub Pages, Synology and mobile were not run. The Tesseract worker, core and language data are pinned but not integrity-verified. Does not pass A7 |
-| C4-5 | **Administrator invitation** opens the app and completes onboarding | PASS (Product Owner report) | Not part of the original list |
+| C4-5 | **Administrator invitation** opens the app and completes onboarding | PASS (Product Owner tested) | Not part of the original list |
 
 ## Production release smoke checks (3.6.0)
 

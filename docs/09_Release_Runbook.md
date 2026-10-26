@@ -2,7 +2,7 @@
 
 Status: prepared 2026-10-26 (Stage 4B, Issue #41). **Nothing in this runbook has been executed.** The Pages cutover has not occurred and `main` does not contain the stable `3.6.0` source. Only the Product Owner authorizes the merge to `main`, the Pages change and any database restoration.
 
-How to read the evidence: **Verified** means it was checked against GitHub or the repository while preparing this document. **Reported** means the Product Owner or Technical Lead stated it; no artifact is stored in this repository. **Not recorded** means the repository holds no record and none is invented here.
+How to read the evidence: **Verified** means it was checked against GitHub or the repository while preparing this document. **Reported** means the Product Owner or Technical Lead stated it; no artifact is stored in this repository. **Not recorded** means the repository holds no record and none is invented here. Backup evidence is kept outside this repository (section 2).
 
 ## 1. Current topology
 
@@ -13,17 +13,24 @@ How to read the evidence: **Verified** means it was checked against GitHub or th
 | Branch protection | Ruleset `25866288` on `main` and `25738688` on the UAT branch: pull request required, `node-tests` required from GitHub Actions (integration 15368), deletion and force pushes blocked, 0 required approvals, no bypass actors | Verified |
 | Database | One hosted Supabase project, referenced by `config/supabase.js`. Source-controlled migrations `002`, `003` and `004` are identical on `main` and UAT, so this release needs **no schema change** (`001_create_receipts.sql` also exists in `supabase/migrations/`) | Verified for the repository; the applied-migration list on the hosted project is Not recorded here |
 | Data after the 2026-10-26 cleanup | 20 receipts of accounts outside the approved cleanup scope (**preserve**), 8 authentication accounts (**preserve**), Monthly Filing and Shared Store Directory cleared | Reported |
-| Sign-up | Disabled in Supabase by the Product Owner | Reported |
+| Sign-up | Disabled in Supabase by the Product Owner. Direct API refusal has not been independently tested (PARTIAL) | Reported |
+| Auth flows | Email confirmation, password recovery and administrator invitation each passed Product Owner testing. The Supabase Site URL points to GitHub Pages; the Synology redirect is intentionally kept as an allowed alternative. These are Product Owner acceptances, not independent technical verification | Reported |
 
 ## 2. Existing backup evidence
 
-A database backup and an isolated restore rehearsal were completed successfully before this release (Reported). The method, the backup location, its date and the rehearsal output are **Not recorded** in the repository. Record them in the release pull request when the fresh backup below is taken. Automated backup encryption and archiving are **deferred**.
+Reported by the Product Owner and Technical Lead; the evidence exists **outside this repository**, in a separately maintained administrator backup inventory:
+
+- A database backup was completed on 2026-10-26.
+- An isolated restore rehearsal was completed successfully. The restore comparison reported **176 records with zero field differences**.
+- The 20 remaining receipts belonging to accounts outside the approved cleanup scope must be preserved. **No additional database cleanup is authorized.**
+
+This repository is public. It must not contain backup storage locations, internal server addresses, credentials, recovery secrets or backup contents, and none are recorded here. Refer to the administrator backup inventory instead. Automated backup encryption and archiving are **deferred**.
 
 ## 3. Fresh pre-release backup (required)
 
-The earlier backup does not cover changes made since it was taken. Immediately before the cutover:
+The 2026-10-26 backup does not cover changes made since it was taken, so a **fresh verified backup is required before the cutover**. Immediately before the cutover:
 
-1. Take a new backup of the production project, using the same method that produced the earlier successful backup. Record the method, the time and where it is stored. Treat it as containing personal and financial data: restricted access, not in GitHub, chat or screenshots.
+1. Take a new backup of the production project, using the same method that produced the 2026-10-26 backup. Record the method, the time and where it is stored in the administrator backup inventory, not in this repository. Treat it as containing personal and financial data: restricted access, not in GitHub, chat or screenshots.
 2. Record the live counts at the moment of the backup: rows in `public.receipts`, `public.monthly_filing_receipts` and `public.shared_store_directory`, and the number of authentication accounts. Expected starting point from the report above: 20 receipts, 8 accounts; any difference must be explained before continuing.
 3. Verify the backup. At minimum: the file or snapshot exists and is non-empty, its table list and row counts match step 2, and it contains the schema and RLS policies if the method includes them. A rehearsal restore into an **isolated** project is the strongest check and should be repeated if time allows; never restore into the production project to test.
 4. The Product Owner records that the backup was verified. No cutover step starts before this.
@@ -88,6 +95,5 @@ Before asking, establish what is wrong, what the restore would overwrite, whethe
 
 - Fresh verified backup (section 3).
 - Release pull request and exact-SHA approval (section 4).
-- Confirm the Supabase Auth URL configuration and email templates for the production URL (invitation and recovery passed; the sign-up confirmation path is unreachable while sign-up is disabled).
 - Product Owner decision on whether a hosted UAT is wanted after the cutover.
 - Review of the Supabase security advisories.
