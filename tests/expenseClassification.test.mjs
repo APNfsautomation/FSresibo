@@ -39,7 +39,7 @@ test('EXP-3: keyboard-first autocomplete: D and P select the Expense Account, cl
   assert.deepEqual(meals, ['Meals', 'Meals w/ Customer']);
   assert.deepEqual(filterOptions(classificationOptions, 'fee'), ['Bank Fees', 'Professional Fee', 'Toll Fee', 'Delivery Fee', 'Notary Fee', 'Trade Show Fees'], 'word matches keep source order');
   assert.equal(filterOptions(classificationOptions, 'ac')[0], 'Accomodation', 'prefix first');
-  assert.deepEqual(filterOptions(classificationOptions, 'ate'), [], 'no match');
+  assert.deepEqual(filterOptions(classificationOptions, 'ate'), ['Water'], 'contains match ranks last');
   assert.equal(filterOptions(classificationOptions, 'customer').includes('Gifts for Customer'), true, 'word anywhere');
   assert.equal(filterOptions(classificationOptions, 'ma')[0], 'Marketing', 'prefix matches rank first');
 });
