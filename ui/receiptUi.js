@@ -13,6 +13,8 @@ import { ENGINE_RECEIPT_LIMIT } from '../services/poolOptimizationService.js';
 import { createPoolOptimizerClient } from './poolOptimizerClient.js';
 import { fillShown, fillShownMessage, hiddenSelectedCount, manualEligibility, manualLimitMessage, maximumManualSelection, pruneManual, summarizeManual, toggleManual } from '../domain/manualSelection.js';
 import { attachOptionCombobox } from './optionCombobox.js';
+import { attachTinFormatter } from './tinInput.js';
+import { formatTinForDisplay } from '../domain/tinFormat.js';
 import { classificationOptions, expenseAccountOptions, expenseFieldLabels, missingExpenseFields } from '../domain/expenseClassification.js';
 import { createReceiptExportRunner, preflightExport, preflightMessage, snapshotProblemMessage, unsavedValuesNotice } from './receiptExport.js';
 
@@ -902,7 +904,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       const values = applyStoreProfileSnapshot(rowValues(row), profile);
       input.value = values.store;
       row.querySelector('.receipt-address').value = values.address;
-      row.querySelector('.receipt-tin').value = values.tin;
+      row.querySelector('.receipt-tin').value = formatTinForDisplay(values.tin);
       row.querySelector('.receipt-vat').value = values.vat;
       refreshSummary(row);
       refreshAvailableSummary(); // programmatic values emit no input event: refresh the unsaved flag and count here
@@ -1028,6 +1030,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       feedbackTarget: elements.encodingFeedback
     }));
     installStoreAutocomplete(row);
+    attachTinFormatter(row.querySelector('.receipt-tin')); // before the field's other input listeners, so they see the formatted value
     attachOptionCombobox({ input: row.querySelector('.receipt-expenseAccount'), list: row.querySelector('.receipt-expenseAccount-options'), options: expenseAccountOptions, label: expenseFieldLabels.expenseAccount });
     attachOptionCombobox({ input: row.querySelector('.receipt-classification'), list: row.querySelector('.receipt-classification-options'), options: classificationOptions, label: expenseFieldLabels.classification });
     const storeInput = row.querySelector('.receipt-store');
@@ -1863,6 +1866,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
         if (!elements.list.children.length || await confirmAction({ title: 'Clear receipts from this form?', message: 'Saved receipts remain in your account and return after a refresh.', confirmLabel: 'Clear form', cancelLabel: 'Keep receipts', danger: true, trigger: event.currentTarget })) { if (session !== sessionGeneration) return; elements.list.replaceChildren(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); }
       });
       elements.floatingAdd.addEventListener('click', addReceiptForEncoding);
+      attachTinFormatter(elements.editTin);
       elements.editForm.addEventListener('submit', saveModalCorrection);
       elements.closeEditModal.addEventListener('click', closeEditModal);
       elements.cancelEditModal.addEventListener('click', closeEditModal);

@@ -1,6 +1,8 @@
 import { installTablistKeyboard } from './tablistKeyboard.js';
 import { trackTextEntry } from './textEntryFocus.js';
 import { attachOptionCombobox } from './optionCombobox.js';
+import { attachTinFormatter } from './tinInput.js';
+import { formatTinForDisplay } from '../domain/tinFormat.js';
 import { classificationOptions, expenseAccountOptions, expenseExportProblems, expenseFieldLabels, expenseProblemMessage } from '../domain/expenseClassification.js';
 import { parseMoneyAmount } from '../domain/moneyAmount.js';
 import { philippineDateStamp } from '../domain/exportDate.js';
@@ -285,6 +287,7 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
       Object.entries(record).forEach(([key, value]) => { const field = row.querySelector(`.monthly-${key}`); if (field) field.value = value ?? ''; });
       const archived = monthlyFilingIsReadOnly(record);
       row.querySelector('.monthly-status').textContent = archived ? 'Archived' : 'Active'; row.querySelector('.monthly-status').hidden = !archived;
+      attachTinFormatter(row.querySelector('.monthly-tin')); // registered before the field's sync listeners below, so they see the formatted value
       attachOptionCombobox({ input: row.querySelector('.monthly-expenseAccount'), list: row.querySelector('.monthly-expenseAccount-options'), options: expenseAccountOptions, label: expenseFieldLabels.expenseAccount });
       attachOptionCombobox({ input: row.querySelector('.monthly-classification'), list: row.querySelector('.monthly-classification-options'), options: classificationOptions, label: expenseFieldLabels.classification });
       row.querySelectorAll('input, select').forEach(field => { field.disabled = archived; });
@@ -306,7 +309,7 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
       const showSuggestions = () => {
         const query = store.value.trim().toLowerCase(); suggestions.replaceChildren();
         if (!query || archived) return suggestions.hidden = true;
-        profiles.filter(profile => profile.storeName.toLowerCase().includes(query)).slice(0, 6).forEach(profile => { const option = document.createElement('button'); option.type = 'button'; option.textContent = [profile.storeName, profile.address, profile.tin].filter(Boolean).join(' · '); option.addEventListener('click', () => { const snapshot = monthlyFilingProfileSnapshot(profile); Object.entries(snapshot).forEach(([key, value]) => { if (key === 'sharedStoreId') row.dataset.sharedStoreId = value; else row.querySelector(`.monthly-${key}`).value = value; }); synchronizeActiveRow(row); updateActions(); suggestions.hidden = true; }); suggestions.append(option); });
+        profiles.filter(profile => profile.storeName.toLowerCase().includes(query)).slice(0, 6).forEach(profile => { const option = document.createElement('button'); option.type = 'button'; option.textContent = [profile.storeName, profile.address, profile.tin].filter(Boolean).join(' · '); option.addEventListener('click', () => { const snapshot = monthlyFilingProfileSnapshot(profile); Object.entries(snapshot).forEach(([key, value]) => { if (key === 'sharedStoreId') row.dataset.sharedStoreId = value; else row.querySelector(`.monthly-${key}`).value = key === 'tin' ? formatTinForDisplay(value) : value; }); synchronizeActiveRow(row); updateActions(); suggestions.hidden = true; }); suggestions.append(option); });
         suggestions.hidden = !suggestions.children.length;
       };
       store.addEventListener('input', showSuggestions);
