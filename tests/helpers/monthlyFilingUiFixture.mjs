@@ -34,7 +34,7 @@ export function monthlyFixture({ records = [], confirm = async () => true, share
     row.querySelectorAll = selector => selector === 'input, select' ? fieldKeys.map(key => row.querySelector(`.monthly-${key}`)) : [];
     return row;
   };
-  const elements = { workspace: node(), list, template: { content: { firstElementChild: { cloneNode: () => makeRow() } } }, activeTab: node(), archivedTab: node(), activeActions: node(), archivedActions: node(), exportHelper: node(), add: node(), save: node(), exportActive: node(), clearArchived: node(), clearAll: node(), feedback: node(), unsavedNote: node(), activeTotal: node(), activeTotalMain: node(), activeTotalDetail: node() };
+  const elements = { saveState: node({ hidden: true }), workspace: node(), list, template: { content: { firstElementChild: { cloneNode: () => makeRow() } } }, activeTab: node(), archivedTab: node(), activeActions: node(), archivedActions: node(), exportHelper: node(), add: node(), save: node(), exportActive: node(), clearArchived: node(), clearAll: node(), feedback: node(), unsavedNote: node(), activeTotal: node(), activeTotalMain: node(), activeTotalDetail: node() };
   const table = new Map(records.map(record => [record.dbId, { ...record }]));
   const calls = { create: [], update: [], archive: [], workbook: [], load: 0, remove: [], returned: [], clearArchived: [], clearAll: [], associate: [], writes: [] };
   // A gate is a promise the service awaits before answering: a test holds it to model a slow or never-answered request, then settles it.

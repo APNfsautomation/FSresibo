@@ -212,11 +212,12 @@
         <!-- Row 2: actions, a separate region from the tabs -->
         <div class="monthly-actions-bar" id="monthlyActionsBar">
           <div class="monthly-actions" id="monthlyFilingActiveActions">
-            <button class="ghost monthly-add" id="monthlyFilingAdd" type="button"><span aria-hidden="true">+</span> Add receipt</button>
+            <button class="ghost monthly-add" id="monthlyFilingAdd" type="button" aria-keyshortcuts="Control+Enter"><span aria-hidden="true">+</span> Add receipt <kbd class="shortcut-hint" aria-hidden="true">Ctrl+Enter</kbd></button>
             <span class="monthly-unsaved-note" id="monthlyUnsavedNote" role="status" hidden></span>
+            <span class="monthly-save-state" id="monthlySaveState" role="status" aria-live="polite" hidden></span>
             <p class="monthly-active-total" id="monthlyActiveTotal" hidden><strong class="monthly-total-main" id="monthlyActiveTotalMain"></strong><span class="monthly-total-detail" id="monthlyActiveTotalDetail"></span></p>
             <span class="action-bar-spacer" aria-hidden="true"></span>
-            <button class="secondary monthly-save" id="monthlyFilingSave" type="button">Save changes</button>
+            <button class="secondary monthly-save" id="monthlyFilingSave" type="button" aria-keyshortcuts="Control+S">Save changes <kbd class="shortcut-hint" aria-hidden="true">Ctrl+S</kbd></button>
             <button class="primary monthly-export" id="monthlyFilingExportActive" type="button">Export &amp; archive active</button>
           </div>
           <div class="monthly-actions" id="monthlyFilingArchivedActions" hidden>

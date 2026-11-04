@@ -203,7 +203,7 @@ test('13-17: the shortcut scope is the Encoding workspace element: no other work
 
 test('discoverability: both buttons advertise their shortcut (aria-keyshortcuts + a decorative hint) and keep their visible labels', () => {
   assert.match(html, /id="floatingAddReceipt" type="button" aria-keyshortcuts="Control\+Enter">/); assert.match(html, /id="saveDraft" type="button" aria-keyshortcuts="Control\+S">/);
-  assert.equal((html.match(/<kbd class="shortcut-hint" aria-hidden="true">/g) ?? []).length, 2, 'two hints, both hidden from assistive technology');
+  assert.equal((html.match(/<kbd class="shortcut-hint" aria-hidden="true">/g) ?? []).length, 4, 'two hints per workspace (Encoding and Monthly Filing), all hidden from assistive technology');
   assert.match(html, /Add receipt <kbd class="shortcut-hint" aria-hidden="true">Ctrl\+Enter<\/kbd>/); assert.match(html, /Save changes <kbd class="shortcut-hint" aria-hidden="true">Ctrl\+S<\/kbd>/);
 });
 

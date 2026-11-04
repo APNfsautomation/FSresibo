@@ -151,6 +151,21 @@ export const monthlyFilingTotalText = summary => {
 };
 // Total of the amounts in an export snapshot (the authoritative saved records); null if any amount is not a valid money value.
 export const monthlyFilingSnapshotTotalCents = records => { let total = 0; for (const record of records) { const amount = monthlyFilingAmountState(record.amount); if (amount.kind === 'invalid') return null; if (amount.kind === 'valid') total += amount.cents; } return total; };
+// Visible save state (Issue #50). 'saved' is only ever the result of a save the database confirmed; a failed save stays visible until a save succeeds, and an edit
+// after a save is "Unsaved changes" again. Presentation only: which receipts are dirty is decided by the view state, not here.
+export const monthlyFilingSaveState = ({ status = 'idle', saving = false, dirtyCount = 0 } = {}) => {
+  if (saving) return { key: 'saving', text: 'Saving…' };
+  if (status === 'failed') return { key: 'failed', text: 'Save failed' };
+  if (dirtyCount > 0) return { key: 'unsaved', text: 'Unsaved changes' };
+  if (status === 'saved') return { key: 'saved', text: 'Saved' };
+  return { key: 'idle', text: '' };
+};
+// Ctrl+Enter = Add, Ctrl+S = Save. Returns 'add' | 'save' | '' for a keydown, ignoring every other modifier combination, IME composition and a missing key.
+export const monthlyFilingShortcut = event => {
+  if (!event?.ctrlKey || event.metaKey || event.altKey || event.shiftKey || event.isComposing || event.keyCode === 229) return '';
+  const key = String(event.key ?? '').toLowerCase();
+  return key === 'enter' ? 'add' : key === 's' ? 'save' : '';
+};
 export const monthlyFilingDirtyLabel = state => state === 'new' ? 'New, unsaved' : state === 'edited' ? 'Unsaved changes' : '';
 export const monthlyFilingSummaryName = ({ number, store, amountText, date, archived, dirty }) =>
   [archived ? 'Archived monthly receipt' : number ? `Monthly receipt ${number}` : 'New monthly receipt', store, amountText, date || 'no date', archived ? 'archived' : '', monthlyFilingDirtyLabel(dirty).toLowerCase()].filter(Boolean).join(', ');
@@ -178,7 +193,7 @@ export const directoryOutcomeFeedback = (outcomes, { saved = true } = {}) => {
 class MonthlyFilingSessionEnded extends Error {}
 
 export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedStoreService, downloadExpenseDetailedReport, confirmAction = async () => false }) {
-  let records = []; let profiles = []; let lastDirectoryFeedback = ''; let lastDirectoryDetail = ''; let activeTab = 'active'; let view = createMonthlyFilingViewState(); let contentSequence = 0;
+  let saveStatus = 'idle'; let records = []; let profiles = []; let lastDirectoryFeedback = ''; let lastDirectoryDetail = ''; let activeTab = 'active'; let view = createMonthlyFilingViewState(); let contentSequence = 0;
   // Session isolation (Issue #27). Everything an asynchronous operation may touch after an await belongs to a SESSION: the signed-in user, the busy flag and the
   // mutation and export-lifecycle guards. loadForUser() and clearForLogout() each replace the session, so a request that belongs to an earlier session (an earlier
   // account, or the same account signed in again) is stale: it applies nothing, says nothing, prompts nothing, sends nothing further, and its finally block can only
@@ -240,6 +255,10 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
       const text = monthlyFilingTotalText(activeTotalSummary());
       elements.activeTotal.hidden = !text.main; elements.activeTotal.classList.toggle('is-unavailable', !text.available);
       elements.activeTotalMain.textContent = text.main; elements.activeTotalDetail.textContent = text.detail;
+    }
+    if (elements.saveState) {
+      const state = monthlyFilingSaveState({ status: saveStatus, saving: session.loading, dirtyCount: records.filter(record => view.dirtyState(record) !== 'clean').length });
+      elements.saveState.hidden = !state.text; elements.saveState.textContent = state.text; elements.saveState.dataset.state = state.key;
     }
     if (elements.unsavedNote) {
       const count = records.filter(record => view.dirtyState(record) !== 'clean').length;
@@ -405,7 +424,7 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
   // owner: the session the save belongs to. An export passes its own, so a save started by an ended export session can never run for the next account.
   const save = async ({ successFeedback = true, fromExport = false, session: owner = session } = {}) => {
     if (isStale(owner) || owner.loading || !owner.user || (owner.lifecycle.exportBlocked() && !fromExport) || (fromExport ? !owner.mutations.permitsInternalExportSave() : !owner.mutations.begin('save'))) return false;
-    owner.loading = true; elements.save.disabled = true;
+    owner.loading = true; elements.save.disabled = true; refreshPresentation();
     try {
       synchronizeVisibleActiveDrafts();
       const rowsByIndex = new Map([...elements.list.children].filter(row => row.matches('.monthly-card')).map(row => [Number(row.dataset.recordIndex), row]));
@@ -428,8 +447,8 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
       endIfStale(owner);
       if (error) throw error;
       const directoryOutcomes = await processDirectoryDecisions(owner, saved); endIfStale(owner); lastDirectoryFeedback = directoryOutcomeFeedback(directoryOutcomes); lastDirectoryDetail = directoryOutcomeFeedback(directoryOutcomes, { saved: false });
-      render(); if (successFeedback) feedback(lastDirectoryFeedback || 'Monthly Filing changes saved.'); return true;
-    } catch (error) { if (isStale(owner)) return false; feedback(`Could not save Monthly Filing changes: ${error.message}`); return false; } finally { owner.loading = false; if (!fromExport) owner.mutations.finish(); if (!isStale(owner)) updateActions(); }
+      saveStatus = 'saved'; render(); if (successFeedback) feedback(lastDirectoryFeedback || 'Monthly Filing changes saved.'); return true;
+    } catch (error) { if (isStale(owner)) return false; saveStatus = 'failed'; feedback(`Could not save Monthly Filing changes: ${error.message}`); return false; } finally { owner.loading = false; if (!fromExport) owner.mutations.finish(); if (!isStale(owner)) updateActions(); }
   };
   // Totals come from the exact snapshot that was exported (database-returned amounts), never from the screen.
   const exportedTotalText = records => { const cents = monthlyFilingSnapshotTotalCents(records); return cents === null ? '' : ` (Total: ${formatMonthlyFilingCents(cents)})`; };
@@ -503,7 +522,7 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
     try {
       if (!await confirmAction({ title: 'Clear ALL Monthly Filing receipts?', message: `This permanently deletes ALL your Monthly Filing receipts, including ${counts.active} Active and ${counts.archived} Archived receipt${counts.active + counts.archived === 1 ? '' : 's'}. This cannot be undone. Long-term Receipts and the Company Directory are not affected.`, confirmLabel: 'Clear All Monthly Filing', cancelLabel: 'Cancel', danger: true, trigger: event.currentTarget })) return;
       endIfStale(owner);
-      await monthlyFilingService.clearMonthlyFilingReceipts(owner.user.id); endIfStale(owner); records = []; view = createMonthlyFilingViewState(); activeTab = 'active'; render(); feedback('All Monthly Filing receipts cleared.');
+      await monthlyFilingService.clearMonthlyFilingReceipts(owner.user.id); endIfStale(owner); records = []; view = createMonthlyFilingViewState(); activeTab = 'active'; saveStatus = 'idle'; render(); feedback('All Monthly Filing receipts cleared.');
     } catch (error) { if (isStale(owner)) return; feedback(`Could not clear all Monthly Filing receipts: ${error.message}`); } finally { owner.mutations.finish(); if (!isStale(owner)) updateActions(); }
   };
   const switchTab = tab => {
@@ -511,12 +530,23 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
     synchronizeVisibleActiveDrafts(); activeTab = tab; render();
     (tab === 'active' ? elements.activeTab : elements.archivedTab).focus({ preventScroll: true });
   };
+  // Keyboard-first Monthly Filing (Issue #42 / #50): Ctrl+Enter = Add, Ctrl+S = Save. The listener sits on the Monthly Filing workspace only, so it never sees keys typed in
+  // other workspaces, the login screen or dialogs (all outside this element), and it reuses the buttons' own handlers: a disabled button means the shortcut does nothing,
+  // and Save still goes through the mutation guard. Browser "Save page" is suppressed only when the shortcut is eligible here.
+  const handleShortcut = event => {
+    const action = monthlyFilingShortcut(event);
+    if (!action || !session.user || elements.workspace.hidden || activeTab !== 'active' || globalThis.document?.querySelector?.('[aria-modal="true"]:not([hidden])')) return;
+    event.preventDefault();
+    if (event.repeat) return; // holding the keys down does not repeat the action
+    if (action === 'add') { if (!elements.add.disabled && !session.mutations.pending()) add(); return; } // never add while a save, export or other mutation is running
+    if (!elements.save.disabled) void save();
+  };
   return {
     // Every load starts a NEW session (the same account signing in again included): whatever an earlier session left on screen is wiped first, and an
     // earlier session's late answers are stale and apply nothing. Same-account token refreshes never reach here (app.js de-duplicates them).
     async loadForUser(user) {
       const owner = session = newSession(user);
-      records = []; view = createMonthlyFilingViewState(); profiles = []; activeTab = 'active'; lastDirectoryFeedback = ''; lastDirectoryDetail = '';
+      records = []; view = createMonthlyFilingViewState(); profiles = []; activeTab = 'active'; lastDirectoryFeedback = ''; lastDirectoryDetail = ''; saveStatus = 'idle';
       feedback('Loading Monthly Filing…'); render();
       try {
         const loaded = await monthlyFilingService.loadMonthlyFilingReceipts();
@@ -530,7 +560,7 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
       } catch { if (isStale(owner)) return; profiles = []; feedback('Company Directory is temporarily unavailable. You can still enter store details manually.'); }
       render();
     },
-    clearForLogout() { session = newSession(undefined); records = []; view = createMonthlyFilingViewState(); profiles = []; activeTab = 'active'; lastDirectoryFeedback = ''; lastDirectoryDetail = ''; feedback(''); render(); }, setVisible(visible) { elements.workspace.hidden = !visible; },
-    start() { trackTextEntry(elements.workspace); elements.activeTab.addEventListener('click', () => switchTab('active')); elements.archivedTab.addEventListener('click', () => switchTab('archived')); installTablistKeyboard({ tabs: [elements.activeTab, elements.archivedTab], activate: index => { if (session.mutations.pending()) return false; switchTab(index === 0 ? 'active' : 'archived'); } }); elements.add.addEventListener('click', add); elements.save.addEventListener('click', () => { void save(); }); elements.exportActive.addEventListener('click', exportActive); elements.clearArchived.addEventListener('click', clearArchived); elements.clearAll.addEventListener('click', clearAll); render(); }
+    clearForLogout() { session = newSession(undefined); saveStatus = 'idle'; records = []; view = createMonthlyFilingViewState(); profiles = []; activeTab = 'active'; lastDirectoryFeedback = ''; lastDirectoryDetail = ''; feedback(''); render(); }, setVisible(visible) { elements.workspace.hidden = !visible; },
+    start() { trackTextEntry(elements.workspace); elements.workspace.addEventListener('keydown', handleShortcut); elements.activeTab.addEventListener('click', () => switchTab('active')); elements.archivedTab.addEventListener('click', () => switchTab('archived')); installTablistKeyboard({ tabs: [elements.activeTab, elements.archivedTab], activate: index => { if (session.mutations.pending()) return false; switchTab(index === 0 ? 'active' : 'archived'); } }); elements.add.addEventListener('click', add); elements.save.addEventListener('click', () => { void save(); }); elements.exportActive.addEventListener('click', exportActive); elements.clearArchived.addEventListener('click', clearArchived); elements.clearAll.addEventListener('click', clearAll); render(); }
   };
 }

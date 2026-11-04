@@ -38,7 +38,7 @@ test('Active actions are Add, Save, Export; Archived actions are the Archived cl
   const order = ['id="monthlyFilingAdd"', 'id="monthlyUnsavedNote"', 'class="action-bar-spacer"', 'id="monthlyFilingSave"', 'id="monthlyFilingExportActive"'].map(token => active.indexOf(token));
   assert.ok(order.every(position => position > 0)); assert.deepEqual([...order].sort((a, b) => a - b), order, 'Add, unsaved note, spacer, Save, Export');
   assert.match(active, /<button class="primary monthly-export" id="monthlyFilingExportActive" type="button">Export &amp; archive active<\/button>/);
-  assert.match(active, /<button class="secondary monthly-save" id="monthlyFilingSave" type="button">Save changes<\/button>/);
+  assert.match(active, /<button class="secondary monthly-save" id="monthlyFilingSave" type="button" aria-keyshortcuts="Control\+S">Save changes <kbd class="shortcut-hint" aria-hidden="true">Ctrl\+S<\/kbd><\/button>/);
   const archived = monthly.slice(monthly.indexOf('id="monthlyFilingArchivedActions"'), monthly.indexOf('id="monthlyFilingFeedback"'));
   assert.match(archived, /id="monthlyFilingArchivedActions" hidden/);
   assert.match(archived, /<button class="delete-receipt" id="monthlyFilingClearArchived"[^>]*>Clear archived receipts<\/button>/);
@@ -89,8 +89,13 @@ test('on phones each receipt is a native-feeling disclosure: a summary button, h
   assert.match(phoneBlock, /\.monthly-card \.receipt-form-footer button \{[^}]*min-height: 44px/);
 });
 
+test('Issue #50: on desktop and tablet the same action bar is sticky at the top, never on short viewports (the base bar stays in flow)', () => {
+  assert.match(css, /@media \(min-width: 641px\) and \(min-height: 480px\) \{\s*\.monthly-filing-workspace > \.monthly-actions-bar \{ position: sticky; top: var\(--space-2\); z-index: 12;/);
+  assert.doesNotMatch(css.slice(0, css.indexOf('Visible save state')), /\.monthly-actions-bar \{[^}]*position: (sticky|fixed)/, 'the base rule is not sticky; only the media-scoped rule is');
+});
+
 test('the phone action bar is the same element, sticky only on phones, safe-area aware, and steps aside while typing', () => {
-  assert.doesNotMatch(css.slice(0, css.indexOf('@media (max-width: 640px) {\n  .receipts-bar')), /\.monthly-actions-bar \{[^}]*position: (sticky|fixed)/, 'desktop bar is in flow');
+  assert.doesNotMatch(css.slice(0, css.indexOf('Visible save state')), /\.monthly-actions-bar \{[^}]*position: (sticky|fixed)/, 'the base bar is in flow');
   assert.match(phoneBlock, /\.monthly-filing-workspace > \.monthly-actions-bar \{ order: 6; position: sticky; bottom: 0;[^}]*env\(safe-area-inset-bottom\)/);
   assert.match(phoneBlock, /\.monthly-filing-workspace\.is-editing > \.monthly-actions-bar:not\(:focus-within\) \{ opacity: 0; pointer-events: none; transform: translateY\(100%\); \}/);
   assert.doesNotMatch(phoneBlock, /monthly-actions-bar[^{]*\{[^}]*(display: none|visibility: hidden|position: fixed)/);
