@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { amountIdentity, changedWorkbookFields, classifyExportSnapshot, exportDrift, workbookFields } from '../domain/exportArrangement.js';
 
-const saved = (extra = {}) => ({ dbId: 'r1', status: 'available', amount: 1250.5, receiptDate: '2026-08-03', store: 'Mercury Drug', address: '1 Main St', tin: '000-111', vat: 'VAT', invoice: 'INV-1', updatedAt: 't1', ...extra });
+const saved = (extra = {}) => ({ dbId: 'r1', status: 'available', amount: 1250.5, receiptDate: '2026-08-03', store: 'Mercury Drug', address: '1 Main St', tin: '000-111', vat: 'VAT', invoice: 'INV-1', expenseAccount: 'Day to day', classification: 'Meals', updatedAt: 't1', ...extra });
 
 test('amount identity keeps blank, zero, valid and invalid apart, and ignores typing format only', () => {
   assert.equal(amountIdentity('1,250.50'), amountIdentity(1250.5));
@@ -32,7 +32,7 @@ test('text that would look different in the workbook is a change; an equal amoun
 });
 
 test('workbookFields keeps the typed amount text and normalizes missing text to empty', () => {
-  assert.deepEqual(workbookFields({ amount: '1,250.50', store: 'A' }), { receiptDate: '', store: 'A', address: '', vat: '', tin: '', invoice: '', amount: '1,250.50' });
+  assert.deepEqual(workbookFields({ amount: '1,250.50', store: 'A' }), { receiptDate: '', store: 'A', address: '', vat: '', tin: '', invoice: '', amount: '1,250.50', expenseAccount: '', classification: '' });
 });
 
 const entries = [{ dbId: 'r1', label: 'Receipt 1', used: { amount: '1,250.50' } }, { dbId: 'r2', label: 'Receipt 2', used: { amount: '300' } }];

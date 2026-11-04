@@ -481,6 +481,12 @@ button[aria-busy="true"] { cursor: progress; opacity: .8; }
 .store-suggestion strong { font-size: .87rem; }
 .store-suggestion span { overflow: hidden; color: var(--muted); font-size: .76rem; text-overflow: ellipsis; white-space: nowrap; }
 .store-suggestion:hover, .store-suggestion.is-active { background: var(--primary-soft); color: var(--text); }
+.option-field { position: relative; }
+.option-suggestions { position: absolute; z-index: 15; top: calc(100% - 1px); right: 0; left: 0; max-height: 250px; margin: 0; padding: 5px; overflow-y: auto; border: var(--border-width) solid var(--border-strong); border-radius: 0 0 var(--radius-sm) var(--radius-sm); background: var(--surface); box-shadow: var(--shadow-lg); list-style: none; }
+.option-suggestions li { padding: 9px 10px; border-radius: 7px; color: var(--text); font-size: .87rem; cursor: pointer; }
+.option-suggestions li:hover, .option-suggestions li.is-active { background: var(--primary-soft); }
+.option-field input[aria-expanded="true"] { position: relative; z-index: 16; border-bottom-right-radius: 0; border-bottom-left-radius: 0; }
+.encoding-list .receipt-editor-fields .field-expense-account, .encoding-list .receipt-editor-fields .field-classification { grid-column: span 6; }
 .receipt-store[aria-expanded="true"] { position: relative; z-index: 16; border-bottom-right-radius: 0; border-bottom-left-radius: 0; }
 
 /* ---- 8b. Receipt Optimization: command bar, result strip, full-width receipt browser ---------- */
@@ -612,6 +618,19 @@ button[aria-busy="true"] { cursor: progress; opacity: .8; }
 }
 .monthly-unsaved-note { display: inline-flex; align-items: center; gap: var(--space-2); margin-left: var(--space-2); color: var(--warning); font-size: var(--text-sm); font-weight: var(--weight-bold); }
 .monthly-unsaved-note::before { content: "●"; font-size: .7rem; }
+/* Visible save state (Unsaved changes / Saving / Saved / Save failed): the label is always text, colour is only reinforcement. */
+.monthly-save-state { display: inline-flex; align-items: center; gap: var(--space-2); padding: 2px var(--space-2); border: var(--border-width) solid currentColor; border-radius: var(--radius-pill); font-size: var(--text-sm); font-weight: var(--weight-bold); white-space: nowrap; }
+.monthly-save-state[data-state="unsaved"] { color: var(--warning); background: var(--warning-soft); }
+.monthly-save-state[data-state="saving"] { color: var(--muted); }
+.monthly-save-state[data-state="saved"] { color: var(--success); background: var(--success-soft); }
+.monthly-save-state[data-state="failed"] { color: var(--danger); font-weight: var(--weight-heavy); }
+/* Long Monthly Filing sessions: the one action bar (Add, Save, Export & Archive, Total and the save state) stays reachable at the top of the viewport on desktop and
+   tablet. It is the same element as the phone bar, never a copy, and it is not sticky on short viewports (landscape phones, 200%/400% zoom). Phones keep the bottom bar. */
+@media (min-width: 641px) and (min-height: 480px) {
+  .monthly-filing-workspace > .monthly-actions-bar { position: sticky; top: var(--space-2); z-index: 12; border-color: var(--toolbar-border); background: var(--toolbar-bg); box-shadow: 0 4px 14px rgba(19, 35, 61, .22); }
+  .monthly-filing-workspace > .monthly-actions-bar .workflow-feedback { max-height: 4.5em; overflow-y: auto; }
+  html:has(#monthlyFilingWorkspace:not([hidden])) { scroll-padding-top: 140px; }
+}
 /* Active Total: one compact, unboxed text line (not a live region); an unavailable total is a warning in text and icon, not colour alone. */
 .monthly-active-total { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--space-3); margin: 0 0 0 var(--space-2); color: var(--text); font-size: var(--text-sm); }
 .monthly-total-main { font-size: var(--text-md); font-variant-numeric: tabular-nums; }

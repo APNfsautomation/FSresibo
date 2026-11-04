@@ -1,10 +1,11 @@
 // Pure helpers for the receipt export integrity checks (CP10-C3E-1). No DOM, storage or network access.
 // "Workbook fields" are exactly the receipt values that reach the Expense Detailed Report, so a difference in any of them is a difference in the workbook.
 import { parseMoneyAmount } from './moneyAmount.js';
+import { missingExpenseFields } from './expenseClassification.js';
 
-export const workbookFieldNames = Object.freeze(['receiptDate', 'store', 'address', 'vat', 'tin', 'invoice', 'amount']);
+export const workbookFieldNames = Object.freeze(['receiptDate', 'store', 'address', 'vat', 'tin', 'invoice', 'amount', 'expenseAccount', 'classification']);
 export const exportFieldLabels = Object.freeze({
-  receiptDate: 'Receipt date', store: 'Store name', address: 'Store address', vat: 'VAT status', tin: 'TIN', invoice: 'Invoice number', amount: 'Amount', updatedAt: 'Last updated'
+  receiptDate: 'Receipt date', store: 'Store name', address: 'Store address', vat: 'VAT status', tin: 'TIN', invoice: 'Invoice number', amount: 'Amount', expenseAccount: 'Expense Account', classification: 'Classification of Expense', updatedAt: 'Last updated'
 });
 
 const exactText = value => String(value ?? '');
@@ -39,6 +40,8 @@ export function classifyExportSnapshot({ entries, snapshotRows, reference = new 
     if (!row) { problems.push({ type: 'missing', dbId: entry.dbId, label: entry.label }); continue; }
     if (row.status !== 'available') { problems.push({ type: 'unavailable', dbId: entry.dbId, label: entry.label }); continue; }
     if (parseMoneyAmount(row.amount).valid === false) problems.push({ type: 'invalidAmount', dbId: entry.dbId, label: entry.label });
+    const missingExpense = missingExpenseFields(row);
+    if (missingExpense.length) problems.push({ type: 'missingExpense', dbId: entry.dbId, label: entry.label, fields: missingExpense });
     if (entry.used && amountIdentity(entry.used.amount) !== amountIdentity(row.amount)) problems.push({ type: 'optimizerChanged', dbId: entry.dbId, label: entry.label });
     const known = reference.get(entry.dbId);
     const fields = known ? changedWorkbookFields(known, row) : [];

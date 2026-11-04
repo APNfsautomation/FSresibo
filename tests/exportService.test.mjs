@@ -10,39 +10,39 @@ const receipts = [
 
 test('Expense Detailed Report staging rows preserve the exact A:O mapping', () => {
   const rows = buildExpenseDetailedReportRows(receipts);
-  assert.equal(expenseDetailedReportHeaders.length, 15);
+  assert.equal(expenseDetailedReportHeaders.length, 14);
   assert.equal(rows.length, 4);
-  assert.equal(rows[2].length, 15);
+  assert.equal(rows[2].length, 14);
   assert.deepEqual(rows[0].slice(0, 4), ['Item No.', 'Receipt Date', 'Supplier Details', '']);
   assert.deepEqual(rows[1].slice(0, 4), ['', '', 'Name', 'Address']);
   assert.equal(rows[2][1].getFullYear(), 2026);
   assert.equal(rows[2][1].getMonth(), 6);
   assert.equal(rows[2][1].getDate(), 13);
   assert.deepEqual([rows[2][0], ...rows[2].slice(2, 8)], [1, 'Alpha Store', 'Makati', 'VAT', '123', 'OR-001', 27998]);
-  assert.deepEqual(rows[2].slice(8), ['', '', '', '', '', '', '']);
+  assert.deepEqual(rows[2].slice(10), ['', '', '', '']);
   assert.equal(typeof rows[2][7], 'number');
 });
 
-test('workbook uses one Selected Receipts worksheet with date and amount cells', () => {
+test('workbook uses one Expense Detailed Report worksheet with date and amount cells', () => {
   const workbook = createSelectedReceiptsWorkbook(receipts);
-  assert.deepEqual(workbook.SheetNames, ['Selected Receipts']);
-  const sheet = workbook.Sheets['Selected Receipts'];
-  assert.equal(sheet['!ref'], 'A1:O4');
+  assert.deepEqual(workbook.SheetNames, ['Expense Detailed Report']);
+  const sheet = workbook.Sheets['Expense Detailed Report'];
+  assert.equal(sheet['!ref'], 'A1:N4');
   assert.equal(sheet.C1.v, 'Supplier Details');
   assert.equal(sheet.C2.v, 'Name');
   assert.equal(sheet.D2.v, 'Address');
   assert.ok(sheet['!merges'].some(range => range.s.c === 2 && range.e.c === 3 && range.s.r === 0 && range.e.r === 0));
   assert.equal(sheet.B3.t, 'd');
-  assert.equal(sheet.B3.z, 'd-mmm');
+  assert.equal(sheet.B3.z, 'mm/dd/yyyy');
   assert.equal(sheet.H3.t, 'n');
   assert.equal(sheet.H3.v, 27998);
-  ['I', 'J', 'K', 'L', 'M', 'N', 'O'].forEach(column => assert.deepEqual(sheet[`${column}3`], { t: 's', v: '' }));
+  ['K', 'L', 'M', 'N'].forEach(column => assert.deepEqual(sheet[`${column}3`], { t: 's', v: '' }));
 });
 
 test('Monthly Filing reuses the authoritative Expense Detailed Report builder for an explicit array', () => {
   const monthly = [{ dbId: 'monthly-1', receiptDate: '2026-08-01', store: 'Monthly Store', address: 'Pasig', vat: 'VAT', tin: '789', invoice: 'MF-1', amount: '500.25' }];
   const workbook = createExpenseDetailedReportWorkbook(monthly);
-  const sheet = workbook.Sheets['Selected Receipts'];
+  const sheet = workbook.Sheets['Expense Detailed Report'];
   assert.equal(createExpenseDetailedReportWorkbook, createSelectedReceiptsWorkbook);
   assert.equal(sheet.B3.t, 'd');
   assert.equal(sheet.H3.t, 'n');
@@ -53,12 +53,12 @@ test('Monthly Filing reuses the authoritative Expense Detailed Report builder fo
 test('the vendored SheetJS build generates and reads an XLSX workbook without network access', () => {
   const generated = write(createSelectedReceiptsWorkbook(receipts), { bookType: 'xlsx', type: 'array', cellDates: true });
   const reopened = read(generated, { type: 'array', cellDates: true, cellNF: true });
-  const sheet = reopened.Sheets['Selected Receipts'];
+  const sheet = reopened.Sheets['Expense Detailed Report'];
   assert.ok(generated.byteLength > 0);
   assert.equal(sheet.C1.v, 'Supplier Details');
   assert.equal(sheet.C2.v, 'Name');
   assert.equal(sheet.D2.v, 'Address');
   assert.equal(sheet.H3.v, 27998);
-  assert.equal(sheet.B3.z, 'd-mmm');
+  assert.equal(sheet.B3.z, 'mm/dd/yyyy');
   assert.equal(sheet.I3.v, '');
 });

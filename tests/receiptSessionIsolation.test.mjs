@@ -8,7 +8,7 @@ import { receiptFixture, settle } from './helpers/receiptUiFixture.mjs';
 const gate = () => { let open, fail; const promise = new Promise((resolve, reject) => { open = resolve; fail = reject; }); return { promise, open, fail }; };
 const row = (dbId, store, amount = 100) => ({ dbId, store, amount, receiptDate: '2026-08-01' });
 const stores = f => f.rows().map(item => f.field(item, 'store').value);
-const setTable = (f, rows) => { f.db.clear(); rows.forEach(item => f.db.set(item.dbId, { amount: '', receiptDate: '', vat: '', invoice: '', store: '', address: '', tin: '', status: 'available', updatedAt: f.stamp(), ...item })); };
+const setTable = (f, rows) => { f.db.clear(); rows.forEach(item => f.db.set(item.dbId, { amount: '', receiptDate: '', vat: '', invoice: '', store: '', address: '', tin: '', expenseAccount: 'Day to day', classification: 'Meals', status: 'available', updatedAt: f.stamp(), ...item })); };
 const visible = f => [stores(f).join(','), f.elements.encodingFeedback.textContent, f.elements.receiptCount.textContent].join(' | ');
 
 test('AUTH-10a: an earlier account\'s slow load that resolves AFTER the next account\'s load never replaces its receipts', async () => {

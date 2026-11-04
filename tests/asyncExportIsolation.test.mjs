@@ -4,7 +4,7 @@ import test from 'node:test';
 import { buildExpenseDetailedReportRows } from '../services/exportService.js';
 import { receiptFixture, settle } from './helpers/receiptUiFixture.mjs';
 
-const saved = (dbId, amount, store, extra = {}) => ({ dbId, amount, store, receiptDate: '2026-08-01', ...extra });
+const saved = (dbId, amount, store, extra = {}) => ({ dbId, amount, store, receiptDate: '2026-08-01', expenseAccount: 'Day to day', classification: 'Meals', ...extra });
 const six = () => [saved('r1', 100, 'Store A'), saved('r2', 200, 'Store B', { receiptDate: '2026-08-02' }), saved('r3', 300, 'Store C', { receiptDate: '2026-08-03' }), saved('r4', 400, 'Store D', { receiptDate: '2026-08-04' }), saved('r5', 500, 'Store E', { receiptDate: '2026-08-05' }), saved('r6', 600, 'Store F', { receiptDate: '2026-08-06' })];
 const storeOf = { r1: 'Store A', r2: 'Store B', r3: 'Store C', r4: 'Store D', r5: 'Store E', r6: 'Store F' };
 const setMode = async (f, mode) => { f.elements.exportModeManual.checked = mode === 'manual'; f.elements.exportModeBestMatch.checked = mode !== 'manual'; await (mode === 'manual' ? f.elements.exportModeManual : f.elements.exportModeBestMatch).emit('change'); return f; };

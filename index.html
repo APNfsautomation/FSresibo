@@ -212,11 +212,12 @@
         <!-- Row 2: actions, a separate region from the tabs -->
         <div class="monthly-actions-bar" id="monthlyActionsBar">
           <div class="monthly-actions" id="monthlyFilingActiveActions">
-            <button class="ghost monthly-add" id="monthlyFilingAdd" type="button"><span aria-hidden="true">+</span> Add receipt</button>
+            <button class="ghost monthly-add" id="monthlyFilingAdd" type="button" aria-keyshortcuts="Control+Enter"><span aria-hidden="true">+</span> Add receipt <kbd class="shortcut-hint" aria-hidden="true">Ctrl+Enter</kbd></button>
             <span class="monthly-unsaved-note" id="monthlyUnsavedNote" role="status" hidden></span>
+            <span class="monthly-save-state" id="monthlySaveState" role="status" aria-live="polite" hidden></span>
             <p class="monthly-active-total" id="monthlyActiveTotal" hidden><strong class="monthly-total-main" id="monthlyActiveTotalMain"></strong><span class="monthly-total-detail" id="monthlyActiveTotalDetail"></span></p>
             <span class="action-bar-spacer" aria-hidden="true"></span>
-            <button class="secondary monthly-save" id="monthlyFilingSave" type="button">Save changes</button>
+            <button class="secondary monthly-save" id="monthlyFilingSave" type="button" aria-keyshortcuts="Control+S">Save changes <kbd class="shortcut-hint" aria-hidden="true">Ctrl+S</kbd></button>
             <button class="primary monthly-export" id="monthlyFilingExportActive" type="button">Export &amp; archive active</button>
           </div>
           <div class="monthly-actions" id="monthlyFilingArchivedActions" hidden>
@@ -289,6 +290,8 @@
             <label class="field-tin">Store TIN<input class="receipt-tin" placeholder="000-000-000-000" /></label>
             <label class="field-vat">VAT status<select class="receipt-vat"><option value="">Not set</option><option value="VAT">VAT</option><option value="Non-VAT">Non-VAT</option></select></label>
             <label class="field-invoice">Invoice number<input class="receipt-invoice" placeholder="Invoice / OR number" /></label>
+            <label class="field-expense-account option-field">Expense Account<input class="receipt-expenseAccount" placeholder="Required before export (D / P)" /><ul class="option-suggestions receipt-expenseAccount-options" hidden></ul></label>
+            <label class="field-classification option-field">Classification of Expense<input class="receipt-classification" placeholder="Required before export" /><ul class="option-suggestions receipt-classification-options" hidden></ul></label>
             <label class="scan-label field-scan">Receipt photo<input class="receipt-photo" type="file" accept="image/*" capture="environment" /><span class="scan-button">⌁ Scan printed details</span></label>
           </div>
           <div class="receipt-form-footer">
@@ -308,7 +311,7 @@
         <button class="ghost compact-edit" type="button">Edit</button><button class="secondary compact-restore" type="button" hidden>Mark Available</button>
       </article>
     </template>
-    <template id="monthlyFilingReceiptTemplate"><article class="receipt-card monthly-card"><button class="monthly-summary" type="button" aria-expanded="true"><span class="monthly-summary-id">Receipt 1</span><span class="monthly-summary-store">Store not set</span><strong class="monthly-summary-amount">₱0.00</strong><span class="monthly-summary-date">No date</span><span class="monthly-summary-flags"></span><span class="monthly-summary-chevron" aria-hidden="true"><svg class="chevron-icon" viewBox="0 0 16 16" width="16" height="16" focusable="false" aria-hidden="true"><path d="M3.5 6.25 8 10.75l4.5-4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button><div class="receipt-content"><div class="receipt-form-group"><p class="form-group-title"><span class="monthly-receipt-id">Receipt 1</span> <span class="monthly-status" hidden></span> <span class="monthly-unsaved" hidden></span></p><div class="receipt-fields"><label class="wide store-name-field">Store<input class="monthly-store" placeholder="Store name" autocomplete="off" /><div class="store-suggestions monthly-suggestions" hidden></div></label><label class="wide">Address<input class="monthly-address" placeholder="Address" /></label><label>TIN<input class="monthly-tin" placeholder="TIN" /></label><label>VAT status<select class="monthly-vat"><option value="">Not set</option><option value="VAT">VAT</option><option value="Non-VAT">Non-VAT</option></select></label><label>Amount<input class="monthly-amount" inputmode="decimal" placeholder="0.00" /><span class="monthly-amount-error" hidden></span></label><label>Receipt date<input class="monthly-receiptDate" type="date" /></label><label>Invoice number<input class="monthly-invoice" placeholder="Invoice / OR number" /></label></div></div><div class="receipt-form-footer"><button class="delete-receipt monthly-delete" type="button">Delete receipt</button><button class="secondary monthly-return-active" type="button" hidden>Return to Active</button></div></div></article></template>
+    <template id="monthlyFilingReceiptTemplate"><article class="receipt-card monthly-card"><button class="monthly-summary" type="button" aria-expanded="true"><span class="monthly-summary-id">Receipt 1</span><span class="monthly-summary-store">Store not set</span><strong class="monthly-summary-amount">₱0.00</strong><span class="monthly-summary-date">No date</span><span class="monthly-summary-flags"></span><span class="monthly-summary-chevron" aria-hidden="true"><svg class="chevron-icon" viewBox="0 0 16 16" width="16" height="16" focusable="false" aria-hidden="true"><path d="M3.5 6.25 8 10.75l4.5-4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button><div class="receipt-content"><div class="receipt-form-group"><p class="form-group-title"><span class="monthly-receipt-id">Receipt 1</span> <span class="monthly-status" hidden></span> <span class="monthly-unsaved" hidden></span></p><div class="receipt-fields"><label class="wide store-name-field">Store<input class="monthly-store" placeholder="Store name" autocomplete="off" /><div class="store-suggestions monthly-suggestions" hidden></div></label><label class="wide">Address<input class="monthly-address" placeholder="Address" /></label><label>TIN<input class="monthly-tin" placeholder="TIN" /></label><label>VAT status<select class="monthly-vat"><option value="">Not set</option><option value="VAT">VAT</option><option value="Non-VAT">Non-VAT</option></select></label><label>Amount<input class="monthly-amount" inputmode="decimal" placeholder="0.00" /><span class="monthly-amount-error" hidden></span></label><label>Receipt date<input class="monthly-receiptDate" type="date" /></label><label>Invoice number<input class="monthly-invoice" placeholder="Invoice / OR number" /></label><label class="option-field">Expense Account<input class="monthly-expenseAccount" placeholder="Required before export (D / P)" /><ul class="option-suggestions monthly-expenseAccount-options" hidden></ul></label><label class="option-field">Classification of Expense<input class="monthly-classification" placeholder="Required before export" /><ul class="option-suggestions monthly-classification-options" hidden></ul></label></div></div><div class="receipt-form-footer"><button class="delete-receipt monthly-delete" type="button">Delete receipt</button><button class="secondary monthly-return-active" type="button" hidden>Return to Active</button></div></div></article></template>
     <section class="edit-modal export-review-modal" id="exportConfirmModal" role="dialog" aria-modal="true" aria-labelledby="exportConfirmTitle" aria-describedby="exportConfirmMessage" hidden>
       <div class="modal-backdrop" id="exportConfirmBackdrop"></div>
       <div class="modal-card export-confirm-card export-review-card">
@@ -328,6 +331,23 @@
         </div>
         <p class="visually-hidden" id="exportReviewAnnouncer" role="status" aria-live="polite"></p>
         <div class="modal-actions export-review-actions"><button class="ghost export-review-reset" id="exportReviewReset" type="button">Reset order</button><button class="primary" id="confirmExport" type="button">Export &amp; Mark Consumed</button><button class="ghost" id="cancelExport" type="button">Cancel</button></div>
+      </div>
+    </section>
+    <section class="edit-modal export-review-modal" id="monthlyExportReviewModal" role="dialog" aria-modal="true" aria-labelledby="monthlyExportReviewTitle" aria-describedby="monthlyExportReviewMessage" hidden>
+      <div class="modal-backdrop" id="monthlyExportReviewBackdrop"></div>
+      <div class="modal-card export-confirm-card export-review-card">
+        <p class="eyebrow">REVIEW &amp; ARRANGE</p>
+        <h2 id="monthlyExportReviewTitle">Arrange Monthly Filing export</h2>
+        <p id="monthlyExportReviewMessage"></p>
+        <dl class="export-review-summary">
+          <div><dt>Active receipts</dt><dd id="monthlyExportReviewCount">0</dd></div>
+          <div><dt>Total amount</dt><dd id="monthlyExportReviewTotal">₱0.00</dd></div>
+          <div id="monthlyExportReviewNoAmountGroup" hidden><dt>No amount</dt><dd id="monthlyExportReviewNoAmount"></dd></div>
+        </dl>
+        <p class="export-review-hint" id="monthlyExportReviewHint">Item No. in the workbook follows this order. Drag a receipt (on a touch screen, press and hold first), use the Move up and Move down buttons, or focus a receipt and press the arrow keys (Home and End jump to the first and last position).</p>
+        <ol class="export-review-list" id="monthlyExportReviewList" aria-label="Receipts in export order"></ol>
+        <p class="visually-hidden" id="monthlyExportReviewAnnouncer" role="status" aria-live="polite"></p>
+        <div class="modal-actions export-review-actions"><button class="ghost export-review-reset" id="monthlyExportReviewReset" type="button">Reset order</button><button class="primary" id="monthlyExportReviewConfirm" type="button">Export &amp; Archive</button><button class="ghost" id="monthlyExportReviewCancel" type="button">Cancel</button></div>
       </div>
     </section>
     <section class="edit-modal confirmation-modal" id="confirmationModal" role="dialog" aria-modal="true" aria-labelledby="confirmationTitle" aria-describedby="confirmationMessage" hidden>

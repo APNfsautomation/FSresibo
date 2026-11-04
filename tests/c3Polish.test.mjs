@@ -111,7 +111,7 @@ test('PF-02: a self-contained SVG favicon in the brand colours is linked by a re
 
 // ---- EXPORT-UX-01 / EXPORT-UX-02 --------------------------------------------------------------------------------------------------------------
 const receiptWith = (amount, extra = {}) => ({ dbId: 'x', receiptDate: '2026-07-13', store: 'Alpha', address: 'Makati', vat: 'VAT', tin: '123', invoice: 'OR-1', amount, ...extra });
-const amountCell = amount => createExpenseDetailedReportWorkbook([receiptWith(amount)]).Sheets['Selected Receipts'].H3;
+const amountCell = amount => createExpenseDetailedReportWorkbook([receiptWith(amount)]).Sheets['Expense Detailed Report'].H3;
 
 test('EXPORT-UX-01: Amount cells stay numeric, keep their exact value and carry the #,##0.00 format (1,250.50 / 100.00 / 0.00)', () => {
   assert.equal(amountCellFormat, '#,##0.00');
@@ -123,12 +123,12 @@ test('EXPORT-UX-01: Amount cells stay numeric, keep their exact value and carry 
 
 test('EXPORT-UX-01: only Amount cells get the money format; the structure, merges, headers and Item No. are unchanged; the workbook round-trips', () => {
   const workbook = createSelectedReceiptsWorkbook([receiptWith('1250.5'), receiptWith('20', { store: 'Beta' })]);
-  const sheet = workbook.Sheets['Selected Receipts'];
-  assert.equal(sheet['!ref'], 'A1:O4'); assert.deepEqual(workbook.SheetNames, ['Selected Receipts']);
-  assert.equal(sheet.A3.v, 1); assert.equal(sheet.A4.v, 2); assert.equal(sheet.B3.z, 'd-mmm');
+  const sheet = workbook.Sheets['Expense Detailed Report'];
+  assert.equal(sheet['!ref'], 'A1:N4'); assert.deepEqual(workbook.SheetNames, ['Expense Detailed Report']);
+  assert.equal(sheet.A3.v, 1); assert.equal(sheet.A4.v, 2); assert.equal(sheet.B3.z, 'mm/dd/yyyy');
   for (const cell of ['A3', 'C3', 'D3', 'E3', 'F3', 'G3', 'I3']) assert.notEqual(sheet[cell].z, '#,##0.00', `${cell} is not an Amount cell`);
-  assert.equal(sheet['!merges'].length, 14);
-  const reopened = read(write(workbook, { bookType: 'xlsx', type: 'array', cellDates: true }), { type: 'array', cellDates: true, cellNF: true }).Sheets['Selected Receipts'];
+  assert.equal(sheet['!merges'].length, 13);
+  const reopened = read(write(workbook, { bookType: 'xlsx', type: 'array', cellDates: true }), { type: 'array', cellDates: true, cellNF: true }).Sheets['Expense Detailed Report'];
   assert.deepEqual([reopened.H3.t, reopened.H3.v, reopened.H3.z, reopened.H4.v], ['n', 1250.5, '#,##0.00', 20]);
   assert.equal(utils.format_cell(reopened.H3), '1,250.50');
 });
@@ -137,7 +137,7 @@ test('EXPORT-UX-02: a missing amount is an empty cell; an explicit zero (number 
   for (const missing of [undefined, null, '', '   ']) { assert.equal(amountCell(missing), undefined, `${JSON.stringify(missing)} leaves no Amount cell`); assert.equal(buildExpenseDetailedReportRows([receiptWith(missing)])[2][7], null); }
   for (const zero of [0, '0', ' 0 ', '0.00']) { const cell = amountCell(zero); assert.deepEqual([cell.t, cell.v, cell.z], ['n', 0, '#,##0.00'], `${JSON.stringify(zero)} is a numeric zero`); }
   assert.equal(amountCell('0.5').v, 0.5); assert.equal(amountCell(27998).v, 27998); assert.equal(amountCell('9,999,999,999.99').v, 9999999999.99);
-  const sheet = createExpenseDetailedReportWorkbook([receiptWith('5'), receiptWith(''), receiptWith('0')]).Sheets['Selected Receipts'];
+  const sheet = createExpenseDetailedReportWorkbook([receiptWith('5'), receiptWith(''), receiptWith('0')]).Sheets['Expense Detailed Report'];
   assert.deepEqual([sheet.H3.v, sheet.H4, sheet.H5.v], [5, undefined, 0], 'missing and zero are distinguishable in one workbook');
   assert.equal(utils.sheet_to_json(sheet, { header: 1 })[3][7], undefined);
 });
