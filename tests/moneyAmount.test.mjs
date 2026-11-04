@@ -73,7 +73,7 @@ test('Receipt Encoding persistence normalizes valid amounts and keeps blank as N
   for (const [raw, stored] of [['1250.50', 1250.5], ['1,250.50', 1250.5], ['12,500', 12500], ['1,234,567.89', 1234567.89], ['0.50', 0.5], ['0', 0], ['25.05', 25.05], ['', null], ['   ', null], [undefined, null]]) {
     assert.equal(toDatabaseReceipt(receipt(raw), 'user-1').amount, stored, String(raw));
   }
-  assert.deepEqual(toDatabaseReceipt(receipt('1,250.50'), 'user-1'), { user_id: 'user-1', store_name: 'Cafe', amount: 1250.5, receipt_date: '2026-10-01', address: 'A', tin: '123', vat_status: 'VAT', invoice_number: 'OR-1' });
+  assert.deepEqual(toDatabaseReceipt(receipt('1,250.50'), 'user-1'), { user_id: 'user-1', store_name: 'Cafe', amount: 1250.5, receipt_date: '2026-10-01', address: 'A', tin: '123', vat_status: 'VAT', invoice_number: 'OR-1', expense_account: null, classification_of_expense: null });
 });
 
 test('Monthly Filing persistence normalizes valid amounts and keeps blank as NULL', () => {

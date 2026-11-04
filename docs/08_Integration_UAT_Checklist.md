@@ -153,3 +153,7 @@ Issue #27 (Monthly Filing session isolation, HIGH) is **closed with Product Owne
 | 1-15 | | | | |
 
 Acceptance of this regression and documentation checkpoint is separate from production release readiness. The remaining production tasks (fresh backup, release pull request, Pages cutover, production smoke checks, advisory review) are listed in `02_Roadmap.md` and `09_Release_Runbook.md`. Check 8b is optional and check 11b is deferred; neither is counted among the 15. Check 8 was the retest of the check that failed on the 32-receipt limit (accepted); check 15 is the Issue #27 retest (accepted).
+
+## v3.7.0 UAT checks
+
+The UAT site must show a version such as `v3.7.0-uat+<sha>`. The full v3.7.0 acceptance list is in `11_v3.7.0_Implementation_Notes.md`.

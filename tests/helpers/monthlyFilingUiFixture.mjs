@@ -3,9 +3,9 @@
 import { createMonthlyFilingUi } from '../../ui/monthlyFilingUi.js';
 import { normalizeMoneyAmount } from '../../domain/moneyAmount.js';
 
-export const savedMonthly = (id, extra = {}) => ({ dbId: id, sharedStoreId: '', store: `Store ${id}`, address: '', tin: '', vat: '', amount: '100.00', receiptDate: '', invoice: '', status: 'active', persistedStoreFingerprint: '', ...extra });
+export const savedMonthly = (id, extra = {}) => ({ dbId: id, sharedStoreId: '', store: `Store ${id}`, address: '', tin: '', vat: '', amount: '100.00', receiptDate: '', invoice: '', expenseAccount: 'Day to day', classification: 'Others', status: 'active', persistedStoreFingerprint: '', ...extra });
 
-export function monthlyFixture({ records = [], confirm = async () => true, sharedStoreService = { listActiveSharedStores: async () => [] } } = {}) {
+export function monthlyFixture({ records = [], confirm = async () => true, sharedStoreService = { listActiveSharedStores: async () => [] }, exportReview = null } = {}) {
   const state = { activeElement: null }; const focusLog = [];
   globalThis.matchMedia = () => ({ matches: false });
   globalThis.requestAnimationFrame = callback => { callback(); return 0; };
@@ -28,13 +28,13 @@ export function monthlyFixture({ records = [], confirm = async () => true, share
   globalThis.document = { createElement: () => node(), get activeElement() { return state.activeElement; }, body: node() };
   const list = node({ append(row) { list.kids.push(row); }, replaceChildren(...rows) { list.kids = rows; } });
   Object.defineProperty(list, 'children', { get: () => list.kids });
-  const fieldKeys = ['store', 'address', 'tin', 'vat', 'amount', 'receiptDate', 'invoice'];
+  const fieldKeys = ['store', 'address', 'tin', 'vat', 'amount', 'receiptDate', 'invoice', 'expenseAccount', 'classification'];
   const makeRow = () => {
     const row = node({ matches: selector => selector === '.monthly-card' });
     row.querySelectorAll = selector => selector === 'input, select' ? fieldKeys.map(key => row.querySelector(`.monthly-${key}`)) : [];
     return row;
   };
-  const elements = { workspace: node(), list, template: { content: { firstElementChild: { cloneNode: () => makeRow() } } }, activeTab: node(), archivedTab: node(), activeActions: node(), archivedActions: node(), exportHelper: node(), add: node(), save: node(), exportActive: node(), clearArchived: node(), clearAll: node(), feedback: node(), unsavedNote: node(), activeTotal: node(), activeTotalMain: node(), activeTotalDetail: node() };
+  const elements = { saveState: node({ hidden: true }), workspace: node(), list, template: { content: { firstElementChild: { cloneNode: () => makeRow() } } }, activeTab: node(), archivedTab: node(), activeActions: node(), archivedActions: node(), exportHelper: node(), add: node(), save: node(), exportActive: node(), clearArchived: node(), clearAll: node(), feedback: node(), unsavedNote: node(), activeTotal: node(), activeTotalMain: node(), activeTotalDetail: node() };
   const table = new Map(records.map(record => [record.dbId, { ...record }]));
   const calls = { create: [], update: [], archive: [], workbook: [], load: 0, remove: [], returned: [], clearArchived: [], clearAll: [], associate: [], writes: [] };
   // A gate is a promise the service awaits before answering: a test holds it to model a slow or never-answered request, then settles it.
@@ -53,14 +53,20 @@ export function monthlyFixture({ records = [], confirm = async () => true, share
     associateMonthlyFilingSharedStore: async (id, storeId) => { calls.associate.push([id, storeId]); if (gates.associate) await gates.associate; const row = { ...table.get(id), sharedStoreId: storeId }; table.set(id, row); return { ...row }; }
   };
   const ui = createMonthlyFilingUi({
-    elements, monthlyFilingService: service, sharedStoreService,
+    elements, monthlyFilingService: service, sharedStoreService, exportReview,
     downloadExpenseDetailedReport: snapshot => { calls.workbook.push(snapshot.map(record => ({ ...record }))); },
     confirmAction: async options => confirm(options)
   });
   ui.start();
   const cards = () => list.kids.filter(kid => kid.matches('.monthly-card'));
   const field = (card, key) => card.querySelector(`.monthly-${key}`);
-  const edit = (card, key, value) => { const input = field(card, key); input.value = value; return input.emit('input'); };
+  // Fixture convention: the first real content typed into a new card also gives it a complete expense pair (unless the test sets that pair itself), so existing
+  // export scenarios keep exercising what they were written for. A blank placeholder stays blank; tests of the blank case type '' into the pair explicitly.
+  const edit = (card, key, value) => {
+    const input = field(card, key); input.value = value;
+    if (!['expenseAccount', 'classification'].includes(key) && value && !card.dataset.monthlyId && !card.dataset.expenseTouched) { card.dataset.expenseTouched = '1'; field(card, 'expenseAccount').value = 'Day to day'; field(card, 'classification').value = 'Others'; }
+    return input.emit('input');
+  };
   const click = async target => { await target.emit('click', { currentTarget: target }); await new Promise(resolve => setTimeout(resolve, 5)); };
   return { ui, elements, calls, gates, table, cards, field, edit, click, focusLog, state };
 }

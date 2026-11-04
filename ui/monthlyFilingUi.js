@@ -1,10 +1,14 @@
 import { installTablistKeyboard } from './tablistKeyboard.js';
 import { trackTextEntry } from './textEntryFocus.js';
+import { attachOptionCombobox } from './optionCombobox.js';
+import { attachTinFormatter } from './tinInput.js';
+import { formatTinForDisplay } from '../domain/tinFormat.js';
+import { classificationOptions, expenseAccountOptions, expenseExportProblems, expenseFieldLabels, expenseProblemMessage } from '../domain/expenseClassification.js';
 import { parseMoneyAmount } from '../domain/moneyAmount.js';
 import { philippineDateStamp } from '../domain/exportDate.js';
 import { deduplicateDirectoryCandidates, persistedStoreFingerprint, postSaveDirectoryDecision, resolveSharedContributionCandidate } from '../domain/sharedStoreProfiles.js';
 
-export const monthlyFilingEditableFields = Object.freeze(['store', 'address', 'tin', 'vat', 'amount', 'receiptDate', 'invoice']);
+export const monthlyFilingEditableFields = Object.freeze(['store', 'address', 'tin', 'vat', 'amount', 'receiptDate', 'invoice', 'expenseAccount', 'classification']);
 export const monthlyFilingProfileSnapshot = profile => ({ sharedStoreId: profile.id, store: profile.storeName, address: profile.address || '', tin: profile.tin || '', vat: profile.vat || '' });
 export const clearsSharedStoreAssociation = (before, after) => ['store', 'address', 'tin'].some(key => String(before[key] || '').trim() !== String(after[key] || '').trim());
 export const isBlankUnsavedMonthlyFilingRecord = record => !record.dbId && monthlyFilingEditableFields.every(key => !String(record[key] || '').trim());
@@ -16,7 +20,7 @@ export const reconcileArchivedMonthlyFilingDeletion = (records, deletedIds) => {
   const deleted = new Set(deletedIds);
   return records.filter(record => !deleted.has(record.dbId));
 };
-export const monthlyFilingLocalEditableFields = Object.freeze(['store', 'address', 'tin', 'vat', 'amount', 'receiptDate', 'invoice', 'sharedStoreId', 'persistedStoreFingerprint']);
+export const monthlyFilingLocalEditableFields = Object.freeze(['store', 'address', 'tin', 'vat', 'amount', 'receiptDate', 'invoice', 'expenseAccount', 'classification', 'sharedStoreId', 'persistedStoreFingerprint']);
 export const reconcileMonthlyFilingReload = (localRecords, reloadedRecords) => {
   const localActive = new Map(localRecords.filter(record => record.dbId && record.status === 'active').map(record => [record.dbId, record]));
   const drafts = localRecords.filter(record => !record.dbId && record.status === 'active');
@@ -58,10 +62,18 @@ export function createMonthlyFilingMutationState() {
     finish: () => { operation = ''; }
   };
 }
-export async function runMonthlyFilingExport({ save, snapshot, generateWorkbook, archive }) {
+export async function runMonthlyFilingExport({ save, snapshot, generateWorkbook, archive, validate = () => [], arrange = async saved => saved }) {
   if (!await save()) return { state: 'save-failed' };
-  const records = snapshot();
+  let records = snapshot();
   if (!records.length) return { state: 'empty' };
+  const problems = validate(records);
+  if (problems.length) return { state: 'expense-missing', problems, records };
+  // The user may put the saved receipts in the order of their paper copies. Only the ORDER may change: the confirmed list must hold exactly the saved receipts.
+  const arranged = await arrange(records);
+  if (!arranged) return { state: 'cancelled', records };
+  const saved = new Set(records.map(record => record.dbId));
+  if (arranged.length !== records.length || new Set(arranged.map(record => record.dbId)).size !== records.length || arranged.some(record => !saved.has(record.dbId))) return { state: 'arrange-invalid', records };
+  records = arranged;
   try { generateWorkbook(records); } catch (error) { return { state: 'generation-failed', error }; }
   try { return { state: 'archived', records, archived: await archive(records.map(record => record.dbId)) }; }
   catch (error) { return { state: 'archive-failed', records, error }; }
@@ -145,6 +157,21 @@ export const monthlyFilingTotalText = summary => {
 };
 // Total of the amounts in an export snapshot (the authoritative saved records); null if any amount is not a valid money value.
 export const monthlyFilingSnapshotTotalCents = records => { let total = 0; for (const record of records) { const amount = monthlyFilingAmountState(record.amount); if (amount.kind === 'invalid') return null; if (amount.kind === 'valid') total += amount.cents; } return total; };
+// Visible save state (Issue #50). 'saved' is only ever the result of a save the database confirmed; a failed save stays visible until a save succeeds, and an edit
+// after a save is "Unsaved changes" again. Presentation only: which receipts are dirty is decided by the view state, not here.
+export const monthlyFilingSaveState = ({ status = 'idle', saving = false, dirtyCount = 0 } = {}) => {
+  if (saving) return { key: 'saving', text: 'Saving…' };
+  if (status === 'failed') return { key: 'failed', text: 'Save failed' };
+  if (dirtyCount > 0) return { key: 'unsaved', text: 'Unsaved changes' };
+  if (status === 'saved') return { key: 'saved', text: 'Saved' };
+  return { key: 'idle', text: '' };
+};
+// Ctrl+Enter = Add, Ctrl+S = Save. Returns 'add' | 'save' | '' for a keydown, ignoring every other modifier combination, IME composition and a missing key.
+export const monthlyFilingShortcut = event => {
+  if (!event?.ctrlKey || event.metaKey || event.altKey || event.shiftKey || event.isComposing || event.keyCode === 229) return '';
+  const key = String(event.key ?? '').toLowerCase();
+  return key === 'enter' ? 'add' : key === 's' ? 'save' : '';
+};
 export const monthlyFilingDirtyLabel = state => state === 'new' ? 'New, unsaved' : state === 'edited' ? 'Unsaved changes' : '';
 export const monthlyFilingSummaryName = ({ number, store, amountText, date, archived, dirty }) =>
   [archived ? 'Archived monthly receipt' : number ? `Monthly receipt ${number}` : 'New monthly receipt', store, amountText, date || 'no date', archived ? 'archived' : '', monthlyFilingDirtyLabel(dirty).toLowerCase()].filter(Boolean).join(', ');
@@ -171,8 +198,8 @@ export const directoryOutcomeFeedback = (outcomes, { saved = true } = {}) => {
 // Thrown inside an operation whose session has ended; every catch treats it (and any other late error of an ended session) as inert.
 class MonthlyFilingSessionEnded extends Error {}
 
-export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedStoreService, downloadExpenseDetailedReport, confirmAction = async () => false }) {
-  let records = []; let profiles = []; let lastDirectoryFeedback = ''; let lastDirectoryDetail = ''; let activeTab = 'active'; let view = createMonthlyFilingViewState(); let contentSequence = 0;
+export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedStoreService, downloadExpenseDetailedReport, confirmAction = async () => false, exportReview = null }) {
+  let saveStatus = 'idle'; let records = []; let profiles = []; let lastDirectoryFeedback = ''; let lastDirectoryDetail = ''; let activeTab = 'active'; let view = createMonthlyFilingViewState(); let contentSequence = 0;
   // Session isolation (Issue #27). Everything an asynchronous operation may touch after an await belongs to a SESSION: the signed-in user, the busy flag and the
   // mutation and export-lifecycle guards. loadForUser() and clearForLogout() each replace the session, so a request that belongs to an earlier session (an earlier
   // account, or the same account signed in again) is stale: it applies nothing, says nothing, prompts nothing, sends nothing further, and its finally block can only
@@ -235,6 +262,10 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
       elements.activeTotal.hidden = !text.main; elements.activeTotal.classList.toggle('is-unavailable', !text.available);
       elements.activeTotalMain.textContent = text.main; elements.activeTotalDetail.textContent = text.detail;
     }
+    if (elements.saveState) {
+      const state = monthlyFilingSaveState({ status: saveStatus, saving: session.loading, dirtyCount: records.filter(record => view.dirtyState(record) !== 'clean').length });
+      elements.saveState.hidden = !state.text; elements.saveState.textContent = state.text; elements.saveState.dataset.state = state.key;
+    }
     if (elements.unsavedNote) {
       const count = records.filter(record => view.dirtyState(record) !== 'clean').length;
       elements.unsavedNote.hidden = count === 0; elements.unsavedNote.textContent = count ? `${count} unsaved ${count === 1 ? 'receipt' : 'receipts'}` : '';
@@ -281,6 +312,9 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
       Object.entries(record).forEach(([key, value]) => { const field = row.querySelector(`.monthly-${key}`); if (field) field.value = value ?? ''; });
       const archived = monthlyFilingIsReadOnly(record);
       row.querySelector('.monthly-status').textContent = archived ? 'Archived' : 'Active'; row.querySelector('.monthly-status').hidden = !archived;
+      attachTinFormatter(row.querySelector('.monthly-tin')); // registered before the field's sync listeners below, so they see the formatted value
+      attachOptionCombobox({ input: row.querySelector('.monthly-expenseAccount'), list: row.querySelector('.monthly-expenseAccount-options'), options: expenseAccountOptions, label: expenseFieldLabels.expenseAccount });
+      attachOptionCombobox({ input: row.querySelector('.monthly-classification'), list: row.querySelector('.monthly-classification-options'), options: classificationOptions, label: expenseFieldLabels.classification });
       row.querySelectorAll('input, select').forEach(field => { field.disabled = archived; });
       row.querySelector('.monthly-delete').hidden = archived;
       const returnButton = row.querySelector('.monthly-return-active'); returnButton.hidden = !archived;
@@ -300,7 +334,7 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
       const showSuggestions = () => {
         const query = store.value.trim().toLowerCase(); suggestions.replaceChildren();
         if (!query || archived) return suggestions.hidden = true;
-        profiles.filter(profile => profile.storeName.toLowerCase().includes(query)).slice(0, 6).forEach(profile => { const option = document.createElement('button'); option.type = 'button'; option.textContent = [profile.storeName, profile.address, profile.tin].filter(Boolean).join(' · '); option.addEventListener('click', () => { const snapshot = monthlyFilingProfileSnapshot(profile); Object.entries(snapshot).forEach(([key, value]) => { if (key === 'sharedStoreId') row.dataset.sharedStoreId = value; else row.querySelector(`.monthly-${key}`).value = value; }); synchronizeActiveRow(row); updateActions(); suggestions.hidden = true; }); suggestions.append(option); });
+        profiles.filter(profile => profile.storeName.toLowerCase().includes(query)).slice(0, 6).forEach(profile => { const option = document.createElement('button'); option.type = 'button'; option.textContent = [profile.storeName, profile.address, profile.tin].filter(Boolean).join(' · '); option.addEventListener('click', () => { const snapshot = monthlyFilingProfileSnapshot(profile); Object.entries(snapshot).forEach(([key, value]) => { if (key === 'sharedStoreId') row.dataset.sharedStoreId = value; else row.querySelector(`.monthly-${key}`).value = key === 'tin' ? formatTinForDisplay(value) : value; }); synchronizeActiveRow(row); updateActions(); suggestions.hidden = true; }); suggestions.append(option); });
         suggestions.hidden = !suggestions.children.length;
       };
       store.addEventListener('input', showSuggestions);
@@ -396,7 +430,7 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
   // owner: the session the save belongs to. An export passes its own, so a save started by an ended export session can never run for the next account.
   const save = async ({ successFeedback = true, fromExport = false, session: owner = session } = {}) => {
     if (isStale(owner) || owner.loading || !owner.user || (owner.lifecycle.exportBlocked() && !fromExport) || (fromExport ? !owner.mutations.permitsInternalExportSave() : !owner.mutations.begin('save'))) return false;
-    owner.loading = true; elements.save.disabled = true;
+    owner.loading = true; elements.save.disabled = true; refreshPresentation();
     try {
       synchronizeVisibleActiveDrafts();
       const rowsByIndex = new Map([...elements.list.children].filter(row => row.matches('.monthly-card')).map(row => [Number(row.dataset.recordIndex), row]));
@@ -419,12 +453,23 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
       endIfStale(owner);
       if (error) throw error;
       const directoryOutcomes = await processDirectoryDecisions(owner, saved); endIfStale(owner); lastDirectoryFeedback = directoryOutcomeFeedback(directoryOutcomes); lastDirectoryDetail = directoryOutcomeFeedback(directoryOutcomes, { saved: false });
-      render(); if (successFeedback) feedback(lastDirectoryFeedback || 'Monthly Filing changes saved.'); return true;
-    } catch (error) { if (isStale(owner)) return false; feedback(`Could not save Monthly Filing changes: ${error.message}`); return false; } finally { owner.loading = false; if (!fromExport) owner.mutations.finish(); if (!isStale(owner)) updateActions(); }
+      saveStatus = 'saved'; render(); if (successFeedback) feedback(lastDirectoryFeedback || 'Monthly Filing changes saved.'); return true;
+    } catch (error) { if (isStale(owner)) return false; saveStatus = 'failed'; feedback(`Could not save Monthly Filing changes: ${error.message}`); return false; } finally { owner.loading = false; if (!fromExport) owner.mutations.finish(); if (!isStale(owner)) updateActions(); }
   };
   // Totals come from the exact snapshot that was exported (database-returned amounts), never from the screen.
   const exportedTotalText = records => { const cents = monthlyFilingSnapshotTotalCents(records); return cents === null ? '' : ` (Total: ${formatMonthlyFilingCents(cents)})`; };
   const exportedTotalNote = (records, label) => { const cents = monthlyFilingSnapshotTotalCents(records); return cents === null ? '' : ` ${label}: ${formatMonthlyFilingCents(cents)}.`; };
+  // Export needs both expense fields on every receipt of the EXACT export set (all Active, non-blank receipts). Nothing is saved, generated or archived when any is missing;
+  // the first receipt that needs attention is opened and its first missing field focused. Typed values are untouched.
+  const exportExpenseEntries = () => { const numbers = exportNumbers(); return records.filter(record => numbers.has(record)).map(record => ({ label: `Receipt ${numbers.get(record)}`, receipt: record, record })); };
+  const blockForMissingExpense = entries => {
+    const problems = expenseExportProblems(entries);
+    if (!problems.length) return true;
+    const first = entries.find(entry => entry.label === problems[0].label);
+    view.setExpanded(first.record, true); render(); focusReceipt(first.record, problems[0].fields[0] === 'expenseAccount' ? '.monthly-expenseAccount' : '.monthly-classification');
+    feedback(expenseProblemMessage(problems));
+    return false;
+  };
   const exportActive = async event => {
     const owner = session;
     if (!owner.lifecycle.beginExport()) return;
@@ -434,14 +479,18 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
     synchronizeVisibleActiveDrafts();
     const count = monthlyFilingActiveExportCount(records);
     if (!count) return feedback('There are no Active Monthly Filing receipts to export.');
+    if (!blockForMissingExpense(exportExpenseEntries())) return;
     const before = activeTotalSummary(); const totalNote = before.available ? ` Active Total: ${formatMonthlyFilingCents(before.workingCents)}.` : '';
     lastDirectoryFeedback = ''; lastDirectoryDetail = '';
     if (!await confirmAction({ title: 'Export Active Monthly Filing receipts?', message: `This will generate the Expense Detailed Report for all ${count} currently Active Monthly Filing receipt${count === 1 ? '' : 's'}.${totalNote} Unsaved changes are saved first. After the workbook is generated successfully, those receipts will be Archived and become read-only.`, confirmLabel: 'Export & Archive', cancelLabel: 'Cancel', trigger: event.currentTarget })) return;
     if (isStale(owner)) return;
     // Each step re-checks the session: after an account change no workbook is generated, no archive is requested, and nothing is applied or said.
-    const result = await runMonthlyFilingExport({ save: () => save({ successFeedback: false, fromExport: true, session: owner }), snapshot: () => isStale(owner) ? [] : activeRecords(), generateWorkbook: snapshot => { endIfStale(owner); downloadExpenseDetailedReport(snapshot, monthlyFilingExportFilename()); }, archive: ids => { endIfStale(owner); return monthlyFilingService.archiveMonthlyFilingReceipts(ids); } });
+    const result = await runMonthlyFilingExport({ save: () => save({ successFeedback: false, fromExport: true, session: owner }), snapshot: () => isStale(owner) ? [] : activeRecords(), validate: saved => expenseExportProblems(saved.map((record, index) => ({ label: `Receipt ${index + 1}`, receipt: record }))), arrange: async saved => (exportReview && saved.length > 1 && !isStale(owner)) ? (async () => { const ordered = await exportReview.review(saved, { trigger: event.currentTarget }); return isStale(owner) ? null : ordered; })() : saved, generateWorkbook: snapshot => { endIfStale(owner); downloadExpenseDetailedReport(snapshot, monthlyFilingExportFilename()); }, archive: ids => { endIfStale(owner); return monthlyFilingService.archiveMonthlyFilingReceipts(ids); } });
     if (isStale(owner)) return;
     if (result.state === 'save-failed') return;
+    if (result.state === 'cancelled') { render(); return feedback('Export cancelled. Your changes were saved; nothing was exported or archived.'); }
+    if (result.state === 'arrange-invalid') return feedback('The export order could not be confirmed, so nothing was exported or archived.');
+    if (result.state === 'expense-missing') { render(); return feedback(expenseProblemMessage(result.problems)); }
     if (result.state === 'empty') return feedback('There are no persisted Active Monthly Filing receipts to export.');
     if (result.state === 'generation-failed') return feedback(`Could not prepare the XLSX export: ${result.error.message}`);
     if (result.state === 'archive-failed') { owner.lifecycle.markArchiveUncertain(); return feedback(`Workbook generated, but archive status could not be confirmed. Refresh Monthly Filing before exporting again. (${result.error.message})${exportedTotalNote(result.records, 'Workbook total')}${lastDirectoryDetail ? ` ${lastDirectoryDetail}` : ''}`); }
@@ -481,7 +530,7 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
     try {
       if (!await confirmAction({ title: 'Clear ALL Monthly Filing receipts?', message: `This permanently deletes ALL your Monthly Filing receipts, including ${counts.active} Active and ${counts.archived} Archived receipt${counts.active + counts.archived === 1 ? '' : 's'}. This cannot be undone. Long-term Receipts and the Company Directory are not affected.`, confirmLabel: 'Clear All Monthly Filing', cancelLabel: 'Cancel', danger: true, trigger: event.currentTarget })) return;
       endIfStale(owner);
-      await monthlyFilingService.clearMonthlyFilingReceipts(owner.user.id); endIfStale(owner); records = []; view = createMonthlyFilingViewState(); activeTab = 'active'; render(); feedback('All Monthly Filing receipts cleared.');
+      await monthlyFilingService.clearMonthlyFilingReceipts(owner.user.id); endIfStale(owner); records = []; view = createMonthlyFilingViewState(); activeTab = 'active'; saveStatus = 'idle'; render(); feedback('All Monthly Filing receipts cleared.');
     } catch (error) { if (isStale(owner)) return; feedback(`Could not clear all Monthly Filing receipts: ${error.message}`); } finally { owner.mutations.finish(); if (!isStale(owner)) updateActions(); }
   };
   const switchTab = tab => {
@@ -489,12 +538,23 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
     synchronizeVisibleActiveDrafts(); activeTab = tab; render();
     (tab === 'active' ? elements.activeTab : elements.archivedTab).focus({ preventScroll: true });
   };
+  // Keyboard-first Monthly Filing (Issue #42 / #50): Ctrl+Enter = Add, Ctrl+S = Save. The listener sits on the Monthly Filing workspace only, so it never sees keys typed in
+  // other workspaces, the login screen or dialogs (all outside this element), and it reuses the buttons' own handlers: a disabled button means the shortcut does nothing,
+  // and Save still goes through the mutation guard. Browser "Save page" is suppressed only when the shortcut is eligible here.
+  const handleShortcut = event => {
+    const action = monthlyFilingShortcut(event);
+    if (!action || !session.user || elements.workspace.hidden || activeTab !== 'active' || globalThis.document?.querySelector?.('[aria-modal="true"]:not([hidden])')) return;
+    event.preventDefault();
+    if (event.repeat) return; // holding the keys down does not repeat the action
+    if (action === 'add') { if (!elements.add.disabled && !session.mutations.pending()) add(); return; } // never add while a save, export or other mutation is running
+    if (!elements.save.disabled) void save();
+  };
   return {
     // Every load starts a NEW session (the same account signing in again included): whatever an earlier session left on screen is wiped first, and an
     // earlier session's late answers are stale and apply nothing. Same-account token refreshes never reach here (app.js de-duplicates them).
     async loadForUser(user) {
-      const owner = session = newSession(user);
-      records = []; view = createMonthlyFilingViewState(); profiles = []; activeTab = 'active'; lastDirectoryFeedback = ''; lastDirectoryDetail = '';
+      exportReview?.cancel(); const owner = session = newSession(user);
+      records = []; view = createMonthlyFilingViewState(); profiles = []; activeTab = 'active'; lastDirectoryFeedback = ''; lastDirectoryDetail = ''; saveStatus = 'idle';
       feedback('Loading Monthly Filing…'); render();
       try {
         const loaded = await monthlyFilingService.loadMonthlyFilingReceipts();
@@ -508,7 +568,7 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
       } catch { if (isStale(owner)) return; profiles = []; feedback('Company Directory is temporarily unavailable. You can still enter store details manually.'); }
       render();
     },
-    clearForLogout() { session = newSession(undefined); records = []; view = createMonthlyFilingViewState(); profiles = []; activeTab = 'active'; lastDirectoryFeedback = ''; lastDirectoryDetail = ''; feedback(''); render(); }, setVisible(visible) { elements.workspace.hidden = !visible; },
-    start() { trackTextEntry(elements.workspace); elements.activeTab.addEventListener('click', () => switchTab('active')); elements.archivedTab.addEventListener('click', () => switchTab('archived')); installTablistKeyboard({ tabs: [elements.activeTab, elements.archivedTab], activate: index => { if (session.mutations.pending()) return false; switchTab(index === 0 ? 'active' : 'archived'); } }); elements.add.addEventListener('click', add); elements.save.addEventListener('click', () => { void save(); }); elements.exportActive.addEventListener('click', exportActive); elements.clearArchived.addEventListener('click', clearArchived); elements.clearAll.addEventListener('click', clearAll); render(); }
+    clearForLogout() { exportReview?.cancel(); session = newSession(undefined); saveStatus = 'idle'; records = []; view = createMonthlyFilingViewState(); profiles = []; activeTab = 'active'; lastDirectoryFeedback = ''; lastDirectoryDetail = ''; feedback(''); render(); }, setVisible(visible) { elements.workspace.hidden = !visible; },
+    start() { trackTextEntry(elements.workspace); elements.workspace.addEventListener('keydown', handleShortcut); elements.activeTab.addEventListener('click', () => switchTab('active')); elements.archivedTab.addEventListener('click', () => switchTab('archived')); installTablistKeyboard({ tabs: [elements.activeTab, elements.archivedTab], activate: index => { if (session.mutations.pending()) return false; switchTab(index === 0 ? 'active' : 'archived'); } }); elements.add.addEventListener('click', add); elements.save.addEventListener('click', () => { void save(); }); elements.exportActive.addEventListener('click', exportActive); elements.clearArchived.addEventListener('click', clearArchived); elements.clearAll.addEventListener('click', clearAll); render(); }
   };
 }

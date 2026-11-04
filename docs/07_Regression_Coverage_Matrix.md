@@ -313,3 +313,7 @@ Kept separate from the checkpoint rows above, which are historical. "Reported" m
 | Production smoke checks on the deployed build | Not yet run | NOT RUN (`08_Integration_UAT_Checklist.md`) |
 | GitHub Pages production cutover | Not performed | NOT DONE; Pages still serves the UAT branch |
 | OCR A7; 400 new receipts; Tesseract asset integrity | Deferred | DEFERRED, never PASS |
+
+## 11. Release 3.7.0 candidate addendum (Issue #50)
+
+The feature branch is version `3.7.0`; row REL-04 above describes the production `3.6.0` release and is superseded on that branch. New coverage: `expenseClassification.test.mjs`, `expenseEncoding.test.mjs`, `expenseMonthlyFiling.test.mjs`, `tinFormat.test.mjs`, `monthlyFilingKeyboardSaveState.test.mjs`, `monthlyExportReview.test.mjs`, `uatBuild.test.mjs`. Acceptance on the hosted UAT site is still required.

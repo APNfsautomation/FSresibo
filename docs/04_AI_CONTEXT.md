@@ -411,3 +411,7 @@ Prefer reproducible source-controlled migrations, code, API, or CLI operations o
 
 ---
 End of Document
+
+## v3.7.0 candidate (Issue #50)
+
+The feature branch `issue-50-v3.7-feature-update` carries version `3.7.0` in `config/appMetadata.js`. It is a release candidate under UAT only: production remains `3.6.0` until a separately approved release. See `11_v3.7.0_Implementation_Notes.md`.

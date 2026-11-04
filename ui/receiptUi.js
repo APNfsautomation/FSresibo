@@ -12,6 +12,10 @@ import { buildReviewRow, createExportReview } from './exportReview.js';
 import { ENGINE_RECEIPT_LIMIT } from '../services/poolOptimizationService.js';
 import { createPoolOptimizerClient } from './poolOptimizerClient.js';
 import { fillShown, fillShownMessage, hiddenSelectedCount, manualEligibility, manualLimitMessage, maximumManualSelection, pruneManual, summarizeManual, toggleManual } from '../domain/manualSelection.js';
+import { attachOptionCombobox } from './optionCombobox.js';
+import { attachTinFormatter } from './tinInput.js';
+import { formatTinForDisplay } from '../domain/tinFormat.js';
+import { classificationOptions, expenseAccountOptions, expenseFieldLabels, missingExpenseFields } from '../domain/expenseClassification.js';
 import { createReceiptExportRunner, preflightExport, preflightMessage, snapshotProblemMessage, unsavedValuesNotice } from './receiptExport.js';
 
 const draftKey = 'receipt-match-draft-v2';
@@ -364,7 +368,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     const [year, month, day] = date.split('-').map(Number);
     return dateFormatter.format(new Date(year, month - 1, day));
   };
-  const rowValues = row => Object.fromEntries(['amount', 'receiptDate', 'vat', 'invoice', 'store', 'address', 'tin'].map(key => [key, row.querySelector(`.receipt-${key}`).value]));
+  const receiptFieldKeys = ['amount', 'receiptDate', 'vat', 'invoice', 'store', 'address', 'tin', 'expenseAccount', 'classification'];
+  const rowValues = row => Object.fromEntries(receiptFieldKeys.map(key => [key, row.querySelector(`.receipt-${key}`).value]));
   // Strict amount rules shared with the persistence boundary (domain/moneyAmount.js): a malformed non-blank amount is never guessed at.
   const amountProblem = row => { const parsed = parseMoneyAmount(row.querySelector('.receipt-amount').value); return parsed.valid === false ? parsed.message : ''; };
   const amountCents = row => { const parsed = parseMoneyAmount(row.querySelector('.receipt-amount').value); return parsed.valid ? parsed.cents : 0; };
@@ -899,7 +904,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       const values = applyStoreProfileSnapshot(rowValues(row), profile);
       input.value = values.store;
       row.querySelector('.receipt-address').value = values.address;
-      row.querySelector('.receipt-tin').value = values.tin;
+      row.querySelector('.receipt-tin').value = formatTinForDisplay(values.tin);
       row.querySelector('.receipt-vat').value = values.vat;
       refreshSummary(row);
       refreshAvailableSummary(); // programmatic values emit no input event: refresh the unsaved flag and count here
@@ -1025,6 +1030,9 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       feedbackTarget: elements.encodingFeedback
     }));
     installStoreAutocomplete(row);
+    attachTinFormatter(row.querySelector('.receipt-tin')); // before the field's other input listeners, so they see the formatted value
+    attachOptionCombobox({ input: row.querySelector('.receipt-expenseAccount'), list: row.querySelector('.receipt-expenseAccount-options'), options: expenseAccountOptions, label: expenseFieldLabels.expenseAccount });
+    attachOptionCombobox({ input: row.querySelector('.receipt-classification'), list: row.querySelector('.receipt-classification-options'), options: classificationOptions, label: expenseFieldLabels.classification });
     const storeInput = row.querySelector('.receipt-store');
     row.querySelectorAll('input, select').forEach(field => {
       const refreshView = () => { clearSaveSummary(); if (!row.hidden) pinReceipt(row); refreshSummary(row); clearSelection(); refreshEncodingCards(); refreshOptimizationCards(); };
@@ -1485,7 +1493,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   });
   // Unsaved edits, drafts and amounts typed but not saved are fixed in Encoding: say which receipts, and offer the shortcut.
   const blockForEncoding = problems => {
-    const fixable = problems.filter(problem => ['unsaved', 'draft', 'resultStale', 'invalidAmount'].includes(problem.type));
+    const fixable = problems.filter(problem => ['unsaved', 'draft', 'resultStale', 'invalidAmount', 'missingExpense'].includes(problem.type));
     showExportBlockAction(exportSource().entries.filter(entry => fixable.some(problem => problem.label === entry.label)).map(rowForSelectionEntry).filter(Boolean));
     return setExportFeedback(preflightMessage(problems, { mode: exportMode }));
   };
@@ -1556,7 +1564,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       present: Boolean(row),
       status: row ? receiptStatus(row) : 'consumed',
       unsaved: row ? rowHasUnsavedExportChanges(row) : false,
-      amountProblem: row ? amountProblem(row) : ''
+      amountProblem: row ? amountProblem(row) : '',
+      expenseFields: row ? missingExpenseFields(rowValues(row)) : []
     };
   }));
   // The database is the truth: refresh the on-screen rows that it reports as changed or Consumed. Selected rows have no unsaved edits at this point
@@ -1566,7 +1575,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     snapshotRows.filter(saved => affected.has(saved.dbId)).forEach(saved => {
       const row = [...elements.list.children].find(candidate => candidate.dataset.receiptDbId === saved.dbId);
       if (row) {
-        ['amount', 'receiptDate', 'vat', 'invoice', 'store', 'address', 'tin'].forEach(key => { row.querySelector(`.receipt-${key}`).value = saved[key] ?? ''; });
+        receiptFieldKeys.forEach(key => { row.querySelector(`.receipt-${key}`).value = saved[key] ?? ''; });
         row.dataset.receiptStatus = normalizeReceiptStatus(saved.status); // display state only; the saved record keeps the exact database status
         row.dataset.receiptUpdatedAt = saved.updatedAt || '';
         row.dataset.persistedStoreFingerprint = persistedStoreFingerprint(saved);
@@ -1740,7 +1749,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     const row = elements.list.children[index];
     if (!row) return closeEditModal();
     if (receiptStatus(row) === 'consumed') return closeEditModal();
-    const values = { amount: elements.editAmount.value, receiptDate: elements.editReceiptDate.value, vat: elements.editVat.value, invoice: elements.editInvoice.value, store: elements.editStore.value, address: elements.editAddress.value, tin: elements.editTin.value };
+    const values = { amount: elements.editAmount.value, receiptDate: elements.editReceiptDate.value, vat: elements.editVat.value, invoice: elements.editInvoice.value, store: elements.editStore.value, address: elements.editAddress.value, tin: elements.editTin.value, expenseAccount: row.querySelector('.receipt-expenseAccount').value, classification: row.querySelector('.receipt-classification').value };
     const parsedAmount = parseMoneyAmount(values.amount);
     if (parsedAmount.valid === false) return setFeedback(elements.editFeedback, `Could not save correction: ${parsedAmount.message}`, 'error');
     editSavePending = true;
@@ -1857,6 +1866,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
         if (!elements.list.children.length || await confirmAction({ title: 'Clear receipts from this form?', message: 'Saved receipts remain in your account and return after a refresh.', confirmLabel: 'Clear form', cancelLabel: 'Keep receipts', danger: true, trigger: event.currentTarget })) { if (session !== sessionGeneration) return; elements.list.replaceChildren(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); }
       });
       elements.floatingAdd.addEventListener('click', addReceiptForEncoding);
+      attachTinFormatter(elements.editTin);
       elements.editForm.addEventListener('submit', saveModalCorrection);
       elements.closeEditModal.addEventListener('click', closeEditModal);
       elements.cancelEditModal.addEventListener('click', closeEditModal);

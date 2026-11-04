@@ -38,7 +38,7 @@ test('Active actions are Add, Save, Export; Archived actions are the Archived cl
   const order = ['id="monthlyFilingAdd"', 'id="monthlyUnsavedNote"', 'class="action-bar-spacer"', 'id="monthlyFilingSave"', 'id="monthlyFilingExportActive"'].map(token => active.indexOf(token));
   assert.ok(order.every(position => position > 0)); assert.deepEqual([...order].sort((a, b) => a - b), order, 'Add, unsaved note, spacer, Save, Export');
   assert.match(active, /<button class="primary monthly-export" id="monthlyFilingExportActive" type="button">Export &amp; archive active<\/button>/);
-  assert.match(active, /<button class="secondary monthly-save" id="monthlyFilingSave" type="button">Save changes<\/button>/);
+  assert.match(active, /<button class="secondary monthly-save" id="monthlyFilingSave" type="button" aria-keyshortcuts="Control\+S">Save changes <kbd class="shortcut-hint" aria-hidden="true">Ctrl\+S<\/kbd><\/button>/);
   const archived = monthly.slice(monthly.indexOf('id="monthlyFilingArchivedActions"'), monthly.indexOf('id="monthlyFilingFeedback"'));
   assert.match(archived, /id="monthlyFilingArchivedActions" hidden/);
   assert.match(archived, /<button class="delete-receipt" id="monthlyFilingClearArchived"[^>]*>Clear archived receipts<\/button>/);
@@ -89,8 +89,13 @@ test('on phones each receipt is a native-feeling disclosure: a summary button, h
   assert.match(phoneBlock, /\.monthly-card \.receipt-form-footer button \{[^}]*min-height: 44px/);
 });
 
+test('Issue #50: on desktop and tablet the same action bar is sticky at the top, never on short viewports (the base bar stays in flow)', () => {
+  assert.match(css, /@media \(min-width: 641px\) and \(min-height: 480px\) \{\s*\.monthly-filing-workspace > \.monthly-actions-bar \{ position: sticky; top: var\(--space-2\); z-index: 12;/);
+  assert.doesNotMatch(css.slice(0, css.indexOf('Visible save state')), /\.monthly-actions-bar \{[^}]*position: (sticky|fixed)/, 'the base rule is not sticky; only the media-scoped rule is');
+});
+
 test('the phone action bar is the same element, sticky only on phones, safe-area aware, and steps aside while typing', () => {
-  assert.doesNotMatch(css.slice(0, css.indexOf('@media (max-width: 640px) {\n  .receipts-bar')), /\.monthly-actions-bar \{[^}]*position: (sticky|fixed)/, 'desktop bar is in flow');
+  assert.doesNotMatch(css.slice(0, css.indexOf('Visible save state')), /\.monthly-actions-bar \{[^}]*position: (sticky|fixed)/, 'the base bar is in flow');
   assert.match(phoneBlock, /\.monthly-filing-workspace > \.monthly-actions-bar \{ order: 6; position: sticky; bottom: 0;[^}]*env\(safe-area-inset-bottom\)/);
   assert.match(phoneBlock, /\.monthly-filing-workspace\.is-editing > \.monthly-actions-bar:not\(:focus-within\) \{ opacity: 0; pointer-events: none; transform: translateY\(100%\); \}/);
   assert.doesNotMatch(phoneBlock, /monthly-actions-bar[^{]*\{[^}]*(display: none|visibility: hidden|position: fixed)/);
@@ -113,7 +118,7 @@ test('Monthly Filing styling is isolated: Monthly selectors only, no !important,
 
 // ---- C. presentation state: identity, expansion, unsaved ---------------------------------------------------------------------
 const base = { dbId: '', sharedStoreId: '', store: '', address: '', tin: '', vat: '', amount: '', receiptDate: '', invoice: '', status: 'active', persistedStoreFingerprint: '' };
-const saved = (id, extra = {}) => ({ ...base, dbId: id, store: `Store ${id}`, amount: '100', ...extra });
+const saved = (id, extra = {}) => ({ ...base, dbId: id, store: `Store ${id}`, amount: '100', expenseAccount: 'Day to day', classification: 'Others', ...extra });
 
 test('record identity follows the receipt, not its array position, and survives edits, saves and deletions', () => {
   const view = createMonthlyFilingViewState();
@@ -187,7 +192,7 @@ function fixture({ records = [], confirm = async () => true, reduced = false, sh
   globalThis.document = { createElement: () => node(), get activeElement() { return state.activeElement; }, body: node() };
   const list = node({ append(row) { list.kids.push(row); }, replaceChildren(...rows) { list.kids = rows; } });
   Object.defineProperty(list, 'children', { get: () => list.kids });
-  const fieldKeys = ['store', 'address', 'tin', 'vat', 'amount', 'receiptDate', 'invoice'];
+  const fieldKeys = ['store', 'address', 'tin', 'vat', 'amount', 'receiptDate', 'invoice', 'expenseAccount', 'classification'];
   const makeRow = () => {
     const row = node({ matches: selector => selector === '.monthly-card' });
     row.querySelectorAll = selector => selector === 'input, select' ? fieldKeys.map(key => row.querySelector(`.monthly-${key}`)) : [];
@@ -213,7 +218,13 @@ function fixture({ records = [], confirm = async () => true, reduced = false, sh
   ui.start();
   const cards = () => list.kids.filter(kid => kid.matches('.monthly-card'));
   const field = (card, key) => card.querySelector(`.monthly-${key}`);
-  const edit = (card, key, value) => { const input = field(card, key); input.value = value; return input.emit('input'); };
+  // Fixture convention: the first real content typed into a new card also gives it a complete expense pair (unless the test sets that pair itself), so existing
+  // export scenarios keep exercising what they were written for. A blank placeholder stays blank; tests of the blank case type '' into the pair explicitly.
+  const edit = (card, key, value) => {
+    const input = field(card, key); input.value = value;
+    if (!['expenseAccount', 'classification'].includes(key) && value && !card.dataset.monthlyId && !card.dataset.expenseTouched) { card.dataset.expenseTouched = '1'; field(card, 'expenseAccount').value = 'Day to day'; field(card, 'classification').value = 'Others'; }
+    return input.emit('input');
+  };
   const flag = card => card.querySelector('.monthly-unsaved');
   const summary = card => card.querySelector('.monthly-summary');
   const label = card => card.querySelector('.monthly-receipt-id').textContent;
@@ -437,7 +448,7 @@ test('Monthly services, export builder, migrations and the engine are untouched 
   assert.ok(ui.includes('save: () => save({ successFeedback: false, fromExport: true, session: owner })'));
   assert.ok(ui.includes('downloadExpenseDetailedReport(snapshot, monthlyFilingExportFilename())') && ui.includes('return monthlyFilingService.archiveMonthlyFilingReceipts(ids)'));
   assert.ok(ui.indexOf('save: () => save(') < ui.indexOf('downloadExpenseDetailedReport(snapshot') && ui.indexOf('downloadExpenseDetailedReport(snapshot') < ui.indexOf('return monthlyFilingService.archiveMonthlyFilingReceipts(ids)'));
-  assert.ok(ui.includes('export async function runMonthlyFilingExport({ save, snapshot, generateWorkbook, archive })'));
+  assert.ok(ui.includes('export async function runMonthlyFilingExport({ save, snapshot, generateWorkbook, archive, validate = () => [], arrange = async saved => saved })'));
   assert.doesNotMatch(ui, /localStorage|sessionStorage|indexedDB|supabase|\.rpc\(/i, 'no second persistence');
   const service = await read('../services/monthlyFilingService.js');
   assert.ok(service.includes("client.rpc('archive_monthly_filing_receipts', { p_ids: exactIds })"));
@@ -854,7 +865,7 @@ test('C3-13: an explicit 0.00 survives Save, render, repeated Save and export as
   assert.equal(normalizeMoneyAmount(f.calls.update.find(([, receipt]) => receipt.store === 'Zero Store')[1].amount), 0, 'the second Save sends 0 (the database would store 0, not null)');
   assert.equal(normalizeMoneyAmount(f.calls.update.find(([, receipt]) => receipt.store === 'Missing Store')[1].amount), null);
   await f.click(f.elements.exportActive);                                    // E/F/G. export and inspect the workbook
-  const [snapshot] = f.calls.snapshots; const sheet = createExpenseDetailedReportWorkbook(snapshot).Sheets['Selected Receipts'];
+  const [snapshot] = f.calls.snapshots; const sheet = createExpenseDetailedReportWorkbook(snapshot).Sheets['Expense Detailed Report'];
   assert.deepEqual(snapshot.map(record => record.store), ['Zero Store', 'Missing Store', 'Paid Store']);
   assert.deepEqual([sheet.H3.t, sheet.H3.v, sheet.H3.z], ['n', 0, '#,##0.00'], 'the zero is numeric 0 with the money format');
   assert.equal(sheet.H4, undefined, 'H. a genuinely missing amount is an empty cell');
@@ -869,6 +880,6 @@ test('C3-13: a zero loaded from the database (the number 0) is shown as 0 and ex
   assert.equal(f.cards().length, 2); assert.deepEqual(totalLine(f), ['Active Total: ₱0.00', '2 receipts · 1 without amount']);
   assert.equal(f.elements.unsavedNote.hidden, true, 'rendering a zero does not mark the receipt as edited');
   await f.click(f.elements.exportActive);
-  const sheet = createExpenseDetailedReportWorkbook(f.calls.snapshots[0]).Sheets['Selected Receipts'];
+  const sheet = createExpenseDetailedReportWorkbook(f.calls.snapshots[0]).Sheets['Expense Detailed Report'];
   assert.deepEqual([sheet.H3.t, sheet.H3.v, sheet.H3.z], ['n', 0, '#,##0.00']); assert.equal(sheet.H4, undefined);
 });

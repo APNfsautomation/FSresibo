@@ -3,7 +3,7 @@ import test from 'node:test';
 import { buildExpenseDetailedReportRows } from '../services/exportService.js';
 import { createReceiptExportRunner, exportRowFromSnapshot, preflightExport, preflightMessage, snapshotProblemMessage, unsavedValuesNotice } from '../ui/receiptExport.js';
 
-const row = (dbId, extra = {}) => ({ dbId, status: 'available', amount: 100, receiptDate: '2026-08-03', store: `Store ${dbId}`, address: '', tin: '', vat: '', invoice: '', updatedAt: 't1', ...extra });
+const row = (dbId, extra = {}) => ({ dbId, status: 'available', amount: 100, receiptDate: '2026-08-03', store: `Store ${dbId}`, address: '', tin: '', vat: '', invoice: '', expenseAccount: 'Day to day', classification: 'Meals', updatedAt: 't1', ...extra });
 const entries = ids => ids.map(id => ({ dbId: id, label: `Receipt ${id.slice(1)}` }));
 
 function setup({ rows = [row('r1'), row('r2')], consume, generate } = {}) {

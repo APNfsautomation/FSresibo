@@ -1,5 +1,6 @@
 import { getSupabaseClient } from '../config/supabase.js';
 import { normalizeMoneyAmount } from '../domain/moneyAmount.js';
+import { expenseFieldsFromDatabase, expenseFieldsToDatabase } from '../domain/expenseClassification.js';
 
 export function toDatabaseReceipt(receipt, userId) {
   // A blank amount is stored as NULL; a malformed non-blank amount is rejected here, never turned into NULL.
@@ -11,7 +12,8 @@ export function toDatabaseReceipt(receipt, userId) {
     address: receipt.address || null,
     tin: receipt.tin || null,
     vat_status: receipt.vat || null,
-    invoice_number: receipt.invoice || null
+    invoice_number: receipt.invoice || null,
+    ...expenseFieldsToDatabase(receipt)
   };
 }
 
@@ -28,7 +30,8 @@ export function fromDatabaseReceipt(receipt) {
     address: receipt.address ?? '',
     tin: receipt.tin ?? '',
     updatedAt: receipt.updated_at ?? '',
-    status: receipt.status ?? ''
+    status: receipt.status ?? '',
+    ...expenseFieldsFromDatabase(receipt)
   };
 }
 
