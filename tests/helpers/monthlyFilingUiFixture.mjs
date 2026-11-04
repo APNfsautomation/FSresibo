@@ -5,7 +5,7 @@ import { normalizeMoneyAmount } from '../../domain/moneyAmount.js';
 
 export const savedMonthly = (id, extra = {}) => ({ dbId: id, sharedStoreId: '', store: `Store ${id}`, address: '', tin: '', vat: '', amount: '100.00', receiptDate: '', invoice: '', expenseAccount: 'Day to day', classification: 'Others', status: 'active', persistedStoreFingerprint: '', ...extra });
 
-export function monthlyFixture({ records = [], confirm = async () => true, sharedStoreService = { listActiveSharedStores: async () => [] } } = {}) {
+export function monthlyFixture({ records = [], confirm = async () => true, sharedStoreService = { listActiveSharedStores: async () => [] }, exportReview = null } = {}) {
   const state = { activeElement: null }; const focusLog = [];
   globalThis.matchMedia = () => ({ matches: false });
   globalThis.requestAnimationFrame = callback => { callback(); return 0; };
@@ -53,7 +53,7 @@ export function monthlyFixture({ records = [], confirm = async () => true, share
     associateMonthlyFilingSharedStore: async (id, storeId) => { calls.associate.push([id, storeId]); if (gates.associate) await gates.associate; const row = { ...table.get(id), sharedStoreId: storeId }; table.set(id, row); return { ...row }; }
   };
   const ui = createMonthlyFilingUi({
-    elements, monthlyFilingService: service, sharedStoreService,
+    elements, monthlyFilingService: service, sharedStoreService, exportReview,
     downloadExpenseDetailedReport: snapshot => { calls.workbook.push(snapshot.map(record => ({ ...record }))); },
     confirmAction: async options => confirm(options)
   });

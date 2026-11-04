@@ -62,12 +62,18 @@ export function createMonthlyFilingMutationState() {
     finish: () => { operation = ''; }
   };
 }
-export async function runMonthlyFilingExport({ save, snapshot, generateWorkbook, archive, validate = () => [] }) {
+export async function runMonthlyFilingExport({ save, snapshot, generateWorkbook, archive, validate = () => [], arrange = async saved => saved }) {
   if (!await save()) return { state: 'save-failed' };
-  const records = snapshot();
+  let records = snapshot();
   if (!records.length) return { state: 'empty' };
   const problems = validate(records);
   if (problems.length) return { state: 'expense-missing', problems, records };
+  // The user may put the saved receipts in the order of their paper copies. Only the ORDER may change: the confirmed list must hold exactly the saved receipts.
+  const arranged = await arrange(records);
+  if (!arranged) return { state: 'cancelled', records };
+  const saved = new Set(records.map(record => record.dbId));
+  if (arranged.length !== records.length || new Set(arranged.map(record => record.dbId)).size !== records.length || arranged.some(record => !saved.has(record.dbId))) return { state: 'arrange-invalid', records };
+  records = arranged;
   try { generateWorkbook(records); } catch (error) { return { state: 'generation-failed', error }; }
   try { return { state: 'archived', records, archived: await archive(records.map(record => record.dbId)) }; }
   catch (error) { return { state: 'archive-failed', records, error }; }
@@ -192,7 +198,7 @@ export const directoryOutcomeFeedback = (outcomes, { saved = true } = {}) => {
 // Thrown inside an operation whose session has ended; every catch treats it (and any other late error of an ended session) as inert.
 class MonthlyFilingSessionEnded extends Error {}
 
-export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedStoreService, downloadExpenseDetailedReport, confirmAction = async () => false }) {
+export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedStoreService, downloadExpenseDetailedReport, confirmAction = async () => false, exportReview = null }) {
   let saveStatus = 'idle'; let records = []; let profiles = []; let lastDirectoryFeedback = ''; let lastDirectoryDetail = ''; let activeTab = 'active'; let view = createMonthlyFilingViewState(); let contentSequence = 0;
   // Session isolation (Issue #27). Everything an asynchronous operation may touch after an await belongs to a SESSION: the signed-in user, the busy flag and the
   // mutation and export-lifecycle guards. loadForUser() and clearForLogout() each replace the session, so a request that belongs to an earlier session (an earlier
@@ -479,9 +485,11 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
     if (!await confirmAction({ title: 'Export Active Monthly Filing receipts?', message: `This will generate the Expense Detailed Report for all ${count} currently Active Monthly Filing receipt${count === 1 ? '' : 's'}.${totalNote} Unsaved changes are saved first. After the workbook is generated successfully, those receipts will be Archived and become read-only.`, confirmLabel: 'Export & Archive', cancelLabel: 'Cancel', trigger: event.currentTarget })) return;
     if (isStale(owner)) return;
     // Each step re-checks the session: after an account change no workbook is generated, no archive is requested, and nothing is applied or said.
-    const result = await runMonthlyFilingExport({ save: () => save({ successFeedback: false, fromExport: true, session: owner }), snapshot: () => isStale(owner) ? [] : activeRecords(), validate: saved => expenseExportProblems(saved.map((record, index) => ({ label: `Receipt ${index + 1}`, receipt: record }))), generateWorkbook: snapshot => { endIfStale(owner); downloadExpenseDetailedReport(snapshot, monthlyFilingExportFilename()); }, archive: ids => { endIfStale(owner); return monthlyFilingService.archiveMonthlyFilingReceipts(ids); } });
+    const result = await runMonthlyFilingExport({ save: () => save({ successFeedback: false, fromExport: true, session: owner }), snapshot: () => isStale(owner) ? [] : activeRecords(), validate: saved => expenseExportProblems(saved.map((record, index) => ({ label: `Receipt ${index + 1}`, receipt: record }))), arrange: async saved => (exportReview && saved.length > 1 && !isStale(owner)) ? (async () => { const ordered = await exportReview.review(saved, { trigger: event.currentTarget }); return isStale(owner) ? null : ordered; })() : saved, generateWorkbook: snapshot => { endIfStale(owner); downloadExpenseDetailedReport(snapshot, monthlyFilingExportFilename()); }, archive: ids => { endIfStale(owner); return monthlyFilingService.archiveMonthlyFilingReceipts(ids); } });
     if (isStale(owner)) return;
     if (result.state === 'save-failed') return;
+    if (result.state === 'cancelled') { render(); return feedback('Export cancelled. Your changes were saved; nothing was exported or archived.'); }
+    if (result.state === 'arrange-invalid') return feedback('The export order could not be confirmed, so nothing was exported or archived.');
     if (result.state === 'expense-missing') { render(); return feedback(expenseProblemMessage(result.problems)); }
     if (result.state === 'empty') return feedback('There are no persisted Active Monthly Filing receipts to export.');
     if (result.state === 'generation-failed') return feedback(`Could not prepare the XLSX export: ${result.error.message}`);
@@ -545,7 +553,7 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
     // Every load starts a NEW session (the same account signing in again included): whatever an earlier session left on screen is wiped first, and an
     // earlier session's late answers are stale and apply nothing. Same-account token refreshes never reach here (app.js de-duplicates them).
     async loadForUser(user) {
-      const owner = session = newSession(user);
+      exportReview?.cancel(); const owner = session = newSession(user);
       records = []; view = createMonthlyFilingViewState(); profiles = []; activeTab = 'active'; lastDirectoryFeedback = ''; lastDirectoryDetail = ''; saveStatus = 'idle';
       feedback('Loading Monthly Filing…'); render();
       try {
@@ -560,7 +568,7 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
       } catch { if (isStale(owner)) return; profiles = []; feedback('Company Directory is temporarily unavailable. You can still enter store details manually.'); }
       render();
     },
-    clearForLogout() { session = newSession(undefined); saveStatus = 'idle'; records = []; view = createMonthlyFilingViewState(); profiles = []; activeTab = 'active'; lastDirectoryFeedback = ''; lastDirectoryDetail = ''; feedback(''); render(); }, setVisible(visible) { elements.workspace.hidden = !visible; },
+    clearForLogout() { exportReview?.cancel(); session = newSession(undefined); saveStatus = 'idle'; records = []; view = createMonthlyFilingViewState(); profiles = []; activeTab = 'active'; lastDirectoryFeedback = ''; lastDirectoryDetail = ''; feedback(''); render(); }, setVisible(visible) { elements.workspace.hidden = !visible; },
     start() { trackTextEntry(elements.workspace); elements.workspace.addEventListener('keydown', handleShortcut); elements.activeTab.addEventListener('click', () => switchTab('active')); elements.archivedTab.addEventListener('click', () => switchTab('archived')); installTablistKeyboard({ tabs: [elements.activeTab, elements.archivedTab], activate: index => { if (session.mutations.pending()) return false; switchTab(index === 0 ? 'active' : 'archived'); } }); elements.add.addEventListener('click', add); elements.save.addEventListener('click', () => { void save(); }); elements.exportActive.addEventListener('click', exportActive); elements.clearArchived.addEventListener('click', clearArchived); elements.clearAll.addEventListener('click', clearAll); render(); }
   };
 }

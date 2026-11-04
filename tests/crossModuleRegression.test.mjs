@@ -49,6 +49,7 @@ async function bootApp({ sessionUser = { id: 'a', email: 'a@example.test' }, gat
     createAuthPanel: () => auth, createConfirmationDialog: () => ({ confirm: () => {}, close: record('dialog.close') }), createModalFocus: () => ({ open: () => {}, close: () => {} }),
     createNavigationController: () => ({ start: () => { log.push('navigation.start'); }, setDrawer: () => {} }),
     receiptRoutes, createReceiptUi: () => receipt, createMonthlyFilingUi: () => monthly,
+    createMonthlyExportReview: () => ({ start: () => {}, cancel: () => {}, review: async () => null, isOpen: () => false }), formatMonthlyFilingCents: String,
     createQuickOptimizerUi: () => createQuickOptimizerUi({ nextFrame: async () => {} }),
     createApplicationWorkspaces: args => {
       const real = createApplicationWorkspaces(args);

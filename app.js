@@ -11,6 +11,8 @@ import { renderApplicationIdentity, renderApplicationName } from './ui/appIdenti
 import { createAuthPanel } from './ui/authPanel.js';
 import { createConfirmationDialog } from './ui/confirmationDialog.js';
 import { createModalFocus } from './ui/modalFocus.js';
+import { createMonthlyExportReview } from './ui/monthlyExportReview.js';
+import { formatMonthlyFilingCents } from './ui/monthlyFilingUi.js';
 import { createNavigationController, receiptRoutes } from './ui/navigationController.js';
 import { createReceiptUi } from './ui/receiptUi.js';
 import { createMonthlyFilingUi } from './ui/monthlyFilingUi.js';
@@ -62,7 +64,12 @@ void supabaseConfig;
 const modalFocus = createModalFocus();
 const confirmationDialog = createConfirmationDialog({ modal: elements.confirmationModal, backdrop: elements.confirmationBackdrop, title: elements.confirmationTitle, message: elements.confirmationMessage, confirmButton: elements.confirmationConfirm, cancelButton: elements.confirmationCancel, modalFocus });
 const receiptUi = createReceiptUi({ elements, findBest, optimizationStrategies, toCents, scanPrintedDetails, downloadSelectedReceipts, receiptService, sharedStoreService, confirmAction: confirmationDialog.confirm, modalFocus });
-const monthlyFilingUi = createMonthlyFilingUi({ elements: { workspace: elements.monthlyFilingWorkspace, list: elements.monthlyFilingList, template: elements.monthlyFilingTemplate, activeTab: document.querySelector('#monthlyFilingActiveTab'), archivedTab: document.querySelector('#monthlyFilingArchivedTab'), activeActions: document.querySelector('#monthlyFilingActiveActions'), archivedActions: document.querySelector('#monthlyFilingArchivedActions'), exportHelper: document.querySelector('#monthlyFilingExportHelper'), add: elements.monthlyFilingAdd, save: elements.monthlyFilingSave, exportActive: elements.monthlyFilingExportActive, clearArchived: document.querySelector('#monthlyFilingClearArchived'), clearAll: elements.monthlyFilingClear, feedback: elements.monthlyFilingFeedback, unsavedNote: document.querySelector('#monthlyUnsavedNote'), saveState: document.querySelector('#monthlySaveState'), activeTotal: document.querySelector('#monthlyActiveTotal'), activeTotalMain: document.querySelector('#monthlyActiveTotalMain'), activeTotalDetail: document.querySelector('#monthlyActiveTotalDetail') }, monthlyFilingService, sharedStoreService, downloadExpenseDetailedReport, confirmAction: confirmationDialog.confirm });
+const monthlyExportReview = createMonthlyExportReview({
+  modal: document.querySelector('#monthlyExportReviewModal'), backdrop: document.querySelector('#monthlyExportReviewBackdrop'), message: document.querySelector('#monthlyExportReviewMessage'), list: document.querySelector('#monthlyExportReviewList'), announcer: document.querySelector('#monthlyExportReviewAnnouncer'),
+  summary: { count: document.querySelector('#monthlyExportReviewCount'), total: document.querySelector('#monthlyExportReviewTotal'), noAmountGroup: document.querySelector('#monthlyExportReviewNoAmountGroup'), noAmount: document.querySelector('#monthlyExportReviewNoAmount') },
+  resetButton: document.querySelector('#monthlyExportReviewReset'), confirmButton: document.querySelector('#monthlyExportReviewConfirm'), cancelButton: document.querySelector('#monthlyExportReviewCancel'), modalFocus, format: formatMonthlyFilingCents
+});
+const monthlyFilingUi = createMonthlyFilingUi({ exportReview: monthlyExportReview, elements: { workspace: elements.monthlyFilingWorkspace, list: elements.monthlyFilingList, template: elements.monthlyFilingTemplate, activeTab: document.querySelector('#monthlyFilingActiveTab'), archivedTab: document.querySelector('#monthlyFilingArchivedTab'), activeActions: document.querySelector('#monthlyFilingActiveActions'), archivedActions: document.querySelector('#monthlyFilingArchivedActions'), exportHelper: document.querySelector('#monthlyFilingExportHelper'), add: elements.monthlyFilingAdd, save: elements.monthlyFilingSave, exportActive: elements.monthlyFilingExportActive, clearArchived: document.querySelector('#monthlyFilingClearArchived'), clearAll: elements.monthlyFilingClear, feedback: elements.monthlyFilingFeedback, unsavedNote: document.querySelector('#monthlyUnsavedNote'), saveState: document.querySelector('#monthlySaveState'), activeTotal: document.querySelector('#monthlyActiveTotal'), activeTotalMain: document.querySelector('#monthlyActiveTotalMain'), activeTotalDetail: document.querySelector('#monthlyActiveTotalDetail') }, monthlyFilingService, sharedStoreService, downloadExpenseDetailedReport, confirmAction: confirmationDialog.confirm });
 const quickOptimizerUi = createQuickOptimizerUi({ root: document.querySelector('#quickOptimizerWorkspace') });
 const applicationWorkspaces = createApplicationWorkspaces({ receiptUi, monthlyFilingUi, quickOptimizerUi });
 const navigationController = createNavigationController({ elements: navigationElements, onRoute: applicationWorkspaces.renderRoute });
@@ -168,6 +175,7 @@ async function start() {
   renderApplicationIdentity([elements.authVersion, elements.appVersion], appMetadata);
   themeController.restore();
   receiptUi.start();
+  monthlyExportReview.start();
   monthlyFilingUi.start();
   if (!isSupabaseConfigured()) {
     applicationWorkspaces.clearForLogout();

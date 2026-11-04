@@ -333,6 +333,23 @@
         <div class="modal-actions export-review-actions"><button class="ghost export-review-reset" id="exportReviewReset" type="button">Reset order</button><button class="primary" id="confirmExport" type="button">Export &amp; Mark Consumed</button><button class="ghost" id="cancelExport" type="button">Cancel</button></div>
       </div>
     </section>
+    <section class="edit-modal export-review-modal" id="monthlyExportReviewModal" role="dialog" aria-modal="true" aria-labelledby="monthlyExportReviewTitle" aria-describedby="monthlyExportReviewMessage" hidden>
+      <div class="modal-backdrop" id="monthlyExportReviewBackdrop"></div>
+      <div class="modal-card export-confirm-card export-review-card">
+        <p class="eyebrow">REVIEW &amp; ARRANGE</p>
+        <h2 id="monthlyExportReviewTitle">Arrange Monthly Filing export</h2>
+        <p id="monthlyExportReviewMessage"></p>
+        <dl class="export-review-summary">
+          <div><dt>Active receipts</dt><dd id="monthlyExportReviewCount">0</dd></div>
+          <div><dt>Total amount</dt><dd id="monthlyExportReviewTotal">₱0.00</dd></div>
+          <div id="monthlyExportReviewNoAmountGroup" hidden><dt>No amount</dt><dd id="monthlyExportReviewNoAmount"></dd></div>
+        </dl>
+        <p class="export-review-hint" id="monthlyExportReviewHint">Item No. in the workbook follows this order. Drag a receipt (on a touch screen, press and hold first), use the Move up and Move down buttons, or focus a receipt and press the arrow keys (Home and End jump to the first and last position).</p>
+        <ol class="export-review-list" id="monthlyExportReviewList" aria-label="Receipts in export order"></ol>
+        <p class="visually-hidden" id="monthlyExportReviewAnnouncer" role="status" aria-live="polite"></p>
+        <div class="modal-actions export-review-actions"><button class="ghost export-review-reset" id="monthlyExportReviewReset" type="button">Reset order</button><button class="primary" id="monthlyExportReviewConfirm" type="button">Export &amp; Archive</button><button class="ghost" id="monthlyExportReviewCancel" type="button">Cancel</button></div>
+      </div>
+    </section>
     <section class="edit-modal confirmation-modal" id="confirmationModal" role="dialog" aria-modal="true" aria-labelledby="confirmationTitle" aria-describedby="confirmationMessage" hidden>
       <div class="modal-backdrop" id="confirmationBackdrop"></div>
       <div class="modal-card confirmation-card"><p class="eyebrow">CONFIRM ACTION</p><h2 id="confirmationTitle">Confirm action</h2><p id="confirmationMessage"></p><div class="modal-actions"><button class="primary" id="confirmationConfirm" type="button">Confirm</button><button class="ghost" id="confirmationCancel" type="button">Cancel</button></div></div>
