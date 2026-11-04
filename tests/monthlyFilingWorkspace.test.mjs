@@ -113,7 +113,7 @@ test('Monthly Filing styling is isolated: Monthly selectors only, no !important,
 
 // ---- C. presentation state: identity, expansion, unsaved ---------------------------------------------------------------------
 const base = { dbId: '', sharedStoreId: '', store: '', address: '', tin: '', vat: '', amount: '', receiptDate: '', invoice: '', status: 'active', persistedStoreFingerprint: '' };
-const saved = (id, extra = {}) => ({ ...base, dbId: id, store: `Store ${id}`, amount: '100', ...extra });
+const saved = (id, extra = {}) => ({ ...base, dbId: id, store: `Store ${id}`, amount: '100', expenseAccount: 'Day to day', classification: 'Others', ...extra });
 
 test('record identity follows the receipt, not its array position, and survives edits, saves and deletions', () => {
   const view = createMonthlyFilingViewState();
@@ -187,7 +187,7 @@ function fixture({ records = [], confirm = async () => true, reduced = false, sh
   globalThis.document = { createElement: () => node(), get activeElement() { return state.activeElement; }, body: node() };
   const list = node({ append(row) { list.kids.push(row); }, replaceChildren(...rows) { list.kids = rows; } });
   Object.defineProperty(list, 'children', { get: () => list.kids });
-  const fieldKeys = ['store', 'address', 'tin', 'vat', 'amount', 'receiptDate', 'invoice'];
+  const fieldKeys = ['store', 'address', 'tin', 'vat', 'amount', 'receiptDate', 'invoice', 'expenseAccount', 'classification'];
   const makeRow = () => {
     const row = node({ matches: selector => selector === '.monthly-card' });
     row.querySelectorAll = selector => selector === 'input, select' ? fieldKeys.map(key => row.querySelector(`.monthly-${key}`)) : [];
@@ -213,7 +213,13 @@ function fixture({ records = [], confirm = async () => true, reduced = false, sh
   ui.start();
   const cards = () => list.kids.filter(kid => kid.matches('.monthly-card'));
   const field = (card, key) => card.querySelector(`.monthly-${key}`);
-  const edit = (card, key, value) => { const input = field(card, key); input.value = value; return input.emit('input'); };
+  // Fixture convention: the first real content typed into a new card also gives it a complete expense pair (unless the test sets that pair itself), so existing
+  // export scenarios keep exercising what they were written for. A blank placeholder stays blank; tests of the blank case type '' into the pair explicitly.
+  const edit = (card, key, value) => {
+    const input = field(card, key); input.value = value;
+    if (!['expenseAccount', 'classification'].includes(key) && value && !card.dataset.monthlyId && !card.dataset.expenseTouched) { card.dataset.expenseTouched = '1'; field(card, 'expenseAccount').value = 'Day to day'; field(card, 'classification').value = 'Others'; }
+    return input.emit('input');
+  };
   const flag = card => card.querySelector('.monthly-unsaved');
   const summary = card => card.querySelector('.monthly-summary');
   const label = card => card.querySelector('.monthly-receipt-id').textContent;
@@ -437,7 +443,7 @@ test('Monthly services, export builder, migrations and the engine are untouched 
   assert.ok(ui.includes('save: () => save({ successFeedback: false, fromExport: true, session: owner })'));
   assert.ok(ui.includes('downloadExpenseDetailedReport(snapshot, monthlyFilingExportFilename())') && ui.includes('return monthlyFilingService.archiveMonthlyFilingReceipts(ids)'));
   assert.ok(ui.indexOf('save: () => save(') < ui.indexOf('downloadExpenseDetailedReport(snapshot') && ui.indexOf('downloadExpenseDetailedReport(snapshot') < ui.indexOf('return monthlyFilingService.archiveMonthlyFilingReceipts(ids)'));
-  assert.ok(ui.includes('export async function runMonthlyFilingExport({ save, snapshot, generateWorkbook, archive })'));
+  assert.ok(ui.includes('export async function runMonthlyFilingExport({ save, snapshot, generateWorkbook, archive, validate = () => [] })'));
   assert.doesNotMatch(ui, /localStorage|sessionStorage|indexedDB|supabase|\.rpc\(/i, 'no second persistence');
   const service = await read('../services/monthlyFilingService.js');
   assert.ok(service.includes("client.rpc('archive_monthly_filing_receipts', { p_ids: exactIds })"));

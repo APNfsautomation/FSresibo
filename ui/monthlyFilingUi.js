@@ -1,10 +1,12 @@
 import { installTablistKeyboard } from './tablistKeyboard.js';
 import { trackTextEntry } from './textEntryFocus.js';
+import { attachOptionCombobox } from './optionCombobox.js';
+import { classificationOptions, expenseAccountOptions, expenseExportProblems, expenseFieldLabels, expenseProblemMessage } from '../domain/expenseClassification.js';
 import { parseMoneyAmount } from '../domain/moneyAmount.js';
 import { philippineDateStamp } from '../domain/exportDate.js';
 import { deduplicateDirectoryCandidates, persistedStoreFingerprint, postSaveDirectoryDecision, resolveSharedContributionCandidate } from '../domain/sharedStoreProfiles.js';
 
-export const monthlyFilingEditableFields = Object.freeze(['store', 'address', 'tin', 'vat', 'amount', 'receiptDate', 'invoice']);
+export const monthlyFilingEditableFields = Object.freeze(['store', 'address', 'tin', 'vat', 'amount', 'receiptDate', 'invoice', 'expenseAccount', 'classification']);
 export const monthlyFilingProfileSnapshot = profile => ({ sharedStoreId: profile.id, store: profile.storeName, address: profile.address || '', tin: profile.tin || '', vat: profile.vat || '' });
 export const clearsSharedStoreAssociation = (before, after) => ['store', 'address', 'tin'].some(key => String(before[key] || '').trim() !== String(after[key] || '').trim());
 export const isBlankUnsavedMonthlyFilingRecord = record => !record.dbId && monthlyFilingEditableFields.every(key => !String(record[key] || '').trim());
@@ -16,7 +18,7 @@ export const reconcileArchivedMonthlyFilingDeletion = (records, deletedIds) => {
   const deleted = new Set(deletedIds);
   return records.filter(record => !deleted.has(record.dbId));
 };
-export const monthlyFilingLocalEditableFields = Object.freeze(['store', 'address', 'tin', 'vat', 'amount', 'receiptDate', 'invoice', 'sharedStoreId', 'persistedStoreFingerprint']);
+export const monthlyFilingLocalEditableFields = Object.freeze(['store', 'address', 'tin', 'vat', 'amount', 'receiptDate', 'invoice', 'expenseAccount', 'classification', 'sharedStoreId', 'persistedStoreFingerprint']);
 export const reconcileMonthlyFilingReload = (localRecords, reloadedRecords) => {
   const localActive = new Map(localRecords.filter(record => record.dbId && record.status === 'active').map(record => [record.dbId, record]));
   const drafts = localRecords.filter(record => !record.dbId && record.status === 'active');
@@ -58,10 +60,12 @@ export function createMonthlyFilingMutationState() {
     finish: () => { operation = ''; }
   };
 }
-export async function runMonthlyFilingExport({ save, snapshot, generateWorkbook, archive }) {
+export async function runMonthlyFilingExport({ save, snapshot, generateWorkbook, archive, validate = () => [] }) {
   if (!await save()) return { state: 'save-failed' };
   const records = snapshot();
   if (!records.length) return { state: 'empty' };
+  const problems = validate(records);
+  if (problems.length) return { state: 'expense-missing', problems, records };
   try { generateWorkbook(records); } catch (error) { return { state: 'generation-failed', error }; }
   try { return { state: 'archived', records, archived: await archive(records.map(record => record.dbId)) }; }
   catch (error) { return { state: 'archive-failed', records, error }; }
@@ -281,6 +285,8 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
       Object.entries(record).forEach(([key, value]) => { const field = row.querySelector(`.monthly-${key}`); if (field) field.value = value ?? ''; });
       const archived = monthlyFilingIsReadOnly(record);
       row.querySelector('.monthly-status').textContent = archived ? 'Archived' : 'Active'; row.querySelector('.monthly-status').hidden = !archived;
+      attachOptionCombobox({ input: row.querySelector('.monthly-expenseAccount'), list: row.querySelector('.monthly-expenseAccount-options'), options: expenseAccountOptions, label: expenseFieldLabels.expenseAccount });
+      attachOptionCombobox({ input: row.querySelector('.monthly-classification'), list: row.querySelector('.monthly-classification-options'), options: classificationOptions, label: expenseFieldLabels.classification });
       row.querySelectorAll('input, select').forEach(field => { field.disabled = archived; });
       row.querySelector('.monthly-delete').hidden = archived;
       const returnButton = row.querySelector('.monthly-return-active'); returnButton.hidden = !archived;
@@ -425,6 +431,17 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
   // Totals come from the exact snapshot that was exported (database-returned amounts), never from the screen.
   const exportedTotalText = records => { const cents = monthlyFilingSnapshotTotalCents(records); return cents === null ? '' : ` (Total: ${formatMonthlyFilingCents(cents)})`; };
   const exportedTotalNote = (records, label) => { const cents = monthlyFilingSnapshotTotalCents(records); return cents === null ? '' : ` ${label}: ${formatMonthlyFilingCents(cents)}.`; };
+  // Export needs both expense fields on every receipt of the EXACT export set (all Active, non-blank receipts). Nothing is saved, generated or archived when any is missing;
+  // the first receipt that needs attention is opened and its first missing field focused. Typed values are untouched.
+  const exportExpenseEntries = () => { const numbers = exportNumbers(); return records.filter(record => numbers.has(record)).map(record => ({ label: `Receipt ${numbers.get(record)}`, receipt: record, record })); };
+  const blockForMissingExpense = entries => {
+    const problems = expenseExportProblems(entries);
+    if (!problems.length) return true;
+    const first = entries.find(entry => entry.label === problems[0].label);
+    view.setExpanded(first.record, true); render(); focusReceipt(first.record, problems[0].fields[0] === 'expenseAccount' ? '.monthly-expenseAccount' : '.monthly-classification');
+    feedback(expenseProblemMessage(problems));
+    return false;
+  };
   const exportActive = async event => {
     const owner = session;
     if (!owner.lifecycle.beginExport()) return;
@@ -434,14 +451,16 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
     synchronizeVisibleActiveDrafts();
     const count = monthlyFilingActiveExportCount(records);
     if (!count) return feedback('There are no Active Monthly Filing receipts to export.');
+    if (!blockForMissingExpense(exportExpenseEntries())) return;
     const before = activeTotalSummary(); const totalNote = before.available ? ` Active Total: ${formatMonthlyFilingCents(before.workingCents)}.` : '';
     lastDirectoryFeedback = ''; lastDirectoryDetail = '';
     if (!await confirmAction({ title: 'Export Active Monthly Filing receipts?', message: `This will generate the Expense Detailed Report for all ${count} currently Active Monthly Filing receipt${count === 1 ? '' : 's'}.${totalNote} Unsaved changes are saved first. After the workbook is generated successfully, those receipts will be Archived and become read-only.`, confirmLabel: 'Export & Archive', cancelLabel: 'Cancel', trigger: event.currentTarget })) return;
     if (isStale(owner)) return;
     // Each step re-checks the session: after an account change no workbook is generated, no archive is requested, and nothing is applied or said.
-    const result = await runMonthlyFilingExport({ save: () => save({ successFeedback: false, fromExport: true, session: owner }), snapshot: () => isStale(owner) ? [] : activeRecords(), generateWorkbook: snapshot => { endIfStale(owner); downloadExpenseDetailedReport(snapshot, monthlyFilingExportFilename()); }, archive: ids => { endIfStale(owner); return monthlyFilingService.archiveMonthlyFilingReceipts(ids); } });
+    const result = await runMonthlyFilingExport({ save: () => save({ successFeedback: false, fromExport: true, session: owner }), snapshot: () => isStale(owner) ? [] : activeRecords(), validate: saved => expenseExportProblems(saved.map((record, index) => ({ label: `Receipt ${index + 1}`, receipt: record }))), generateWorkbook: snapshot => { endIfStale(owner); downloadExpenseDetailedReport(snapshot, monthlyFilingExportFilename()); }, archive: ids => { endIfStale(owner); return monthlyFilingService.archiveMonthlyFilingReceipts(ids); } });
     if (isStale(owner)) return;
     if (result.state === 'save-failed') return;
+    if (result.state === 'expense-missing') { render(); return feedback(expenseProblemMessage(result.problems)); }
     if (result.state === 'empty') return feedback('There are no persisted Active Monthly Filing receipts to export.');
     if (result.state === 'generation-failed') return feedback(`Could not prepare the XLSX export: ${result.error.message}`);
     if (result.state === 'archive-failed') { owner.lifecycle.markArchiveUncertain(); return feedback(`Workbook generated, but archive status could not be confirmed. Refresh Monthly Filing before exporting again. (${result.error.message})${exportedTotalNote(result.records, 'Workbook total')}${lastDirectoryDetail ? ` ${lastDirectoryDetail}` : ''}`); }
