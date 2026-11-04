@@ -102,7 +102,7 @@ test('XLS-1: Expense Account precedes one Classification of Expense column and b
   const rows = buildExpenseDetailedReportRows([receipt(), receipt({ expenseAccount: '', classification: '' })]);
   assert.deepEqual(rows[2].slice(8, 10), ['Day to day', 'Meals w/ Customer']);
   assert.deepEqual(rows[3].slice(8, 10), ['', '']);
-  assert.equal(rows[2].length, 15);
+  assert.equal(rows[2].length, 14);
 });
 
 test('XLS-2: one sheet named Expense Detailed Report; real mm/dd/yyyy date; Invoice No. is text with leading zeros; Amount numeric with two decimals', () => {
@@ -124,7 +124,7 @@ test('XLS-3: row order is exactly the order supplied (the reviewed order), numbe
   const ordered = [receipt({ store: 'Third', invoice: 'C' }), receipt({ store: 'First', invoice: 'A' }), receipt({ store: 'Second', invoice: 'B' })];
   const sheet = createExpenseDetailedReportWorkbook(ordered).Sheets['Expense Detailed Report'];
   assert.deepEqual([3, 4, 5].map(row => [sheet[`A${row}`].v, sheet[`C${row}`].v, sheet[`G${row}`].v]), [[1, 'Third', 'C'], [2, 'First', 'A'], [3, 'Second', 'B']]);
-  assert.equal(sheet['!merges'].length, 14); assert.equal(sheet['!cols'].length, 15);
+  assert.equal(sheet['!merges'].length, 13); assert.equal(sheet['!cols'].length, 14);
   assert.ok(sheet['!merges'].some(range => range.s.c === 2 && range.e.c === 3 && range.s.r === 0 && range.e.r === 0));
 });
 
@@ -132,4 +132,15 @@ test('XLS-4: SheetJS CE 0.20.3 stays the only spreadsheet library (no ExcelJS, n
   const manifest = JSON.parse(await readFile(new URL('../vendor/dependency-manifest.json', import.meta.url), 'utf8'));
   assert.match(JSON.stringify(manifest), /0\.20\.3/);
   assert.doesNotMatch(JSON.stringify(manifest) + await readFile(new URL('../services/exportService.js', import.meta.url), 'utf8') + await readFile(new URL('../index.html', import.meta.url), 'utf8'), /exceljs/i);
+});
+
+test('XLS-5: the redundant Additional Classification column is gone: 14 columns A-N, former L-O fields shifted to K-N, one sheet', () => {
+  assert.ok(!expenseDetailedReportHeaders.includes('Additional Classification'));
+  assert.deepEqual([...expenseDetailedReportHeaders].slice(8), ['Expense Account', 'Classification of Expense', 'Customer Name', 'Customer PO#', 'Notes for Accounting', 'Item Description (FOR COGS)']);
+  const workbook = createExpenseDetailedReportWorkbook([receipt()]);
+  const sheet = workbook.Sheets['Expense Detailed Report'];
+  assert.equal(sheet['!ref'], 'A1:N3'); assert.deepEqual(workbook.SheetNames, ['Expense Detailed Report']);
+  assert.deepEqual(['K', 'L', 'M', 'N'].map(column => sheet[`${column}1`].v), ['Customer Name', 'Customer PO#', 'Notes for Accounting', 'Item Description (FOR COGS)']);
+  assert.equal(sheet.O1, undefined); assert.equal(sheet['!cols'].length, 14); assert.equal(sheet['!merges'].length, 13);
+  assert.ok(sheet['!merges'].every(range => range.e.c <= 13));
 });

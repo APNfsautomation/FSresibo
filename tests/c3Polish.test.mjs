@@ -124,10 +124,10 @@ test('EXPORT-UX-01: Amount cells stay numeric, keep their exact value and carry 
 test('EXPORT-UX-01: only Amount cells get the money format; the structure, merges, headers and Item No. are unchanged; the workbook round-trips', () => {
   const workbook = createSelectedReceiptsWorkbook([receiptWith('1250.5'), receiptWith('20', { store: 'Beta' })]);
   const sheet = workbook.Sheets['Expense Detailed Report'];
-  assert.equal(sheet['!ref'], 'A1:O4'); assert.deepEqual(workbook.SheetNames, ['Expense Detailed Report']);
+  assert.equal(sheet['!ref'], 'A1:N4'); assert.deepEqual(workbook.SheetNames, ['Expense Detailed Report']);
   assert.equal(sheet.A3.v, 1); assert.equal(sheet.A4.v, 2); assert.equal(sheet.B3.z, 'mm/dd/yyyy');
   for (const cell of ['A3', 'C3', 'D3', 'E3', 'F3', 'G3', 'I3']) assert.notEqual(sheet[cell].z, '#,##0.00', `${cell} is not an Amount cell`);
-  assert.equal(sheet['!merges'].length, 14);
+  assert.equal(sheet['!merges'].length, 13);
   const reopened = read(write(workbook, { bookType: 'xlsx', type: 'array', cellDates: true }), { type: 'array', cellDates: true, cellNF: true }).Sheets['Expense Detailed Report'];
   assert.deepEqual([reopened.H3.t, reopened.H3.v, reopened.H3.z, reopened.H4.v], ['n', 1250.5, '#,##0.00', 20]);
   assert.equal(utils.format_cell(reopened.H3), '1,250.50');

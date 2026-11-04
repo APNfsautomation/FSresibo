@@ -5,14 +5,14 @@ import { philippineDateStamp } from '../domain/exportDate.js';
 export const expenseDetailedReportHeaders = Object.freeze([
   'Item No.', 'Receipt Date', 'Supplier Details: Name', 'Supplier Details: Address', 'VAT Status / Indicator',
   'TIN Number', 'Invoice No.', 'Amount', 'Expense Account', 'Classification of Expense',
-  'Additional Classification', 'Customer Name', 'Customer PO#', 'Notes for Accounting', 'Item Description (FOR COGS)'
+  'Customer Name', 'Customer PO#', 'Notes for Accounting', 'Item Description (FOR COGS)'
 ]);
 const expenseDetailedReportHeaderRows = Object.freeze([
-  ['Item No.', 'Receipt Date', 'Supplier Details', '', 'VAT Status / Indicator', 'TIN Number', 'Invoice No.', 'Amount', 'Expense Account', 'Classification of Expense', 'Additional Classification', 'Customer Name', 'Customer PO#', 'Notes for Accounting', 'Item Description (FOR COGS)'],
-  ['', '', 'Name', 'Address', '', '', '', '', '', '', '', '', '', '', '']
+  ['Item No.', 'Receipt Date', 'Supplier Details', '', 'VAT Status / Indicator', 'TIN Number', 'Invoice No.', 'Amount', 'Expense Account', 'Classification of Expense', 'Customer Name', 'Customer PO#', 'Notes for Accounting', 'Item Description (FOR COGS)'],
+  ['', '', 'Name', 'Address', '', '', '', '', '', '', '', '', '', '']
 ]);
 const expenseDetailedReportHeaderMerges = Object.freeze([
-  'A1:A2', 'B1:B2', 'C1:D1', 'E1:E2', 'F1:F2', 'G1:G2', 'H1:H2', 'I1:I2', 'J1:J2', 'K1:K2', 'L1:L2', 'M1:M2', 'N1:N2', 'O1:O2'
+  'A1:A2', 'B1:B2', 'C1:D1', 'E1:E2', 'F1:F2', 'G1:G2', 'H1:H2', 'I1:I2', 'J1:J2', 'K1:K2', 'L1:L2', 'M1:M2', 'N1:N2'
 ]);
 
 const spreadsheetDate = value => {
@@ -41,7 +41,7 @@ export const buildExpenseDetailedReportRows = receipts => [
   ...expenseDetailedReportHeaderRows,
   ...receipts.map((receipt, index) => [
     index + 1, spreadsheetDate(receipt.receiptDate), receipt.store || '', receipt.address || '', receipt.vat || '', receipt.tin || '', String(receipt.invoice ?? ''), numericAmount(receipt.amount),
-    receipt.expenseAccount || '', receipt.classification || '', '', '', '', '', ''
+    receipt.expenseAccount || '', receipt.classification || '', '', '', '', ''
   ])
 ];
 
@@ -58,7 +58,7 @@ export function createExpenseDetailedReportWorkbook(receipts, xlsx = { utils }) 
   worksheet['!merges'] = expenseDetailedReportHeaderMerges.map(range => xlsx.utils.decode_range(range));
   worksheet['!cols'] = [
     { wch: 10 }, { wch: 13 }, { wch: 30 }, { wch: 42 }, { wch: 18 }, { wch: 20 }, { wch: 20 }, { wch: 14 },
-    { wch: 20 }, { wch: 26 }, { wch: 26 }, { wch: 24 }, { wch: 18 }, { wch: 28 }, { wch: 30 }
+    { wch: 20 }, { wch: 26 }, { wch: 24 }, { wch: 18 }, { wch: 28 }, { wch: 30 }
   ];
   const workbook = xlsx.utils.book_new();
   xlsx.utils.book_append_sheet(workbook, worksheet, expenseDetailedReportSheetName);
