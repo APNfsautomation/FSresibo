@@ -17,7 +17,7 @@ const reviewManual = f => f.click(f.elements.manualExportSelected);
 const feedback = f => f.elements.manualFeedback.textContent;
 // The optimization card list is only drawn with checkboxes in Manual Selection; read it there and come back.
 const shownStores = async f => { await setMode(f, 'manual'); const names = f.cards().map(item => item.part('.compact-store').textContent); await setMode(f, 'best-match'); return names; };
-const row = (status, extra = {}) => ({ id: 'x', amount: 10, receipt_date: '2026-08-01', store_name: 'S', ...(status === undefined ? {} : { status }), ...extra });
+const row = (status, extra = {}) => ({ id: 'x', amount: 10, receipt_date: '2026-08-01', store_name: 'S', expense_account: 'Day to day', classification_of_expense: 'Meals', ...(status === undefined ? {} : { status }), ...extra });
 
 // ---- the mapping boundary itself ------------------------------------------------------------------------------------------------------------
 test('R04: the service mapper keeps the exact persisted status; a missing or null status is "" and never Available', () => {

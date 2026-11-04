@@ -481,6 +481,12 @@ button[aria-busy="true"] { cursor: progress; opacity: .8; }
 .store-suggestion strong { font-size: .87rem; }
 .store-suggestion span { overflow: hidden; color: var(--muted); font-size: .76rem; text-overflow: ellipsis; white-space: nowrap; }
 .store-suggestion:hover, .store-suggestion.is-active { background: var(--primary-soft); color: var(--text); }
+.option-field { position: relative; }
+.option-suggestions { position: absolute; z-index: 15; top: calc(100% - 1px); right: 0; left: 0; max-height: 250px; margin: 0; padding: 5px; overflow-y: auto; border: var(--border-width) solid var(--border-strong); border-radius: 0 0 var(--radius-sm) var(--radius-sm); background: var(--surface); box-shadow: var(--shadow-lg); list-style: none; }
+.option-suggestions li { padding: 9px 10px; border-radius: 7px; color: var(--text); font-size: .87rem; cursor: pointer; }
+.option-suggestions li:hover, .option-suggestions li.is-active { background: var(--primary-soft); }
+.option-field input[aria-expanded="true"] { position: relative; z-index: 16; border-bottom-right-radius: 0; border-bottom-left-radius: 0; }
+.encoding-list .receipt-editor-fields .field-expense-account, .encoding-list .receipt-editor-fields .field-classification { grid-column: span 6; }
 .receipt-store[aria-expanded="true"] { position: relative; z-index: 16; border-bottom-right-radius: 0; border-bottom-left-radius: 0; }
 
 /* ---- 8b. Receipt Optimization: command bar, result strip, full-width receipt browser ---------- */

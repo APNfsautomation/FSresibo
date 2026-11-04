@@ -6,6 +6,7 @@
 // (that would need a database transaction, which is out of scope). It is detected afterwards by comparing the returned values (see `drift`).
 import { parseMoneyAmount } from '../domain/moneyAmount.js';
 import { classifyExportSnapshot, exportDrift, exportFieldLabels } from '../domain/exportArrangement.js';
+import { expenseFieldLabels } from '../domain/expenseClassification.js';
 
 const names = labels => labels.length <= 1 ? labels.join('') : `${labels.slice(0, -1).join(', ')} and ${labels.at(-1)}`;
 const fieldNames = fields => names(fields.map(field => exportFieldLabels[field] ?? field));
@@ -20,9 +21,14 @@ export function preflightExport(items) {
     else if (!item.dbId) problems.push({ type: item.savedSinceResult ? 'resultStale' : 'draft', label: item.label });
     else if (item.unsaved) problems.push({ type: 'unsaved', label: item.label });
     else if (item.amountProblem) problems.push({ type: 'invalidAmount', label: item.label, detail: item.amountProblem });
+    // Independent of the checks above, so one pass names every receipt that still needs an Expense Account or Classification of Expense.
+    if (item.present && item.status === 'available' && item.expenseFields?.length) problems.push({ type: 'missingExpense', label: item.label, fields: item.expenseFields });
   }
   return { ok: problems.length === 0, problems };
 }
+
+// "Receipt 2 needs Expense Account and Classification of Expense before it can be exported." One line per receipt; the caller appends that nothing was exported.
+const expenseLines = problems => problems.filter(problem => problem.type === 'missingExpense').map(problem => `${problem.label} needs ${names(problem.fields.map(field => expenseFieldLabels[field]))} before it can be exported.`);
 
 // `mode` is 'best-match' or 'manual': a manual selection is never told to run Find Best Match; it is told to fix the receipt and export again.
 export function preflightMessage(problems, { mode = 'best-match' } = {}) {
@@ -33,6 +39,7 @@ export function preflightMessage(problems, { mode = 'best-match' } = {}) {
   const unsaved = labelsOf(problems, 'unsaved');
   if (unsaved.length) lines.push(`${names(unsaved)} ${unsaved.length === 1 ? 'has' : 'have'} unsaved changes. Save them in Encoding, then ${manual ? 'choose Export Selected again' : 'run Find Best Match again before exporting'}.`);
   for (const problem of problems.filter(candidate => candidate.type === 'invalidAmount')) lines.push(`${problem.label}: ${problem.detail} Correct it before exporting.`);
+  lines.push(...expenseLines(problems));
   const unavailable = labelsOf(problems, 'unavailable');
   if (unavailable.length) lines.push(`${names(unavailable)} ${unavailable.length === 1 ? 'is' : 'are'} no longer Available. ${manual ? `Deselect ${unavailable.length === 1 ? 'it' : 'them'} and choose Export Selected again.` : 'Run Find Best Match again.'}`);
   return `${lines.join(' ')} Nothing was exported.`;
@@ -51,6 +58,7 @@ export function snapshotProblemMessage(problems, { stage = 'review', mode = 'bes
   if (invalid.length) lines.push(`${names(invalid)} ${invalid.length === 1 ? 'has' : 'have'} an invalid saved amount.`);
   const stale = labelsOf(problems, 'optimizerChanged');
   if (stale.length) lines.push(`The saved amount of ${names(stale)} no longer matches the amount Find Best Match used, so this result is out of date.`);
+  lines.push(...expenseLines(problems));
   for (const problem of problems.filter(candidate => candidate.type === 'changed')) lines.push(`${problem.label} was changed after it was selected (${fieldNames(problem.fields)}).`);
   const onlyMissing = problems.every(problem => problem.type === 'missing'); // a deleted receipt has no saved values to show
   const next = manual ? `${onlyMissing ? '' : 'The affected receipts now show their current saved values. '}Review your selection and choose Export Selected again.` : 'Run Find Best Match again.';

@@ -3,7 +3,7 @@
 import { parseMoneyAmount } from '../domain/moneyAmount.js';
 
 const text = value => String(value ?? '').trim();
-const savedTextFields = Object.freeze(['receiptDate', 'vat', 'invoice', 'store', 'address', 'tin']);
+const savedTextFields = Object.freeze(['receiptDate', 'vat', 'invoice', 'store', 'address', 'tin', 'expenseAccount', 'classification']);
 
 // True when the typed values differ from the persisted receipt (or the receipt was never saved and has content).
 // Amounts compare as exact centavos, so "1,250.50" and a saved 1250.5 are the same amount.

@@ -31,7 +31,7 @@ export async function receiptFixture({ loaded = [], confirm = async () => true, 
     };
     return self;
   };
-  const fieldSelectors = ['.receipt-amount', '.receipt-receiptDate', '.receipt-vat', '.receipt-invoice', '.receipt-store', '.receipt-address', '.receipt-tin', '.receipt-photo'];
+  const fieldSelectors = ['.receipt-amount', '.receipt-receiptDate', '.receipt-vat', '.receipt-invoice', '.receipt-store', '.receipt-address', '.receipt-tin', '.receipt-expenseAccount', '.receipt-classification', '.receipt-photo'];
   const makeRow = () => {
     const parts = new Map();
     const part = selector => { if (!parts.has(selector)) parts.set(selector, node({ value: '', files: [] })); return parts.get(selector); };
@@ -48,9 +48,9 @@ export async function receiptFixture({ loaded = [], confirm = async () => true, 
   const calls = { create: [], update: [], consume: [], download: [], snapshot: [], load: [] }; let sequence = 0; let clock = 0;
   // An in-memory receipts table. Tests change `db` directly to simulate another session, and set `fails.*` to inject failures.
   const stamp = () => `2026-10-18T00:00:${String(++clock).padStart(2, '0')}Z`;
-  const db = new Map(loaded.map(item => [item.dbId, { amount: '', receiptDate: '', vat: '', invoice: '', store: '', address: '', tin: '', status: 'available', ...item, updatedAt: item.updatedAt ?? stamp() }]));
+  const db = new Map(loaded.map(item => [item.dbId, { amount: '', receiptDate: '', vat: '', invoice: '', store: '', address: '', tin: '', expenseAccount: 'Day to day', classification: 'Others', status: 'available', ...item, updatedAt: item.updatedAt ?? stamp() }]));
   const fails = { loadGates: [], importGate: null, restoreGate: null, deleteGate: null, snapshotHold: null, snapshot: null, snapshotGate: null, saveAfter: null, saveGate: null, saveGateOnce: null, createResponseLost: null, load: null, consume: null, download: null, afterDownload: null, consumeResponseLost: null, gate: null, save: null };
-  const databaseShape = row => { const raw = { id: row.dbId, amount: row.amount === '' ? null : row.amount, receipt_date: row.receiptDate, vat_status: row.vat, invoice_number: row.invoice, store_name: row.store, address: row.address, tin: row.tin, updated_at: row.updatedAt }; if ('status' in row) raw.status = row.status; return raw; };
+  const databaseShape = row => { const raw = { id: row.dbId, amount: row.amount === '' ? null : row.amount, receipt_date: row.receiptDate, vat_status: row.vat, invoice_number: row.invoice, store_name: row.store, address: row.address, tin: row.tin, expense_account: row.expenseAccount || null, classification_of_expense: row.classification || null, updated_at: row.updatedAt }; if ('status' in row) raw.status = row.status; return raw; };
   const copy = row => viaServiceMapping ? fromDatabaseReceipt(databaseShape(row)) : { ...row };
   const storedAmount = raw => { const parsed = parseMoneyAmount(raw); return parsed.blank ? '' : parsed.valid ? parsed.amount : raw; };
   const receiptService = {
