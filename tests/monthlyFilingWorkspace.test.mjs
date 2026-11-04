@@ -854,7 +854,7 @@ test('C3-13: an explicit 0.00 survives Save, render, repeated Save and export as
   assert.equal(normalizeMoneyAmount(f.calls.update.find(([, receipt]) => receipt.store === 'Zero Store')[1].amount), 0, 'the second Save sends 0 (the database would store 0, not null)');
   assert.equal(normalizeMoneyAmount(f.calls.update.find(([, receipt]) => receipt.store === 'Missing Store')[1].amount), null);
   await f.click(f.elements.exportActive);                                    // E/F/G. export and inspect the workbook
-  const [snapshot] = f.calls.snapshots; const sheet = createExpenseDetailedReportWorkbook(snapshot).Sheets['Selected Receipts'];
+  const [snapshot] = f.calls.snapshots; const sheet = createExpenseDetailedReportWorkbook(snapshot).Sheets['Expense Detailed Report'];
   assert.deepEqual(snapshot.map(record => record.store), ['Zero Store', 'Missing Store', 'Paid Store']);
   assert.deepEqual([sheet.H3.t, sheet.H3.v, sheet.H3.z], ['n', 0, '#,##0.00'], 'the zero is numeric 0 with the money format');
   assert.equal(sheet.H4, undefined, 'H. a genuinely missing amount is an empty cell');
@@ -869,6 +869,6 @@ test('C3-13: a zero loaded from the database (the number 0) is shown as 0 and ex
   assert.equal(f.cards().length, 2); assert.deepEqual(totalLine(f), ['Active Total: ₱0.00', '2 receipts · 1 without amount']);
   assert.equal(f.elements.unsavedNote.hidden, true, 'rendering a zero does not mark the receipt as edited');
   await f.click(f.elements.exportActive);
-  const sheet = createExpenseDetailedReportWorkbook(f.calls.snapshots[0]).Sheets['Selected Receipts'];
+  const sheet = createExpenseDetailedReportWorkbook(f.calls.snapshots[0]).Sheets['Expense Detailed Report'];
   assert.deepEqual([sheet.H3.t, sheet.H3.v, sheet.H3.z], ['n', 0, '#,##0.00']); assert.equal(sheet.H4, undefined);
 });

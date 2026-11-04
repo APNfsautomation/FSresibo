@@ -24,6 +24,8 @@ const spreadsheetDate = value => {
 };
 
 export const amountCellFormat = '#,##0.00';
+export const dateCellFormat = 'mm/dd/yyyy';
+export const expenseDetailedReportSheetName = 'Expense Detailed Report';
 
 // Amount cell value from the strict CP10-C0 parser: missing (null, undefined, blank or whitespace) = no cell at all (null); an explicit 0 or "0" = numeric zero;
 // a valid amount = its exact numeric value. A non-blank amount that cannot be parsed is rejected, never exported as an empty cell or a guessed number.
@@ -38,8 +40,8 @@ export const numericAmount = value => {
 export const buildExpenseDetailedReportRows = receipts => [
   ...expenseDetailedReportHeaderRows,
   ...receipts.map((receipt, index) => [
-    index + 1, spreadsheetDate(receipt.receiptDate), receipt.store || '', receipt.address || '', receipt.vat || '', receipt.tin || '', receipt.invoice || '', numericAmount(receipt.amount),
-    '', '', '', '', '', '', ''
+    index + 1, spreadsheetDate(receipt.receiptDate), receipt.store || '', receipt.address || '', receipt.vat || '', receipt.tin || '', String(receipt.invoice ?? ''), numericAmount(receipt.amount),
+    receipt.expenseAccount || '', receipt.classification || '', '', '', '', '', ''
   ])
 ];
 
@@ -47,7 +49,9 @@ export function createExpenseDetailedReportWorkbook(receipts, xlsx = { utils }) 
   const worksheet = xlsx.utils.aoa_to_sheet(buildExpenseDetailedReportRows(receipts), { cellDates: true });
   receipts.forEach((receipt, index) => {
     const cell = worksheet[`B${index + 3}`];
-    if (cell?.v instanceof Date) cell.z = 'd-mmm';
+    if (cell?.v instanceof Date) cell.z = dateCellFormat;
+    const invoice = worksheet[`G${index + 3}`];
+    if (invoice) { invoice.t = 's'; invoice.v = String(receipt.invoice ?? ''); delete invoice.w; } // always text, so leading zeros (00123) survive
     const amount = worksheet[`H${index + 3}`];
     if (amount?.t === 'n') amount.z = amountCellFormat;
   });
@@ -57,7 +61,7 @@ export function createExpenseDetailedReportWorkbook(receipts, xlsx = { utils }) 
     { wch: 20 }, { wch: 26 }, { wch: 26 }, { wch: 24 }, { wch: 18 }, { wch: 28 }, { wch: 30 }
   ];
   const workbook = xlsx.utils.book_new();
-  xlsx.utils.book_append_sheet(workbook, worksheet, 'Selected Receipts');
+  xlsx.utils.book_append_sheet(workbook, worksheet, expenseDetailedReportSheetName);
   return workbook;
 }
 

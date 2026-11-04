@@ -2,9 +2,9 @@
 // "Workbook fields" are exactly the receipt values that reach the Expense Detailed Report, so a difference in any of them is a difference in the workbook.
 import { parseMoneyAmount } from './moneyAmount.js';
 
-export const workbookFieldNames = Object.freeze(['receiptDate', 'store', 'address', 'vat', 'tin', 'invoice', 'amount']);
+export const workbookFieldNames = Object.freeze(['receiptDate', 'store', 'address', 'vat', 'tin', 'invoice', 'amount', 'expenseAccount', 'classification']);
 export const exportFieldLabels = Object.freeze({
-  receiptDate: 'Receipt date', store: 'Store name', address: 'Store address', vat: 'VAT status', tin: 'TIN', invoice: 'Invoice number', amount: 'Amount', updatedAt: 'Last updated'
+  receiptDate: 'Receipt date', store: 'Store name', address: 'Store address', vat: 'VAT status', tin: 'TIN', invoice: 'Invoice number', amount: 'Amount', expenseAccount: 'Expense Account', classification: 'Classification of Expense', updatedAt: 'Last updated'
 });
 
 const exactText = value => String(value ?? '');

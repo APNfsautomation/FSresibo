@@ -349,7 +349,7 @@ const allMigrations = async () => {
 
 test('SEC-1: every table created by the migrations enables row level security, grants nothing to anon, and every policy is owner-scoped or an active-profile read', async () => {
   const names = (await readdir(new URL('../supabase/migrations/', import.meta.url))).filter(name => name.endsWith('.sql')).sort();
-  assert.deepEqual(names.map(name => name.slice(0, 3)), ['001', '002', '003', '004'], 'a new migration needs this posture check reviewed');
+  assert.deepEqual(names.map(name => name.slice(0, 3)), ['001', '002', '003', '004', '005'], 'a new migration needs this posture check reviewed');
   const sql = (await Promise.all(names.map(name => read(`../supabase/migrations/${name}`)))).join('\n');
   const tables = [...sql.matchAll(/create table (?:if not exists )?(public\.\w+)/gi)].map(match => match[1]);
   assert.deepEqual(tables.sort(), ['public.monthly_filing_receipts', 'public.receipts', 'public.shared_store_directory']);

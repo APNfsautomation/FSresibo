@@ -23,17 +23,17 @@ test('Expense Detailed Report staging rows preserve the exact A:O mapping', () =
   assert.equal(typeof rows[2][7], 'number');
 });
 
-test('workbook uses one Selected Receipts worksheet with date and amount cells', () => {
+test('workbook uses one Expense Detailed Report worksheet with date and amount cells', () => {
   const workbook = createSelectedReceiptsWorkbook(receipts);
-  assert.deepEqual(workbook.SheetNames, ['Selected Receipts']);
-  const sheet = workbook.Sheets['Selected Receipts'];
+  assert.deepEqual(workbook.SheetNames, ['Expense Detailed Report']);
+  const sheet = workbook.Sheets['Expense Detailed Report'];
   assert.equal(sheet['!ref'], 'A1:O4');
   assert.equal(sheet.C1.v, 'Supplier Details');
   assert.equal(sheet.C2.v, 'Name');
   assert.equal(sheet.D2.v, 'Address');
   assert.ok(sheet['!merges'].some(range => range.s.c === 2 && range.e.c === 3 && range.s.r === 0 && range.e.r === 0));
   assert.equal(sheet.B3.t, 'd');
-  assert.equal(sheet.B3.z, 'd-mmm');
+  assert.equal(sheet.B3.z, 'mm/dd/yyyy');
   assert.equal(sheet.H3.t, 'n');
   assert.equal(sheet.H3.v, 27998);
   ['I', 'J', 'K', 'L', 'M', 'N', 'O'].forEach(column => assert.deepEqual(sheet[`${column}3`], { t: 's', v: '' }));
@@ -42,7 +42,7 @@ test('workbook uses one Selected Receipts worksheet with date and amount cells',
 test('Monthly Filing reuses the authoritative Expense Detailed Report builder for an explicit array', () => {
   const monthly = [{ dbId: 'monthly-1', receiptDate: '2026-08-01', store: 'Monthly Store', address: 'Pasig', vat: 'VAT', tin: '789', invoice: 'MF-1', amount: '500.25' }];
   const workbook = createExpenseDetailedReportWorkbook(monthly);
-  const sheet = workbook.Sheets['Selected Receipts'];
+  const sheet = workbook.Sheets['Expense Detailed Report'];
   assert.equal(createExpenseDetailedReportWorkbook, createSelectedReceiptsWorkbook);
   assert.equal(sheet.B3.t, 'd');
   assert.equal(sheet.H3.t, 'n');
@@ -53,12 +53,12 @@ test('Monthly Filing reuses the authoritative Expense Detailed Report builder fo
 test('the vendored SheetJS build generates and reads an XLSX workbook without network access', () => {
   const generated = write(createSelectedReceiptsWorkbook(receipts), { bookType: 'xlsx', type: 'array', cellDates: true });
   const reopened = read(generated, { type: 'array', cellDates: true, cellNF: true });
-  const sheet = reopened.Sheets['Selected Receipts'];
+  const sheet = reopened.Sheets['Expense Detailed Report'];
   assert.ok(generated.byteLength > 0);
   assert.equal(sheet.C1.v, 'Supplier Details');
   assert.equal(sheet.C2.v, 'Name');
   assert.equal(sheet.D2.v, 'Address');
   assert.equal(sheet.H3.v, 27998);
-  assert.equal(sheet.B3.z, 'd-mmm');
+  assert.equal(sheet.B3.z, 'mm/dd/yyyy');
   assert.equal(sheet.I3.v, '');
 });

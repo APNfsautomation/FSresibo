@@ -32,7 +32,7 @@ test('text that would look different in the workbook is a change; an equal amoun
 });
 
 test('workbookFields keeps the typed amount text and normalizes missing text to empty', () => {
-  assert.deepEqual(workbookFields({ amount: '1,250.50', store: 'A' }), { receiptDate: '', store: 'A', address: '', vat: '', tin: '', invoice: '', amount: '1,250.50' });
+  assert.deepEqual(workbookFields({ amount: '1,250.50', store: 'A' }), { receiptDate: '', store: 'A', address: '', vat: '', tin: '', invoice: '', amount: '1,250.50', expenseAccount: '', classification: '' });
 });
 
 const entries = [{ dbId: 'r1', label: 'Receipt 1', used: { amount: '1,250.50' } }, { dbId: 'r2', label: 'Receipt 2', used: { amount: '300' } }];
