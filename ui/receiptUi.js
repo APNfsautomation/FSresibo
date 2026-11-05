@@ -15,7 +15,7 @@ import { fillShown, fillShownMessage, hiddenSelectedCount, manualEligibility, ma
 import { attachOptionCombobox } from './optionCombobox.js';
 import { attachTinFormatter } from './tinInput.js';
 import { formatTinForDisplay } from '../domain/tinFormat.js';
-import { classificationOptions, expenseAccountOptions, expenseFieldLabels, missingExpenseFields } from '../domain/expenseClassification.js';
+import { classificationOptions, expenseAccountOptions, expenseFieldLabels, isClassification, isExpenseAccount } from '../domain/expenseClassification.js';
 import { createReceiptExportRunner, preflightExport, preflightMessage, snapshotProblemMessage, unsavedValuesNotice } from './receiptExport.js';
 
 const draftKey = 'receipt-match-draft-v2';
@@ -1453,7 +1453,28 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   };
   let exportPending = false;
   // ---- Review & Arrange (CP10-C3E-2). The view only presents; the order lives in `arrangement`, the dialog's data in `exportSession`. ----
-  const showReviewState = () => { if (exportSession) elements.confirmExport.disabled = exportPending || (exportSession.needsAck && !exportSession.acknowledged); };
+  // The value a receipt would have if the dialog were confirmed now: the user's edit when there is one, otherwise the saved database value.
+  const effectiveExpense = (session, savedRow, key) => { const edit = session.edits.get(savedRow.dbId); return edit && key in edit ? edit[key] : savedRow[key] ?? ''; };
+  const sessionSaved = session => new Map(session.baseline.rows.map(row => [row.dbId, row]));
+  const expenseValid = { expenseAccount: isExpenseAccount, classification: isClassification };
+  const expenseIncompleteIds = session => { const saved = sessionSaved(session); return session.entries.map(entry => entry.dbId).filter(id => saved.get(id) && Object.keys(expenseValid).some(key => !expenseValid[key](effectiveExpense(session, saved.get(id), key)))); };
+  const expenseDirtyIds = session => { const saved = sessionSaved(session); return session.entries.map(entry => entry.dbId).filter(id => saved.get(id) && Object.keys(expenseValid).some(key => effectiveExpense(session, saved.get(id), key) !== (saved.get(id)[key] ?? ''))); };
+  const focusFirstIncomplete = session => {
+    const first = expenseIncompleteIds(session).map(id => arrangementOrder(session).indexOf(id)).filter(index => index >= 0).sort((a, b) => a - b)[0];
+    if (first === undefined) return false;
+    const parts = [...elements.exportReviewList.children].find(item => item.dataset?.receiptId === arrangementOrder(session)[first])?.reviewParts;
+    const target = [parts?.account, parts?.classification].find(select => select?.getAttribute?.('aria-invalid')) ?? parts?.account;
+    if (!target || target.disabled) return false;
+    target.focus?.({ preventScroll: false });
+    return true;
+  };
+  const arrangementOrder = session => { const arrangement = arrangements[session.mode]; return arrangement?.selection === session.selection ? arrangement.order : session.entries.map(entry => entry.dbId); };
+  const showReviewState = () => {
+    if (!exportSession) return;
+    elements.confirmExport.disabled = exportPending || (exportSession.needsAck && !exportSession.acknowledged);
+    if (!exportPending) elements.confirmExport.textContent = expenseDirtyIds(exportSession).length ? 'Save Details & Export' : 'Export & Mark Consumed';
+    if (elements.cancelExport) elements.cancelExport.disabled = exportPending; // Cancel must not race a running save or export
+  };
   const unsavedFieldText = value => value === '' ? '(empty)' : `"${value}"`;
   const changeNotes = (softProblems, reference, snapshotRows) => {
     const byId = new Map(snapshotRows.map(row => [row.dbId, row]));
@@ -1471,8 +1492,17 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     const entries = new Map(session.entries.map(entry => [entry.dbId, entry]));
     const sums = summarizeAmounts(arrangement.order.map(id => saved.get(id)));
     const changed = session.notes.size;
+    const problemText = (check, value) => check(value) ? '' : String(value ?? '').trim() ? 'Not an approved value' : 'Required';
+    const complete = session.entries.length - expenseIncompleteIds(session).length;
     reviewView.render({
-      rows: arrangement.order.map(id => buildReviewRow(entries.get(id), saved.get(id), session.notes.get(id), { format, formatDate })),
+      rows: arrangement.order.map(id => {
+        const row = buildReviewRow(entries.get(id), saved.get(id), session.notes.get(id), { format, formatDate });
+        const account = effectiveExpense(session, saved.get(id), 'expenseAccount'); const classification = effectiveExpense(session, saved.get(id), 'classification');
+        return { ...row, expense: { account, classification, accountProblem: problemText(isExpenseAccount, account), classificationProblem: problemText(isClassification, classification), locked: exportPending } };
+      }),
+      readinessText: `Export readiness: ${complete} of ${session.entries.length} receipt${session.entries.length === 1 ? '' : 's'} complete`,
+      readinessComplete: complete === session.entries.length,
+      locked: exportPending,
       totalText: format(sums.validCents),
       withoutAmount: sums.withoutAmount,
       canReset: arrangement.order.some((id, index) => id !== arrangement.initial[index]),
@@ -1485,6 +1515,20 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     summary: { count: elements.exportReviewCount, total: elements.exportReviewTotal, noAmountGroup: elements.exportReviewNoAmountGroup, noAmount: elements.exportReviewNoAmount },
     acknowledgement: { group: elements.exportReviewAck, text: elements.exportReviewAckText, input: elements.exportReviewAckInput },
     reset: elements.exportReviewReset,
+    readiness: elements.exportReviewReadiness,
+    expenseOptions: { expenseAccount: expenseAccountOptions, classification: classificationOptions },
+    onExpenseChange: (id, key, value) => {
+      const session = exportSession;
+      if (!session || exportPending) return;
+      const saved = sessionSaved(session).get(id);
+      if (!saved) return;
+      const edit = { ...(session.edits.get(id) ?? {}), [key]: value };
+      if (edit[key] === (saved[key] ?? '')) delete edit[key]; // back to the saved value: not an edit any more
+      if (Object.keys(edit).length) session.edits.set(id, edit); else session.edits.delete(id);
+      renderReview(); showReviewState();
+      const total = session.entries.length; const complete = total - expenseIncompleteIds(session).length;
+      reviewView.announce(`${complete} of ${total} receipts ready to export.`);
+    },
     onMove: (id, toIndex) => { const arrangement = activeArrangement(); if (arrangement) { arrangement.order = moveId(arrangement.order, id, toIndex); renderReview(); } },
     onReset: () => { const arrangement = activeArrangement(); if (arrangement) { arrangement.order = [...arrangement.initial]; renderReview(); } },
     onAcknowledge: checked => { if (exportSession) { exportSession.acknowledged = checked; showReviewState(); } },
@@ -1525,6 +1569,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     elements.confirmExport.disabled = false;
     elements.confirmExport.removeAttribute('aria-busy');
     elements.confirmExport.textContent = 'Export & Mark Consumed';
+    if (elements.cancelExport) elements.cancelExport.disabled = false;
   };
   // ---- Export (CP10-C3E-1): the workbook is built from database snapshots, never from the values typed on screen. ----
   // Review (Snapshot A) happens before the confirmation dialog opens; the final read (Snapshot B) happens when the user confirms.
@@ -1551,10 +1596,12 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     if (!elements.editModal.hidden) closeEditModal(); // only an open dialog is closed: an idle one has nothing to hand focus back from
     if (!elements.exportConfirmModal.hidden) closeExportConfirmation({ force: true });
   };
-  const errorText = error => String(error?.message || 'Unknown error').replace(/[.\s]+$/, '');
+  const joinLabels = labels => labels.length <= 1 ? labels.join('') : `${labels.slice(0, -1).join(', ')} and ${labels.at(-1)}`;
+  const errorText = error =>String(error?.message || 'Unknown error').replace(/[.\s]+$/, '');
   const rowForSelectionEntry = entry => [...elements.list.children].find(row => selectionEntryMatchesRow(entry, row));
   const exportEntries = () => exportSource().entries.map(({ dbId, label, used }) => ({ dbId, label, used }));
   // Everything that can be checked from the screen alone. A saved receipt must not carry unsaved edits, and nothing is ever saved or discarded here.
+  // Missing Expense Account / Classification of Expense never blocks here (Issue #56): they are completed inside Review & Arrange and checked when the user confirms.
   const preflightSelection = () => preflightExport(exportSource().entries.map(entry => {
     const row = rowForSelectionEntry(entry);
     return {
@@ -1564,47 +1611,48 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       present: Boolean(row),
       status: row ? receiptStatus(row) : 'consumed',
       unsaved: row ? rowHasUnsavedExportChanges(row) : false,
-      amountProblem: row ? amountProblem(row) : '',
-      expenseFields: row ? missingExpenseFields(rowValues(row)) : []
+      amountProblem: row ? amountProblem(row) : ''
     };
   }));
   // The database is the truth: refresh the on-screen rows that it reports as changed or Consumed. Selected rows have no unsaved edits at this point
   // (the preflight guarantees it), so nothing the user typed is overwritten.
+  const applySavedToScreen = saved => {
+    const row = [...elements.list.children].find(candidate => candidate.dataset.receiptDbId === saved.dbId);
+    if (row) {
+      receiptFieldKeys.forEach(key => { row.querySelector(`.receipt-${key}`).value = saved[key] ?? ''; });
+      row.dataset.receiptStatus = normalizeReceiptStatus(saved.status); // display state only; the saved record keeps the exact database status
+      row.dataset.receiptUpdatedAt = saved.updatedAt || '';
+      row.dataset.persistedStoreFingerprint = persistedStoreFingerprint(saved);
+      applyReceiptStatusState(row);
+      refreshSummary(row);
+    }
+    upsertStoreSourceReceipt(saved);
+  };
   const syncRowsFromSnapshot = (snapshotRows, problems) => {
     const affected = new Set(problems.filter(problem => problem.type === 'changed' || problem.type === 'unavailable' || problem.type === 'optimizerChanged').map(problem => problem.dbId));
-    snapshotRows.filter(saved => affected.has(saved.dbId)).forEach(saved => {
-      const row = [...elements.list.children].find(candidate => candidate.dataset.receiptDbId === saved.dbId);
-      if (row) {
-        receiptFieldKeys.forEach(key => { row.querySelector(`.receipt-${key}`).value = saved[key] ?? ''; });
-        row.dataset.receiptStatus = normalizeReceiptStatus(saved.status); // display state only; the saved record keeps the exact database status
-        row.dataset.receiptUpdatedAt = saved.updatedAt || '';
-        row.dataset.persistedStoreFingerprint = persistedStoreFingerprint(saved);
-        applyReceiptStatusState(row);
-        refreshSummary(row);
-      }
-      upsertStoreSourceReceipt(saved);
-    });
+    snapshotRows.filter(saved => affected.has(saved.dbId)).forEach(applySavedToScreen);
   };
   // The optimizer result no longer matches the database: refresh what changed, drop the result and say exactly what to do.
-  const rejectStaleResult = (snapshotRows, problems, stage, mode = exportMode) => {
+  // `note` carries facts the snapshot message cannot know, e.g. that some Expense details were already saved before the check failed.
+  const rejectStaleResult = (snapshotRows, problems, stage, mode = exportMode, note = '') => {
     problems.filter(problem => problem.type === 'missing' && problem.dbId).forEach(problem => knownMissingIds.add(problem.dbId));
-    if (mode === 'manual') return rejectManualSelection(snapshotRows, problems, stage);
+    if (mode === 'manual') return rejectManualSelection(snapshotRows, problems, stage, note);
     syncRowsFromSnapshot(snapshotRows, problems);
     clearSelection();
     refreshEncodingCards();
     refreshOptimizationCards();
     showEmpty();
     elements.resultTitle.textContent = 'Result out of date';
-    setFeedback(elements.difference, snapshotProblemMessage(problems, { stage }));
+    setFeedback(elements.difference, `${snapshotProblemMessage(problems, { stage })}${note ? ` ${note}` : ''}`);
   };
   // Manual Selection: the affected receipts now show their saved values; receipts that are gone or Consumed leave the selection, everything else stays.
-  const rejectManualSelection = (snapshotRows, problems, stage) => {
+  const rejectManualSelection = (snapshotRows, problems, stage, note = '') => {
     syncRowsFromSnapshot(snapshotRows, problems);
     const gone = new Set(problems.filter(problem => problem.type === 'missing' || problem.type === 'unavailable').map(problem => problem.dbId));
     if (gone.size) setManualIds(manualIds.filter(id => !gone.has(id)));
     refreshEncodingCards();
     refreshOptimizationCards();
-    setManualFeedback(snapshotProblemMessage(problems, { stage, mode: 'manual' }), 'warning');
+    setManualFeedback(`${snapshotProblemMessage(problems, { stage, mode: 'manual' })}${note ? ` ${note}` : ''}`, 'warning');
   };
   const openExportConfirmation = async () => {
     if (exportPending || exportReviewPending) return;
@@ -1629,21 +1677,26 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       const reference = new Map(storeSourceReceipts.map(receipt => [receipt.dbId, receipt]));
       const verdict = classifyExportSnapshot({ entries, snapshotRows: baseline.rows, reference });
       // Missing, Consumed, invalid or an amount that differs from the optimizer's: never acknowledgeable, the result must be recalculated.
-      const { hard, soft } = partitionExportProblems(verdict.problems);
-      if (hard.length) return rejectStaleResult(baseline.rows, verdict.problems, 'review', mode);
+      // A missing Expense Account / Classification of Expense is completed in this very dialog, so it never keeps the dialog from opening.
+      const openProblems = verdict.problems.filter(problem => problem.type !== 'missingExpense');
+      const { hard, soft } = partitionExportProblems(openProblems);
+      if (hard.length) return rejectStaleResult(baseline.rows, openProblems, 'review', mode);
       const notes = changeNotes(soft, reference, baseline.rows);
       if (soft.length) { syncRowsFromSnapshot(baseline.rows, soft); refreshEncodingCards(); refreshOptimizationCards(); }
       const ids = entries.map(entry => entry.dbId);
       const kept = arrangements[mode];
       if (!kept || kept.selection !== reviewed || !sameMembers(kept.order, ids)) arrangements[mode] = { selection: reviewed, initial: ids, order: [...ids] };
-      exportSession = { selection: reviewed, mode, entries, baseline, notes, needsAck: soft.length > 0, acknowledged: false };
+      // edits: id -> { expenseAccount?, classification? } typed in this dialog only; nothing is written until "Save Details & Export".
+      exportSession = { selection: reviewed, mode, entries, baseline, notes, needsAck: soft.length > 0, acknowledged: false, edits: new Map() };
       const alreadyPrepared = exportRunner.uncertainIds().some(id => entries.some(entry => entry.dbId === id));
-      elements.exportConfirmMessage.textContent = `Export ${entries.length} selected receipt${entries.length === 1 ? '' : 's'}? After the export is prepared, these receipts will be marked as Consumed and excluded from future optimization.${alreadyPrepared ? ' A workbook for some of them was already prepared earlier and its status update could not be confirmed. The database now confirms they are still Available. Exporting again downloads another workbook.' : ''}`;
+      const incomplete = expenseIncompleteIds(exportSession).length;
+      elements.exportConfirmMessage.textContent = `${incomplete ? `${incomplete} receipt${incomplete === 1 ? ' needs' : 's need'} an Expense Account and a Classification of Expense. Complete them below; they are saved when you choose Save Details & Export. ` : ''}Export ${entries.length} selected receipt${entries.length === 1 ? '' : 's'}? After the export is prepared, these receipts will be marked as Consumed and excluded from future optimization.${alreadyPrepared ? ' A workbook for some of them was already prepared earlier and its status update could not be confirmed. The database now confirms they are still Available. Exporting again downloads another workbook.' : ''}`;
       elements.exportConfirmModal.hidden = false;
       renderReview();
       showReviewState();
       modalFocus?.open(elements.exportConfirmModal, { trigger: button, fallback: mode === 'manual' ? elements.manualSelectShown : elements.calculate, onEscape: escapeReview });
-      (exportSession.needsAck ? elements.exportReviewAckInput : elements.confirmExport).focus();
+      if (exportSession.needsAck) elements.exportReviewAckInput.focus();
+      else if (!focusFirstIncomplete(exportSession)) elements.confirmExport.focus();
     } finally {
       if (generation === sessionGeneration) { exportReviewPending = false; button.removeAttribute('aria-busy'); }
     }
@@ -1651,41 +1704,106 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   const exportAndConsume = async () => {
     if (exportPending) return;
     if (exportSession?.needsAck && !exportSession.acknowledged) return reviewView.announce('Review the updated values and tick the box before exporting.');
+    // Every selected receipt needs both expense fields before anything is saved or exported. Checked on the values in the dialog, before any database call.
+    if (exportSession) {
+      const incomplete = expenseIncompleteIds(exportSession);
+      if (incomplete.length) {
+        const labels = new Map(exportSession.entries.map(entry => [entry.dbId, entry.label]));
+        const text = `${incomplete.map(id => labels.get(id)).join(', ')} still ${incomplete.length === 1 ? 'needs' : 'need'} an Expense Account and a Classification of Expense. Nothing was saved or exported.`;
+        elements.exportConfirmMessage.textContent = text;
+        reviewView.announce(text);
+        focusFirstIncomplete(exportSession);
+        return;
+      }
+    }
     exportPending = true;
     elements.confirmExport.disabled = true;
     elements.confirmExport.setAttribute('aria-busy', 'true');
     elements.confirmExport.textContent = 'Preparing export…';
+    if (elements.cancelExport) elements.cancelExport.disabled = true;
     const stop = message => { exportPending = false; closeExportConfirmation(); return setExportFeedback(message, '', session?.mode ?? exportMode); };
     const session = exportSession;
     const source = exportSource();
     if (!session || !source || session.selection !== source || session.mode !== exportMode) return stop((session?.mode ?? exportMode) === 'manual' ? 'The selection changed. Nothing was exported; choose Export Selected again.' : 'The selected result is no longer exportable. Run Find Best Match again.');
     const local = preflightSelection();
     if (!local.ok) { exportPending = false; closeExportConfirmation(); return blockForEncoding(local.problems); }
+    const generation = sessionGeneration;
+    // Another session changed the receipts, or a save step failed: stay in the dialog with what the database holds now, or close it when the result cannot be used any more.
+    const reconcile = (problems, snapshotRows, announcement, savedNote = '') => {
+      const { hard, soft } = partitionExportProblems(problems);
+      if (hard.length) { exportPending = false; closeExportConfirmation(); return rejectStaleResult(snapshotRows, problems, 'confirm', session.mode, savedNote); }
+      // Only other workbook fields changed since the reviewed snapshot: stay in the dialog, show the new values and ask for a fresh acknowledgement.
+      if (soft.length) {
+        session.notes = changeNotes(soft, sessionSaved(session), snapshotRows);
+        syncRowsFromSnapshot(snapshotRows, soft); refreshEncodingCards(); refreshOptimizationCards();
+        session.needsAck = true; session.acknowledged = false;
+      }
+      session.baseline = { rows: snapshotRows, generation: session.baseline.generation };
+      exportPending = false;
+      elements.confirmExport.removeAttribute('aria-busy');
+      renderReview(); showReviewState();
+      reviewView.announce(announcement);
+      return (soft.length ? elements.exportReviewAckInput : elements.confirmExport).focus?.();
+    };
+    // Phase 1 (only when the dialog holds expense edits): save exactly those fields, receipt by receipt, each guarded by the receipt's last known update time,
+    // then read the receipts back. A failure stops at once; what was already saved stays saved and is reported as such.
+    const dirty = expenseDirtyIds(session);
+    if (dirty.length) {
+      const labels = new Map(session.entries.map(entry => [entry.dbId, entry.label]));
+      const savedLabels = [];
+      const savedNote = () => savedLabels.length ? `${joinLabels(savedLabels)} ${savedLabels.length === 1 ? 'was' : 'were'} already saved and stay${savedLabels.length === 1 ? 's' : ''} saved.` : '';
+      const failSave = async text => {
+        const note = savedNote();
+        const message = `${text}${note ? ` ${note}` : ''} Nothing was exported and no receipt was marked Consumed.`;
+        let fresh;
+        try { fresh = await exportRunner.loadBaseline(session.entries.map(entry => entry.dbId)); }
+        catch { if (generation !== sessionGeneration) return; exportPending = false; elements.confirmExport.removeAttribute('aria-busy'); renderReview(); showReviewState(); elements.exportConfirmMessage.textContent = `${message} The current database values could not be reloaded: close this dialog and choose Export Selected again.`; return reviewView.announce(message); }
+        if (generation !== sessionGeneration) return;
+        const problems = classifyExportSnapshot({ entries: session.entries, snapshotRows: fresh.rows, reference: sessionSaved(session) }).problems.filter(problem => problem.type !== 'missingExpense');
+        elements.exportConfirmMessage.textContent = message;
+        // Receipts saved by this attempt are already in the baseline; the others show what the database holds now, with the user's edits kept on top.
+        return reconcile(problems, fresh.rows, message, note);
+      };
+      const wanted = id => ({ expenseAccount: effectiveExpense(session, sessionSaved(session).get(id), 'expenseAccount'), classification: effectiveExpense(session, sessionSaved(session).get(id), 'classification') });
+      renderReview(); // locks the fields while the save runs
+      const intended = new Map();
+      for (const id of dirty) {
+        const values = wanted(id); intended.set(id, values);
+        let updated;
+        try { updated = await receiptService.updateReceiptExpenseFields(id, values, sessionSaved(session).get(id).updatedAt); }
+        catch (error) {
+          if (generation !== sessionGeneration) return;
+          return failSave(error?.code === 'RECEIPT_CONFLICT' ? `${labels.get(id)} was changed in another session, so its details were not saved.` : `Could not save the details of ${labels.get(id)}: ${errorText(error)}.`);
+        }
+        if (generation !== sessionGeneration) return;
+        session.baseline = { ...session.baseline, rows: session.baseline.rows.map(row => row.dbId === id ? updated : row) };
+        session.edits.delete(id);
+        applySavedToScreen(updated); savedLabels.push(labels.get(id));
+      }
+      refreshEncodingCards(); refreshOptimizationCards();
+      // The database must now hold exactly what was saved, on receipts that are still Available with unchanged amounts.
+      let fresh;
+      try { fresh = await exportRunner.loadBaseline(session.entries.map(entry => entry.dbId)); }
+      catch (error) { if (generation !== sessionGeneration) return; return failSave(`The saved details could not be confirmed: ${errorText(error)}.`); }
+      if (generation !== sessionGeneration) return;
+      const freshById = new Map(fresh.rows.map(row => [row.dbId, row]));
+      const unconfirmed = dirty.filter(id => { const row = freshById.get(id); return !row || row.expenseAccount !== intended.get(id).expenseAccount || row.classification !== intended.get(id).classification; });
+      if (unconfirmed.length) return failSave(`The saved details of ${joinLabels(unconfirmed.map(id => labels.get(id)))} could not be confirmed in the database.`);
+      const problems = classifyExportSnapshot({ entries: session.entries, snapshotRows: fresh.rows, reference: sessionSaved(session) }).problems;
+      if (problems.length) return reconcile(problems, fresh.rows, `Receipt values changed after the details were saved. ${savedNote()} Review the updated values and confirm again. Nothing was exported.`, savedNote());
+      session.baseline = { rows: fresh.rows, generation: fresh.generation };
+      if (exportSource() !== session.selection || exportMode !== session.mode) return stop(`The selection changed after the details were saved. ${savedNote()} Nothing was exported; choose Export Selected again.`);
+    }
     // The confirmed order decides the order of the receipts handed to the workbook; membership is the reviewed selection.
     const byId = new Map(session.entries.map(entry => [entry.dbId, entry]));
     const arrangement = arrangements[session.mode];
     const confirmedOrder = arrangement && arrangement.selection === session.selection && sameMembers(arrangement.order, session.entries.map(entry => entry.dbId)) ? arrangement.order : session.entries.map(entry => entry.dbId);
-    const generation = sessionGeneration;
     const result = await exportRunner.run({ entries: confirmedOrder.map(id => byId.get(id)), baseline: session.baseline });
     if (generation !== sessionGeneration) return; // the account changed while this export ran: nothing is applied, announced or unlocked for the next account
     if (result.state === 'busy') return stop('An export is already in progress.');
     if (result.state === 'verification-required') return stop('Receipt status changed since this review. Choose Export Selected again so the receipts are verified with the database first. Nothing was exported.');
     if (result.state === 'snapshot-failed') return stop(`Could not verify the latest saved receipt values: ${errorText(result.error)}. Nothing was exported or marked Consumed.`);
-    if (result.state === 'blocked') {
-      const { hard, soft } = partitionExportProblems(result.problems);
-      if (hard.length) { exportPending = false; closeExportConfirmation(); return rejectStaleResult(result.snapshotRows, result.problems, 'confirm', session.mode); }
-      // Only other workbook fields changed since the reviewed snapshot: stay in the dialog, show the new values and ask for a fresh acknowledgement.
-      session.notes = changeNotes(soft, new Map(session.baseline.rows.map(row => [row.dbId, row])), result.snapshotRows);
-      syncRowsFromSnapshot(result.snapshotRows, soft); refreshEncodingCards(); refreshOptimizationCards();
-      session.baseline = { rows: result.snapshotRows, generation: session.baseline.generation };
-      session.needsAck = true; session.acknowledged = false;
-      exportPending = false;
-      elements.confirmExport.removeAttribute('aria-busy');
-      elements.confirmExport.textContent = 'Export & Mark Consumed';
-      renderReview(); showReviewState();
-      reviewView.announce('Receipt values changed while you were reviewing. Review the updated values, tick the box and confirm again. Nothing was exported.');
-      return elements.exportReviewAckInput.focus?.();
-    }
+    if (result.state === 'blocked') return reconcile(result.problems, result.snapshotRows, 'Receipt values changed while you were reviewing. Review the updated values, tick the box and confirm again. Nothing was exported.');
     if (result.state === 'generation-failed') return stop(`Could not prepare the XLSX export: ${errorText(result.error)}. No receipt was marked Consumed.`);
     // The outcome is unknown: the update may have failed, or been committed with only the answer lost.
     if (result.state === 'consume-failed') return stop(`The XLSX export was prepared, but the receipt status update could not be confirmed: ${errorText(result.error)}. The workbook may already have been downloaded, and some or all of these receipts may already be Consumed. Check each receipt's status before exporting again; the next export is verified against the database first.`);

@@ -11,11 +11,15 @@ import { read, write } from '../vendor/sheetjs/xlsx-0.20.3.mjs';
 
 const approvedClassifications = ['Accomodation', 'Building Maintenance and Repairs', 'Bank Fees', 'Cost of Goods', 'Equipment', 'Gasoline', 'Marketing', 'Meals', 'Office Supplies', 'Others', 'Parking', 'Postage and Shipping', 'Professional Fee', 'Representation', 'Taxes and Registration', 'Toll Fee', 'Transportation', 'Utilities', 'Vehicle Maintenance', 'Advertisement', 'Car Insurance', 'Car Registration', 'Delivery Fee', 'Electricity', 'Freight Cost', 'Gifts for Customer', 'Grocery', 'Hotel', 'Internet', 'Meals w/ Customer', 'Notary Fee', 'Packaging', 'Permits', 'Phone', 'Sponsorship', 'Staffhouse', 'Stationeries', 'Trade Show Fees', 'Water'];
 
+// Issue #56 (Product Owner approved): two options appended after the original 39, which keep their order and spelling.
+const addedClassifications = ['Service Charge', 'Government Benefits'];
+
 test('EXP-1: the option lists are exactly the approved values, in source order, with the source spelling', () => {
   assert.deepEqual([...expenseAccountOptions], ['Day to day', 'Project Expense']);
-  assert.deepEqual([...classificationOptions], approvedClassifications);
-  assert.equal(classificationOptions.length, 39);
-  assert.equal(new Set(classificationOptions).size, 39);
+  assert.deepEqual([...classificationOptions], [...approvedClassifications, ...addedClassifications]);
+  assert.deepEqual(classificationOptions.slice(0, 39), approvedClassifications, 'the original 39 are unchanged and in place');
+  assert.equal(classificationOptions.length, 41);
+  assert.equal(new Set(classificationOptions).size, 41);
   assert.ok(classificationOptions.includes('Accomodation') && !classificationOptions.includes('Accommodation'));
   assert.ok(Object.isFrozen(classificationOptions) && Object.isFrozen(expenseAccountOptions));
 });

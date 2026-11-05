@@ -284,7 +284,7 @@ button[aria-busy="true"] { cursor: progress; opacity: .8; }
 #exportReviewNoAmount { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--warning); }
 .export-confirm-card > p.export-review-hint { font-size: var(--text-sm); }
 .export-review-list { flex: 1 1 auto; min-height: 96px; margin: var(--space-3) 0 0; padding: 0; overflow-y: auto; overscroll-behavior: contain; position: relative; list-style: none; border: var(--border-width) solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
-.export-review-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto auto; grid-template-areas: "position details amount moves"; align-items: center; gap: var(--space-2) var(--space-3); padding: var(--space-2) var(--space-3); border-bottom: var(--border-width) solid var(--border); position: relative; cursor: grab; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.export-review-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto auto; grid-template-areas: "position details amount moves" ". expense expense expense"; align-items: center; gap: var(--space-2) var(--space-3); padding: var(--space-2) var(--space-3); border-bottom: var(--border-width) solid var(--border); position: relative; cursor: grab; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .export-review-row:last-child { border-bottom: 0; }
 .export-review-row.has-note { background: var(--warning-soft); box-shadow: inset 4px 0 0 var(--warning); }
 .export-review-position { grid-area: position; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--selected-bg); border: var(--border-width) solid var(--selected-border); color: var(--text); font-weight: var(--weight-heavy); font-variant-numeric: tabular-nums; }
@@ -305,6 +305,16 @@ button[aria-busy="true"] { cursor: progress; opacity: .8; }
 .export-review-list.is-dragging::after { content: ""; position: absolute; left: 4px; right: 4px; top: var(--drag-slot-top, 0); height: var(--drag-slot-height, 0); box-sizing: border-box; border: 2px dashed var(--primary); border-radius: var(--radius-sm); background: var(--selected-bg); pointer-events: none; z-index: 1; }
 .export-review-row:focus-visible { outline: 3px solid var(--focus, var(--primary)); outline-offset: -3px; }
 .export-review-move:focus-visible, .export-review-ack-label input:focus-visible { outline: 3px solid var(--focus, var(--primary)); outline-offset: 2px; }
+.export-review-readiness { margin: var(--space-2) 0 0; font-size: var(--text-sm); font-weight: var(--weight-heavy); color: var(--warning); }
+.export-review-readiness.is-complete { color: var(--success, var(--text)); }
+.export-review-expense { grid-area: expense; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--space-2); }
+.export-review-field { display: grid; gap: 2px; min-width: 0; cursor: default; user-select: text; -webkit-user-select: text; }
+.export-review-field-label { color: var(--muted); font-size: var(--text-xs); font-weight: var(--weight-heavy); }
+.export-review-select { width: 100%; min-width: 0; min-height: var(--control-height); }
+.export-review-field.is-missing .export-review-select { border-color: var(--warning); box-shadow: inset 3px 0 0 var(--warning); }
+.export-review-field-problem { color: var(--warning); font-size: var(--text-xs); font-weight: var(--weight-medium); }
+.export-review-row.needs-expense { background: var(--warning-soft); }
+.export-review-select:focus-visible { outline: 3px solid var(--focus, var(--primary)); outline-offset: 2px; }
 .export-review-ack { margin-top: var(--space-3); padding: var(--space-3); border: var(--border-width) solid var(--warning-border); border-left: 4px solid var(--warning); border-radius: var(--radius-sm); background: var(--warning-soft); }
 .export-confirm-card .export-review-ack > p { margin: 0 0 var(--space-2); color: var(--text); }
 .export-review-ack-label { display: flex; align-items: center; gap: var(--space-2); font-weight: var(--weight-medium); }
@@ -319,7 +329,7 @@ button[aria-busy="true"] { cursor: progress; opacity: .8; }
   .export-review-card.modal-card { width: 100%; max-width: none; height: 100vh; height: 100dvh; max-height: none; overflow-y: auto; border-radius: 0; border-width: 0; padding: max(var(--space-4), env(safe-area-inset-top)) max(var(--space-3), env(safe-area-inset-right)) 0 max(var(--space-3), env(safe-area-inset-left)); }
   /* On a phone the whole sheet scrolls so every receipt is reachable; the actions stay pinned to the bottom edge. */
   .export-review-list { flex: none; overflow: visible; }
-  .export-review-row { grid-template-columns: 30px minmax(0, 1fr) auto; grid-template-areas: "position details amount" ". moves moves"; align-items: start; }
+  .export-review-row { grid-template-columns: 30px minmax(0, 1fr) auto; grid-template-areas: "position details amount" ". moves moves" ". expense expense"; align-items: start; }
   .export-review-moves { justify-self: end; }
   .export-review-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); position: sticky; bottom: 0; margin-top: auto; padding: var(--space-3) 0 max(var(--space-3), env(safe-area-inset-bottom)); background: var(--surface); box-shadow: 0 -1px 0 var(--border); }
   .export-review-actions .export-review-reset { grid-column: 1 / -1; margin-right: 0; }
