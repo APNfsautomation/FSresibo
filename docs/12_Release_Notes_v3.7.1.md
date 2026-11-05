@@ -38,7 +38,7 @@ This document accompanies the release PR. It supersedes the *historical* v3.6.0 
 - Application: static HTML/CSS/JavaScript, vendored browser dependencies, unchanged official Expense Detailed Report mapping.
 - Compared with production `main`, the UAT code introduces **no migration, SQL, Auth, RLS, dependency, GitHub workflow, or production-config change**. Migration `005_add_expense_fields.sql` is already part of production v3.7.0.
 - Targeted changes use existing `updated_at` and status columns with existing user-scoped RLS. No schema operation is included.
-- This release branch adds only the production-visible version bump `3.7.0 → 3.7.1` and these notes relative to the accepted UAT source.
+- Compared with the accepted UAT source, the **only runtime change** is the visible version bump `3.7.0 → 3.7.1`. Other release-only changes are these notes, historical evidence-document updates, and corresponding stable-version test expectations.
 - The Supabase production project and browser-safe client configuration must remain byte-identical to the production baseline for this release.
 
 ## 4. Required production release gates (NOT automatically satisfied)
