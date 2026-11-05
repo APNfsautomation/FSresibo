@@ -448,7 +448,7 @@ test('Monthly services, export builder, migrations and the engine are untouched 
   assert.ok(ui.includes('save: () => save({ successFeedback: false, fromExport: true, session: owner })'));
   assert.ok(ui.includes('downloadExpenseDetailedReport(snapshot, monthlyFilingExportFilename())') && ui.includes('return monthlyFilingService.archiveMonthlyFilingReceipts(ids)'));
   assert.ok(ui.indexOf('save: () => save(') < ui.indexOf('downloadExpenseDetailedReport(snapshot') && ui.indexOf('downloadExpenseDetailedReport(snapshot') < ui.indexOf('return monthlyFilingService.archiveMonthlyFilingReceipts(ids)'));
-  assert.ok(ui.includes('export async function runMonthlyFilingExport({ save, snapshot, generateWorkbook, archive, validate = () => [], arrange = async saved => saved })'));
+  assert.ok(ui.includes('export async function runMonthlyFilingExport({ save, snapshot, generateWorkbook, archive, validate = () => [], validateAfter = () => [], arrange = async saved => saved })'));
   assert.doesNotMatch(ui, /localStorage|sessionStorage|indexedDB|supabase|\.rpc\(/i, 'no second persistence');
   const service = await read('../services/monthlyFilingService.js');
   assert.ok(service.includes("client.rpc('archive_monthly_filing_receipts', { p_ids: exactIds })"));

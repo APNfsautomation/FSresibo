@@ -85,7 +85,7 @@ test('REV-6: cancelling the review exports and archives nothing, keeps every rec
   await f.click(f.elements.exportActive);
   assert.equal(f.calls.workbook.length, 0); assert.equal(f.calls.archive.length, 0);
   assert.ok([...f.table.values()].every(record => record.status === 'active'));
-  assert.match(f.elements.feedback.textContent, /Export cancelled\. Your changes were saved; nothing was exported or archived\./);
+  assert.match(f.elements.feedback.textContent, /Export cancelled\. Changes saved before the review stay saved; expense details chosen in the review were discarded\. Nothing was exported or archived\./);
   assert.equal(f.elements.exportActive.disabled, false, 'the export can be started again');
 });
 
@@ -96,13 +96,14 @@ test('REV-7: an arrangement that adds, drops or duplicates a receipt is rejected
   }
 });
 
-test('REV-8: a single Active receipt has nothing to arrange and exports directly; the expense validation still runs before the review', async () => {
-  const f = await withReview(() => { throw new Error('must not be asked'); });
+test('REV-8 (Issue #58): a single Active receipt is reviewed too, and a receipt missing a field still opens the review but is never exported until completed', async () => {
+  const f = await withReview(saved => saved);
   f.table.clear(); await f.ui.loadForUser({ id: 'user-1' });
   f.table.set('only', { ...savedMonthly('only') }); await f.ui.loadForUser({ id: 'user-1' });
-  await f.click(f.elements.exportActive); assert.equal(f.calls.workbook.length, 1);
+  await f.click(f.elements.exportActive); assert.deepEqual(f.received, [['only']], 'a single receipt is reviewed too'); assert.equal(f.calls.workbook.length, 1);
   const g = await withReview(saved => saved); g.table.set('a', { ...g.table.get('a'), classification: '' }); await g.ui.loadForUser({ id: 'user-1' });
-  await g.click(g.elements.exportActive); assert.deepEqual(g.received, [], 'no review for an export that the expense check refuses'); assert.equal(g.calls.workbook.length, 0);
+  await g.click(g.elements.exportActive); assert.deepEqual(g.received, [['a', 'b', 'c']], 'the review opens for an incomplete receipt');
+  assert.equal(g.calls.workbook.length, 0, 'but a receipt that is still incomplete after the review is not exported'); assert.equal(g.calls.archive.length, 0);
 });
 
 test('REV-9: runMonthlyFilingExport keeps its order of steps: save, validate, arrange, workbook, archive; arrange can stop it before the workbook', async () => {

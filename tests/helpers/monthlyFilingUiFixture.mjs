@@ -3,7 +3,7 @@
 import { createMonthlyFilingUi } from '../../ui/monthlyFilingUi.js';
 import { normalizeMoneyAmount } from '../../domain/moneyAmount.js';
 
-export const savedMonthly = (id, extra = {}) => ({ dbId: id, sharedStoreId: '', store: `Store ${id}`, address: '', tin: '', vat: '', amount: '100.00', receiptDate: '', invoice: '', expenseAccount: 'Day to day', classification: 'Others', status: 'active', persistedStoreFingerprint: '', ...extra });
+export const savedMonthly = (id, extra = {}) => ({ dbId: id, sharedStoreId: '', store: `Store ${id}`, address: '', tin: '', vat: '', amount: '100.00', receiptDate: '', invoice: '', expenseAccount: 'Day to day', classification: 'Others', status: 'active', persistedStoreFingerprint: '', updatedAt: '2026-10-18T00:00:00Z', ...extra });
 
 export function monthlyFixture({ records = [], confirm = async () => true, sharedStoreService = { listActiveSharedStores: async () => [] }, exportReview = null } = {}) {
   const state = { activeElement: null }; const focusLog = [];
@@ -36,15 +36,27 @@ export function monthlyFixture({ records = [], confirm = async () => true, share
   };
   const elements = { saveState: node({ hidden: true }), workspace: node(), list, template: { content: { firstElementChild: { cloneNode: () => makeRow() } } }, activeTab: node(), archivedTab: node(), activeActions: node(), archivedActions: node(), exportHelper: node(), add: node(), save: node(), exportActive: node(), clearArchived: node(), clearAll: node(), feedback: node(), unsavedNote: node(), activeTotal: node(), activeTotalMain: node(), activeTotalDetail: node() };
   const table = new Map(records.map(record => [record.dbId, { ...record }]));
-  const calls = { create: [], update: [], archive: [], workbook: [], load: 0, remove: [], returned: [], clearArchived: [], clearAll: [], associate: [], writes: [] };
+  const calls = { create: [], update: [], archive: [], workbook: [], load: 0, remove: [], returned: [], clearArchived: [], clearAll: [], associate: [], writes: [], expenseSave: [], readBack: [] };
+  const fails = { expense: null, readBack: null };
   // A gate is a promise the service awaits before answering: a test holds it to model a slow or never-answered request, then settles it.
-  const gates = { create: null, update: null, load: null, archive: null, remove: null, returnToActive: null, clearArchived: null, clearAll: null, associate: null };
+  const gates = { expense: null, readBack: null, create: null, update: null, load: null, archive: null, remove: null, returnToActive: null, clearArchived: null, clearAll: null, associate: null };
   let sequence = 0;
-  const stored = (receipt, dbId, status) => ({ ...receipt, amount: String(normalizeMoneyAmount(receipt.amount) ?? ''), dbId, status });
+  let clock = 0; const stamp = () => `2026-10-19T00:00:${String(++clock).padStart(2, '0')}Z`;
+  const stored = (receipt, dbId, status) => ({ ...receipt, amount: String(normalizeMoneyAmount(receipt.amount) ?? ''), dbId, status, updatedAt: stamp() });
   const service = {
     loadMonthlyFilingReceipts: async () => { calls.load += 1; const snapshot = [...table.values()].map(record => ({ ...record })); if (gates.load) await gates.load; return snapshot; },
     createMonthlyFilingReceipt: async (receipt, userId) => { calls.create.push({ ...receipt }); calls.writes.push({ op: 'create', userId }); if (gates.create) await gates.create; const row = stored(receipt, `new-${++sequence}`, 'active'); table.set(row.dbId, row); return { ...row }; },
     updateMonthlyFilingReceipt: async (id, receipt, userId) => { calls.update.push([id, { ...receipt }]); calls.writes.push({ op: 'update', userId }); if (gates.update) await gates.update; const row = stored(receipt, id, 'active'); table.set(id, row); return { ...row }; },
+    // Issue #58. Like the real service: only the two expense columns, only while Active with the expected updated_at; anything else is a conflict. `fails.expense` injects a write failure.
+    updateMonthlyFilingExpenseFields: async (id, { expenseAccount, classification }, expectedUpdatedAt) => {
+      calls.expenseSave.push([id, { expenseAccount, classification }, expectedUpdatedAt]); calls.writes.push({ op: 'expense', id });
+      if (gates.expense) await gates.expense;
+      if (fails.expense && (fails.expense.when?.(id, calls.expenseSave.length) ?? true)) throw fails.expense.error ?? fails.expense;
+      const current = table.get(id);
+      if (!current || current.status !== 'active' || current.updatedAt !== expectedUpdatedAt) { const conflict = new Error('The receipt was changed, archived or deleted in another session, so its details were not saved.'); conflict.code = 'RECEIPT_CONFLICT'; throw conflict; }
+      const row = { ...current, expenseAccount, classification, updatedAt: stamp() }; table.set(id, row); return { ...row };
+    },
+    loadMonthlyFilingReceiptsByIds: async ids => { calls.readBack.push([...ids]); if (gates.readBack) await gates.readBack; if (fails.readBack) throw fails.readBack; return ids.filter(id => table.has(id)).map(id => ({ ...table.get(id) })); },
     deleteMonthlyFilingReceipt: async id => { calls.remove.push(id); if (gates.remove) await gates.remove; table.delete(id); },
     archiveMonthlyFilingReceipts: async ids => { calls.archive.push([...ids]); if (gates.archive) await gates.archive; return ids.map(id => { const row = { ...table.get(id), status: 'archived' }; table.set(id, row); return { ...row }; }); },
     returnMonthlyFilingReceiptToActive: async id => { calls.returned.push(id); if (gates.returnToActive) await gates.returnToActive; const row = { ...table.get(id), status: 'active' }; table.set(id, row); return { ...row }; },
@@ -68,5 +80,5 @@ export function monthlyFixture({ records = [], confirm = async () => true, share
     return input.emit('input');
   };
   const click = async target => { await target.emit('click', { currentTarget: target }); await new Promise(resolve => setTimeout(resolve, 5)); };
-  return { ui, elements, calls, gates, table, cards, field, edit, click, focusLog, state };
+  return { ui, elements, calls, gates, fails, stamp, table, cards, field, edit, click, focusLog, state };
 }

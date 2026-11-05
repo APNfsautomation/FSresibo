@@ -1,6 +1,6 @@
 import { getSupabaseClient } from '../config/supabase.js';
 import { normalizeMoneyAmount } from '../domain/moneyAmount.js';
-import { expenseFieldsFromDatabase, expenseFieldsToDatabase } from '../domain/expenseClassification.js';
+import { expenseFieldsFromDatabase, expenseFieldsToDatabase, isClassification, isExpenseAccount } from '../domain/expenseClassification.js';
 
 export const monthlyFilingTable = 'monthly_filing_receipts';
 export function toDatabaseMonthlyFilingReceipt(receipt, userId) {
@@ -13,6 +13,26 @@ async function clientOrThrow() { const client = await getSupabaseClient(); if (!
 export async function loadMonthlyFilingReceipts() { const client = await clientOrThrow(); const { data, error } = await client.from(monthlyFilingTable).select('*').order('created_at', { ascending: true }).order('id', { ascending: true }); if (error) throw error; return data.map(fromDatabaseMonthlyFilingReceipt); }
 export async function createMonthlyFilingReceipt(receipt, userId) { const client = await clientOrThrow(); const { data, error } = await client.from(monthlyFilingTable).insert(toDatabaseMonthlyFilingReceipt(receipt, userId)).select().single(); if (error) throw error; return fromDatabaseMonthlyFilingReceipt(data); }
 export async function updateMonthlyFilingReceipt(id, receipt, userId) { const client = await clientOrThrow(); const { user_id, status, ...changes } = toDatabaseMonthlyFilingReceipt(receipt, userId); const { data, error } = await client.from(monthlyFilingTable).update(changes).eq('id', id).eq('status', 'active').select().single(); if (error) throw error; return fromDatabaseMonthlyFilingReceipt(data); }
+// Monthly Review & Arrange (Issue #58): read exactly these receipts back, whatever their status (a receipt archived or deleted elsewhere shows as archived or is absent).
+export async function loadMonthlyFilingReceiptsByIds(ids) {
+  const exactIds = [...new Set((ids || []).filter(Boolean))];
+  if (!exactIds.length) return [];
+  const client = await clientOrThrow();
+  const { data, error } = await client.from(monthlyFilingTable).select('*').in('id', exactIds);
+  if (error) throw error;
+  return data.map(fromDatabaseMonthlyFilingReceipt);
+}
+// Writes ONLY the two expense columns of ONE receipt, and only while it is still Active with the `updated_at` the caller last saw. Anything else matches no row and is
+// reported as a conflict; another session's change is never overwritten. Row-level security still limits the write to the signed-in user's own receipts.
+export async function updateMonthlyFilingExpenseFields(id, { expenseAccount, classification }, expectedUpdatedAt) {
+  if (!id || !expectedUpdatedAt) throw new Error('A saved receipt and its last known update time are required.');
+  if (!isExpenseAccount(expenseAccount) || !isClassification(classification)) throw new Error('Choose an approved Expense Account and Classification of Expense.');
+  const client = await clientOrThrow();
+  const { data, error } = await client.from(monthlyFilingTable).update(expenseFieldsToDatabase({ expenseAccount, classification })).eq('id', id).eq('status', 'active').eq('updated_at', expectedUpdatedAt).select();
+  if (error) throw error;
+  if (!Array.isArray(data) || data.length !== 1 || data[0]?.id !== id) { const conflict = new Error('The receipt was changed, archived or deleted in another session, so its details were not saved.'); conflict.code = 'RECEIPT_CONFLICT'; throw conflict; }
+  return fromDatabaseMonthlyFilingReceipt(data[0]);
+}
 export async function associateMonthlyFilingSharedStore(id, sharedStoreId) { const client = await clientOrThrow(); const { data, error } = await client.from(monthlyFilingTable).update({ shared_store_id: sharedStoreId || null }).eq('id', id).eq('status', 'active').select().single(); if (error) throw error; return fromDatabaseMonthlyFilingReceipt(data); }
 export async function deleteMonthlyFilingReceipt(id) { const client = await clientOrThrow(); const { error } = await client.from(monthlyFilingTable).delete().eq('id', id).eq('status', 'active'); if (error) throw error; }
 export function validateArchivedMonthlyFilingReceiptSet(ids, archivedRecords) {

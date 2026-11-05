@@ -7,6 +7,7 @@
 // and ends in the same onMove; a drop then settles the receipt into its new place with a short transform animation (skipped for reduced motion).
 
 import { parseMoneyAmount } from '../domain/moneyAmount.js';
+import { isClassification, isExpenseAccount } from '../domain/expenseClassification.js';
 import { createPointerReorder } from './pointerReorder.js';
 
 const ownDocument = () => globalThis.document;
@@ -28,6 +29,12 @@ export const expenseFieldControls = Object.freeze([
   { key: 'expenseAccount', control: 'account', label: 'Expense Account', problem: 'accountProblem', value: 'account' },
   { key: 'classification', control: 'classification', label: 'Classification of Expense', problem: 'classificationProblem', value: 'classification' }
 ]);
+
+// The `expense` model of one row from the values a receipt would have if the dialog were confirmed now. Shared by every Review & Arrange that edits the two fields.
+export function expenseRowModel(account, classification, locked = false) {
+  const problem = (isValid, value) => isValid(value) ? '' : String(value ?? '').trim() ? 'Not an approved value' : 'Required';
+  return { account, classification, accountProblem: problem(isExpenseAccount, account), classificationProblem: problem(isClassification, classification), locked };
+}
 
 export function createExportReview({ list, announcer, summary, acknowledgement, reset, readiness, hintId = 'exportReviewHint', onMove, onReset, onAcknowledge, onExpenseChange, expenseOptions = {}, createElement = tag => ownDocument().createElement(tag), pointerOptions = {} }) {
   let model = { rows: [] };
