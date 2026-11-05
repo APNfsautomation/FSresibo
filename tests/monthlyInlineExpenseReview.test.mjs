@@ -81,7 +81,7 @@ test('M3: with only two of four complete, Export keeps the dialog open, focuses 
   await f.choose('c', 'account', 'Project Expense'); // half of a receipt
   await f.confirm();
   assert.equal(f.open(), true);
-  assert.match(f.els.message.textContent, /^Receipt 3, Receipt 4 still need an Expense Account and a Classification of Expense\. Nothing was saved, exported or archived\.$/);
+  assert.match(f.els.message.textContent, /^Receipt 3, Receipt 4 still need an Expense Account and a Classification of Expense\. No expense details from this review were saved\. Changes saved before the review remain saved\. Nothing was exported or archived\.$/);
   assert.equal(focusLog.at(-1), f.parts('c').classification, 'focus: the first field that is still missing');
   assert.ok(f.parts('c').classification.attrs['aria-invalid']); assert.equal(f.parts('a').classification.attrs['aria-invalid'], undefined);
   assert.equal(f.calls.expenseSave.length, 0); assert.equal(f.calls.workbook.length, 0); assert.equal(f.calls.archive.length, 0);
@@ -250,6 +250,11 @@ test('Cancel, Escape and the backdrop cannot interrupt a save that is running; t
   let release; f.gates.expense = new Promise(resolve => { release = resolve; });
   const confirming = f.els.confirmButton.emit('click'); await tick();
   assert.equal(f.els.cancelButton.disabled, true); assert.equal(f.els.confirmButton.disabled, true); assert.equal(f.parts('a').classification.disabled, true);
+  assert.equal(f.parts('a').down.disabled, true, 'Move Down is disabled while the save runs'); assert.equal(f.parts('b').up.disabled, true, 'Move Up is disabled while the save runs');
+  assert.equal(f.els.resetButton.disabled, true); assert.equal(f.parts('a').row.listeners.pointerdown, undefined, 'no drag can start while locked');
+  const announced = f.els.announcer.textContent;
+  await f.parts('a').down.emit('click'); await f.parts('b').up.emit('click'); await f.parts('a').handle.emit('keydown', { key: 'End' });
+  assert.deepEqual(f.order(), ['a', 'b'], 'no move happens while locked'); assert.equal(f.els.announcer.textContent, announced, 'and no move is announced');
   await f.els.confirmButton.emit('click'); await f.els.cancelButton.emit('click'); await f.els.backdrop.emit('click'); f.review.escape();
   assert.equal(f.open(), true, 'the dialog stays open while the operation runs');
   release(); await confirming; await run();

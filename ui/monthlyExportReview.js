@@ -4,7 +4,7 @@
 // (the session ended, or the injected `commit` stopped the export).
 //
 // Issue #58: when the caller passes `commit`, every row also carries editable Expense Account and Classification of Expense. The edits live only in this dialog;
-// nothing is written here. On confirm, an incomplete selection keeps the dialog open (first missing field focused, nothing saved); a complete one is handed to
+// nothing is written here. On confirm, an incomplete selection keeps the dialog open (first missing field focused, no review edit saved; receipt changes saved before the review stay saved); a complete one is handed to
 // `commit({ order, edits, records })`, which saves only the changed fields, verifies them and answers
 //   { ok: true, records }                      -> the dialog closes with these verified records in the confirmed order,
 //   { ok: false, message, records?, savedIds? } -> it stays open with the message (saved receipts are no longer edits),
@@ -49,7 +49,7 @@ export function createMonthlyExportReview({ modal, backdrop, message, list, anno
     const sums = summarizeAmounts(current.order.map(id => current.byId.get(id)));
     const complete = current.order.length - incompleteIds(current).length;
     reviewView.render({
-      rows, totalText: format(sums.validCents), withoutAmount: sums.withoutAmount, canReset: current.order.some((id, index) => id !== current.initial[index]), acknowledgement: null, locked: current.busy,
+      rows, totalText: format(sums.validCents), withoutAmount: sums.withoutAmount, canReset: current.order.some((id, index) => id !== current.initial[index]), acknowledgement: null, locked: current.busy, reorderLocked: current.busy,
       ...(current.commit ? { readinessText: `Export readiness: ${complete} of ${current.order.length} receipt${current.order.length === 1 ? '' : 's'} complete`, readinessComplete: complete === current.order.length } : {})
     });
   };
@@ -85,7 +85,7 @@ export function createMonthlyExportReview({ modal, backdrop, message, list, anno
     if (!mine.commit) return finish(mine.order.map(id => mine.byId.get(id)));
     const incomplete = incompleteIds(mine);
     if (incomplete.length) {
-      const text = `${incomplete.map(id => mine.labels.get(id)).join(', ')} still ${incomplete.length === 1 ? 'needs' : 'need'} an Expense Account and a Classification of Expense. Nothing was saved, exported or archived.`;
+      const text = `${incomplete.map(id => mine.labels.get(id)).join(', ')} still ${incomplete.length === 1 ? 'needs' : 'need'} an Expense Account and a Classification of Expense. No expense details from this review were saved. Changes saved before the review remain saved. Nothing was exported or archived.`;
       message.textContent = text; reviewView.announce(text); focusFirstIncomplete();
       return;
     }
