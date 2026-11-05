@@ -7,6 +7,7 @@
 // and ends in the same onMove; a drop then settles the receipt into its new place with a short transform animation (skipped for reduced motion).
 
 import { parseMoneyAmount } from '../domain/moneyAmount.js';
+import { isClassification, isExpenseAccount } from '../domain/expenseClassification.js';
 import { createPointerReorder } from './pointerReorder.js';
 
 const ownDocument = () => globalThis.document;
@@ -24,10 +25,17 @@ export function buildReviewRow(entry, saved, note, { format, formatDate }) {
 
 // Receipt Optimization only (Issue #56): rows may carry editable Expense Account and Classification of Expense fields. `expense` is
 // { account, classification, accountProblem, classificationProblem, locked } and is present only when the caller wants the fields shown; the view never validates or saves.
+// A model with `reorderLocked: true` (Monthly Filing while its save runs) disables Move Up / Down, Reset and dragging and silences move announcements; Receipt Optimization does not set it.
 export const expenseFieldControls = Object.freeze([
   { key: 'expenseAccount', control: 'account', label: 'Expense Account', problem: 'accountProblem', value: 'account' },
   { key: 'classification', control: 'classification', label: 'Classification of Expense', problem: 'classificationProblem', value: 'classification' }
 ]);
+
+// The `expense` model of one row from the values a receipt would have if the dialog were confirmed now. Shared by every Review & Arrange that edits the two fields.
+export function expenseRowModel(account, classification, locked = false) {
+  const problem = (isValid, value) => isValid(value) ? '' : String(value ?? '').trim() ? 'Not an approved value' : 'Required';
+  return { account, classification, accountProblem: problem(isExpenseAccount, account), classificationProblem: problem(isClassification, classification), locked };
+}
 
 export function createExportReview({ list, announcer, summary, acknowledgement, reset, readiness, hintId = 'exportReviewHint', onMove, onReset, onAcknowledge, onExpenseChange, expenseOptions = {}, createElement = tag => ownDocument().createElement(tag), pointerOptions = {} }) {
   let model = { rows: [] };
@@ -54,6 +62,7 @@ export function createExportReview({ list, announcer, summary, acknowledgement, 
   };
 
   const requestMove = (id, toIndex, control) => {
+    if (model.reorderLocked) return; // a locked review ignores every move, so none is announced either
     const from = model.rows.findIndex(row => row.id === id);
     if (from < 0) return;
     const last = model.rows.length - 1;
@@ -107,8 +116,9 @@ export function createExportReview({ list, announcer, summary, acknowledgement, 
     item.setAttribute('aria-describedby', hintId);
     const up = button('export-review-move export-review-up', `Move ${row.label} up`, '▲');
     const down = button('export-review-move export-review-down', `Move ${row.label} down`, '▼');
-    up.disabled = index === 0;
-    down.disabled = index === count - 1;
+    const reorderLocked = Boolean(model.reorderLocked);
+    up.disabled = reorderLocked || index === 0;
+    down.disabled = reorderLocked || index === count - 1;
     up.addEventListener('click', () => requestMove(row.id, index - 1, 'up'));
     down.addEventListener('click', () => requestMove(row.id, index + 1, 'down'));
     item.addEventListener('keydown', event => {
@@ -118,7 +128,7 @@ export function createExportReview({ list, announcer, summary, acknowledgement, 
       event.preventDefault?.();
       requestMove(row.id, target, 'handle');
     });
-    pointer.attach(item, row.id);
+    if (!reorderLocked) pointer.attach(item, row.id); // no drag can start while locked; the rows are rebuilt (and re-attached) when the lock ends
     const details = make('div', 'export-review-details');
     details.append(make('strong', 'export-review-receipt', `${row.label} · ${row.store}`), make('span', 'export-review-meta', `${row.invoice} · ${row.date}`));
     if (row.note) details.append(make('span', 'export-review-note', row.note));
@@ -183,7 +193,7 @@ export function createExportReview({ list, announcer, summary, acknowledgement, 
         summary.noAmountGroup.hidden = !next.withoutAmount;
         summary.noAmount.textContent = next.withoutAmount ? `${next.withoutAmount} without an amount (not counted in the total)` : '';
       }
-      if (reset) reset.disabled = !next.canReset || Boolean(next.locked);
+      if (reset) reset.disabled = !next.canReset || Boolean(next.locked) || Boolean(next.reorderLocked);
       if (readiness) { readiness.hidden = next.readinessText === undefined; readiness.textContent = next.readinessText ?? ''; readiness.classList?.toggle?.('is-complete', Boolean(next.readinessComplete)); }
       if (acknowledgement) {
         acknowledgement.group.hidden = !next.acknowledgement;

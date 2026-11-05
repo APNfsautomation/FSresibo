@@ -5,6 +5,7 @@ import { attachTinFormatter } from './tinInput.js';
 import { formatTinForDisplay } from '../domain/tinFormat.js';
 import { classificationOptions, expenseAccountOptions, expenseExportProblems, expenseFieldLabels, expenseProblemMessage } from '../domain/expenseClassification.js';
 import { parseMoneyAmount } from '../domain/moneyAmount.js';
+import { changedWorkbookFields } from '../domain/exportArrangement.js';
 import { philippineDateStamp } from '../domain/exportDate.js';
 import { deduplicateDirectoryCandidates, persistedStoreFingerprint, postSaveDirectoryDecision, resolveSharedContributionCandidate } from '../domain/sharedStoreProfiles.js';
 
@@ -62,7 +63,9 @@ export function createMonthlyFilingMutationState() {
     finish: () => { operation = ''; }
   };
 }
-export async function runMonthlyFilingExport({ save, snapshot, generateWorkbook, archive, validate = () => [], arrange = async saved => saved }) {
+// validate: expense check BEFORE the review (the review is skipped when it reports problems). validateAfter: the same kind of check on the confirmed records, after the
+// review; Monthly Filing uses this one (Issue #58), so a receipt without its expense fields can still be reviewed, and completed there, but is never exported or archived.
+export async function runMonthlyFilingExport({ save, snapshot, generateWorkbook, archive, validate = () => [], validateAfter = () => [], arrange = async saved => saved }) {
   if (!await save()) return { state: 'save-failed' };
   let records = snapshot();
   if (!records.length) return { state: 'empty' };
@@ -73,6 +76,8 @@ export async function runMonthlyFilingExport({ save, snapshot, generateWorkbook,
   if (!arranged) return { state: 'cancelled', records };
   const saved = new Set(records.map(record => record.dbId));
   if (arranged.length !== records.length || new Set(arranged.map(record => record.dbId)).size !== records.length || arranged.some(record => !saved.has(record.dbId))) return { state: 'arrange-invalid', records };
+  const afterProblems = validateAfter(arranged, records);
+  if (afterProblems.length) return { state: 'expense-missing', problems: afterProblems, records: arranged };
   records = arranged;
   try { generateWorkbook(records); } catch (error) { return { state: 'generation-failed', error }; }
   try { return { state: 'archived', records, archived: await archive(records.map(record => record.dbId)) }; }
@@ -459,17 +464,9 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
   // Totals come from the exact snapshot that was exported (database-returned amounts), never from the screen.
   const exportedTotalText = records => { const cents = monthlyFilingSnapshotTotalCents(records); return cents === null ? '' : ` (Total: ${formatMonthlyFilingCents(cents)})`; };
   const exportedTotalNote = (records, label) => { const cents = monthlyFilingSnapshotTotalCents(records); return cents === null ? '' : ` ${label}: ${formatMonthlyFilingCents(cents)}.`; };
-  // Export needs both expense fields on every receipt of the EXACT export set (all Active, non-blank receipts). Nothing is saved, generated or archived when any is missing;
-  // the first receipt that needs attention is opened and its first missing field focused. Typed values are untouched.
-  const exportExpenseEntries = () => { const numbers = exportNumbers(); return records.filter(record => numbers.has(record)).map(record => ({ label: `Receipt ${numbers.get(record)}`, receipt: record, record })); };
-  const blockForMissingExpense = entries => {
-    const problems = expenseExportProblems(entries);
-    if (!problems.length) return true;
-    const first = entries.find(entry => entry.label === problems[0].label);
-    view.setExpanded(first.record, true); render(); focusReceipt(first.record, problems[0].fields[0] === 'expenseAccount' ? '.monthly-expenseAccount' : '.monthly-classification');
-    feedback(expenseProblemMessage(problems));
-    return false;
-  };
+  // Issue #58: a missing Expense Account / Classification of Expense no longer stops the export before its review. Both are completed inside Review & Arrange and
+  // saved there with a targeted write; runMonthlyFilingExport still refuses to generate a workbook or archive anything while any receipt of the exact set lacks one.
+  const joinNames = names => names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
   const exportActive = async event => {
     const owner = session;
     if (!owner.lifecycle.beginExport()) return;
@@ -479,16 +476,57 @@ export function createMonthlyFilingUi({ elements, monthlyFilingService, sharedSt
     synchronizeVisibleActiveDrafts();
     const count = monthlyFilingActiveExportCount(records);
     if (!count) return feedback('There are no Active Monthly Filing receipts to export.');
-    if (!blockForMissingExpense(exportExpenseEntries())) return;
     const before = activeTotalSummary(); const totalNote = before.available ? ` Active Total: ${formatMonthlyFilingCents(before.workingCents)}.` : '';
     lastDirectoryFeedback = ''; lastDirectoryDetail = '';
     if (!await confirmAction({ title: 'Export Active Monthly Filing receipts?', message: `This will generate the Expense Detailed Report for all ${count} currently Active Monthly Filing receipt${count === 1 ? '' : 's'}.${totalNote} Unsaved changes are saved first. After the workbook is generated successfully, those receipts will be Archived and become read-only.`, confirmLabel: 'Export & Archive', cancelLabel: 'Cancel', trigger: event.currentTarget })) return;
     if (isStale(owner)) return;
+    // Why the review ended without a workbook when it was not the user's Cancel (a conflict, or a receipt that is gone): said instead of the cancel message.
+    let stopMessage = '';
+    // Review & Arrange "Save Details & Export" (Issue #58). Runs inside the dialog after every receipt is complete: saves ONLY the changed expense fields (each guarded by
+    // status and the receipt's last known update time), reads every reviewed receipt back, and hands the verified records, in the confirmed order, to the export.
+    // A failed write keeps the dialog open; a conflict or a receipt that changed, was archived or deleted elsewhere ends the review with nothing exported.
+    const commitExpenseDetails = async ({ order, edits, records: reviewed }) => {
+      const stopped = { ok: false, close: true };
+      if (isStale(owner)) return stopped;
+      const labels = new Map(reviewed.map((record, index) => [record.dbId, `Receipt ${index + 1}`]));
+      const latest = new Map(reviewed.map(record => [record.dbId, record])); // the newest values this session knows for each receipt
+      const savedIds = [];
+      const savedNote = () => savedIds.length ? ` ${joinNames(savedIds.map(id => labels.get(id)))} ${savedIds.length === 1 ? 'was' : 'were'} already saved and stay${savedIds.length === 1 ? 's' : ''} saved.` : '';
+      const stopWith = text => { stopMessage = `${text}${savedNote()} Nothing was exported or archived. Refresh Monthly Filing to see the current receipts, then export again.`; render(); return stopped; };
+      const keepOpen = text => { render(); return { ok: false, message: `${text}${savedNote()} Nothing was exported or archived.`, records: [...latest.values()], savedIds: [...savedIds] }; };
+      for (const [id, values] of edits) {
+        let stored;
+        try { stored = await monthlyFilingService.updateMonthlyFilingExpenseFields(id, values, latest.get(id).updatedAt); }
+        catch (error) {
+          if (isStale(owner)) return stopped;
+          if (error?.code === 'RECEIPT_CONFLICT') return stopWith(`${labels.get(id)} was changed, archived or deleted in another session, so its details were not saved.`);
+          return keepOpen(`Could not save the details of ${labels.get(id)}: ${error?.message || 'Unknown error'}.`);
+        }
+        if (isStale(owner)) return stopped;
+        const index = records.findIndex(record => record.dbId === id);
+        if (index >= 0) setRecord(index, stored);
+        latest.set(id, stored); savedIds.push(id);
+      }
+      let fresh;
+      try { fresh = await monthlyFilingService.loadMonthlyFilingReceiptsByIds(order); }
+      catch (error) { if (isStale(owner)) return stopped; return keepOpen(`The saved receipts could not be read back and verified: ${error?.message || 'Unknown error'}.`); }
+      if (isStale(owner)) return stopped;
+      const freshById = new Map(fresh.map(record => [record.dbId, record]));
+      const gone = order.filter(id => !freshById.has(id)); const notActive = order.filter(id => freshById.has(id) && freshById.get(id).status !== 'active');
+      if (gone.length) return stopWith(`${joinNames(gone.map(id => labels.get(id)))} no longer ${gone.length === 1 ? 'exists' : 'exist'} in Monthly Filing.`);
+      if (notActive.length) return stopWith(`${joinNames(notActive.map(id => labels.get(id)))} ${notActive.length === 1 ? 'is' : 'are'} no longer Active.`);
+      const unconfirmed = [...edits.keys()].filter(id => freshById.get(id).expenseAccount !== edits.get(id).expenseAccount || freshById.get(id).classification !== edits.get(id).classification);
+      if (unconfirmed.length) return stopWith(`The saved details of ${joinNames(unconfirmed.map(id => labels.get(id)))} could not be confirmed in the database.`);
+      // Any other difference from what this session last knew (amount, store, date, expense fields, update time) means another session changed the receipt.
+      const changed = order.filter(id => changedWorkbookFields(latest.get(id), freshById.get(id)).length);
+      if (changed.length) return stopWith(`${joinNames(changed.map(id => labels.get(id)))} changed in another session while this review was open.`);
+      return { ok: true, records: order.map(id => freshById.get(id)) };
+    };
     // Each step re-checks the session: after an account change no workbook is generated, no archive is requested, and nothing is applied or said.
-    const result = await runMonthlyFilingExport({ save: () => save({ successFeedback: false, fromExport: true, session: owner }), snapshot: () => isStale(owner) ? [] : activeRecords(), validate: saved => expenseExportProblems(saved.map((record, index) => ({ label: `Receipt ${index + 1}`, receipt: record }))), arrange: async saved => (exportReview && saved.length > 1 && !isStale(owner)) ? (async () => { const ordered = await exportReview.review(saved, { trigger: event.currentTarget }); return isStale(owner) ? null : ordered; })() : saved, generateWorkbook: snapshot => { endIfStale(owner); downloadExpenseDetailedReport(snapshot, monthlyFilingExportFilename()); }, archive: ids => { endIfStale(owner); return monthlyFilingService.archiveMonthlyFilingReceipts(ids); } });
+    const result = await runMonthlyFilingExport({ save: () => save({ successFeedback: false, fromExport: true, session: owner }), snapshot: () => isStale(owner) ? [] : activeRecords(), validateAfter: (confirmed, original) => { const numbers = new Map(original.map((record, index) => [record.dbId, index + 1])); return expenseExportProblems(confirmed.map(record => ({ label: `Receipt ${numbers.get(record.dbId)}`, receipt: record }))); }, arrange: async saved => (exportReview && !isStale(owner)) ? (async () => { const ordered = await exportReview.review(saved, { trigger: event.currentTarget, commit: commitExpenseDetails }); return isStale(owner) ? null : ordered; })() : saved, generateWorkbook: snapshot => { endIfStale(owner); downloadExpenseDetailedReport(snapshot, monthlyFilingExportFilename()); }, archive: ids => { endIfStale(owner); return monthlyFilingService.archiveMonthlyFilingReceipts(ids); } });
     if (isStale(owner)) return;
     if (result.state === 'save-failed') return;
-    if (result.state === 'cancelled') { render(); return feedback('Export cancelled. Your changes were saved; nothing was exported or archived.'); }
+    if (result.state === 'cancelled') { render(); return feedback(stopMessage || 'Export cancelled. Changes saved before the review stay saved; expense details chosen in the review were discarded. Nothing was exported or archived.'); }
     if (result.state === 'arrange-invalid') return feedback('The export order could not be confirmed, so nothing was exported or archived.');
     if (result.state === 'expense-missing') { render(); return feedback(expenseProblemMessage(result.problems)); }
     if (result.state === 'empty') return feedback('There are no persisted Active Monthly Filing receipts to export.');
