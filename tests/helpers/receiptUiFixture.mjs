@@ -66,6 +66,15 @@ export async function receiptFixture({ loaded = [], confirm = async () => true, 
     deleteConsumedReceipt: async id => { calls.deleted = [...(calls.deleted ?? []), id]; if (fails.deleteGate) await fails.deleteGate; db.delete(id); },
     createReceipt: async values => { calls.create.push({ ...values }); if (latencyMs) await new Promise(resolve => setTimeout(resolve, latencyMs)); if (fails.saveGate) await fails.saveGate; if (fails.saveGateOnce) { const gate = fails.saveGateOnce; fails.saveGateOnce = null; await gate; } if (fails.save) throw fails.save; if (fails.saveAfter != null && calls.create.length + calls.update.length > fails.saveAfter) throw new Error('Simulated save failure'); const row = { ...values, amount: storedAmount(values.amount), dbId: `new-${++sequence}`, status: 'available', updatedAt: stamp() }; db.set(row.dbId, row); if (fails.createResponseLost) throw fails.createResponseLost; /* the insert was committed, the answer never arrived */ return copy(row); },
     updateReceipt: async (id, values) => { calls.update.push([id, { ...values }]); if (latencyMs) await new Promise(resolve => setTimeout(resolve, latencyMs)); if (fails.saveGate) await fails.saveGate; if (fails.saveGateOnce) { const gate = fails.saveGateOnce; fails.saveGateOnce = null; await gate; } if (fails.save) throw fails.save; if (fails.saveAfter != null && calls.create.length + calls.update.length > fails.saveAfter) throw new Error('Simulated save failure'); const row = { ...db.get(id), ...values, amount: storedAmount(values.amount), dbId: id, status: 'available', updatedAt: stamp() }; db.set(id, row); return copy(row); },
+    // Targeted, optimistic-concurrency write (Issue #56): matches no row when the receipt is gone, not Available, or has a different updated_at. fails.expenseSave injects a write failure.
+    updateReceiptExpenseFields: async (id, { expenseAccount, classification }, expectedUpdatedAt) => {
+      calls.expenseSave = [...(calls.expenseSave ?? []), [id, { expenseAccount, classification }, expectedUpdatedAt]];
+      if (fails.expenseSaveGate) await fails.expenseSaveGate;
+      if (fails.expenseSave && (fails.expenseSave.when?.(id, calls.expenseSave.length) ?? true)) throw fails.expenseSave.error ?? fails.expenseSave;
+      const current = db.get(id);
+      if (!current || current.status !== 'available' || current.updatedAt !== expectedUpdatedAt) { const conflict = new Error('The receipt was changed in another session, so its details were not saved.'); conflict.code = 'RECEIPT_CONFLICT'; throw conflict; }
+      const row = { ...current, expenseAccount, classification, updatedAt: stamp() }; db.set(id, row); return copy(row);
+    },
     consumeReceipts: async ids => {
       calls.consume.push([...ids]);
       if (fails.gate) await fails.gate;

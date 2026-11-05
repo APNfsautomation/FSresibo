@@ -22,7 +22,14 @@ export function buildReviewRow(entry, saved, note, { format, formatDate }) {
   };
 }
 
-export function createExportReview({ list, announcer, summary, acknowledgement, reset, hintId = 'exportReviewHint', onMove, onReset, onAcknowledge, createElement = tag => ownDocument().createElement(tag), pointerOptions = {} }) {
+// Receipt Optimization only (Issue #56): rows may carry editable Expense Account and Classification of Expense fields. `expense` is
+// { account, classification, accountProblem, classificationProblem, locked } and is present only when the caller wants the fields shown; the view never validates or saves.
+export const expenseFieldControls = Object.freeze([
+  { key: 'expenseAccount', control: 'account', label: 'Expense Account', problem: 'accountProblem', value: 'account' },
+  { key: 'classification', control: 'classification', label: 'Classification of Expense', problem: 'classificationProblem', value: 'classification' }
+]);
+
+export function createExportReview({ list, announcer, summary, acknowledgement, reset, readiness, hintId = 'exportReviewHint', onMove, onReset, onAcknowledge, onExpenseChange, expenseOptions = {}, createElement = tag => ownDocument().createElement(tag), pointerOptions = {} }) {
   let model = { rows: [] };
   let focusAfter = null;
   let announcements = 0;
@@ -115,11 +122,38 @@ export function createExportReview({ list, announcer, summary, acknowledgement, 
     const details = make('div', 'export-review-details');
     details.append(make('strong', 'export-review-receipt', `${row.label} · ${row.store}`), make('span', 'export-review-meta', `${row.invoice} · ${row.date}`));
     if (row.note) details.append(make('span', 'export-review-note', row.note));
+    const selects = {};
+    let expenseBlock = null;
+    if (row.expense) {
+      expenseBlock = make('div', 'export-review-expense');
+      for (const { key, control, label, problem, value } of expenseFieldControls) {
+        const current = row.expense[value] ?? '';
+        const options = expenseOptions[key] ?? [];
+        const wrapper = make('label', `export-review-field${row.expense[problem] ? ' is-missing' : ''}`);
+        const select = make('select', 'export-review-select');
+        select.setAttribute('aria-label', `${row.label} ${label}`);
+        if (row.expense[problem]) select.setAttribute('aria-invalid', 'true');
+        const choices = [{ value: '', text: 'Choose…' }, ...(current && !options.includes(current) ? [{ value: current, text: `${current} (not an approved value)` }] : []), ...options.map(option => ({ value: option, text: option }))];
+        for (const choice of choices) { const option = make('option', '', choice.text); option.value = choice.value; select.append(option); }
+        select.value = current;
+        select.disabled = Boolean(row.expense.locked);
+        select.addEventListener('change', event => {
+          focusAfter = { id: row.id, control };
+          onExpenseChange?.(row.id, key, (event.currentTarget ?? select).value);
+        });
+        wrapper.append(make('span', 'export-review-field-label', label), select);
+        if (row.expense[problem]) wrapper.append(make('span', 'export-review-field-problem', row.expense[problem]));
+        expenseBlock.append(wrapper);
+        selects[control] = select;
+      }
+      if (row.expense.accountProblem || row.expense.classificationProblem) item.classList?.add?.('needs-expense');
+    }
     const amount = make('strong', `export-review-amount${row.amountMissing ? ' is-missing' : ''}`, row.amountText);
     const moves = make('div', 'export-review-moves');
     moves.append(up, down);
     item.append(position, details, amount, moves);
-    item.reviewParts = { handle: item, row: item, up, down, position, amount }; // `handle` is kept as the name of the keyboard target
+    if (expenseBlock) item.append(expenseBlock);
+    item.reviewParts = { handle: item, row: item, up, down, position, amount, ...selects }; // `handle` is kept as the name of the keyboard target
     return item;
   };
 
@@ -129,6 +163,7 @@ export function createExportReview({ list, announcer, summary, acknowledgement, 
     focusAfter = null;
     const parts = items.find(item => item.dataset.receiptId === id)?.reviewParts;
     if (!parts) return;
+    if (control === 'account' || control === 'classification') { (parts[control] && !parts[control].disabled ? parts[control] : parts.handle).focus?.({ preventScroll: true }); return; }
     const wanted = control === 'up' ? parts.up : control === 'down' ? parts.down : parts.handle;
     const neighbour = control === 'up' ? parts.down : control === 'down' ? parts.up : parts.handle;
     (wanted.disabled ? (neighbour.disabled ? parts.handle : neighbour) : wanted).focus?.({ preventScroll: false });
@@ -148,7 +183,8 @@ export function createExportReview({ list, announcer, summary, acknowledgement, 
         summary.noAmountGroup.hidden = !next.withoutAmount;
         summary.noAmount.textContent = next.withoutAmount ? `${next.withoutAmount} without an amount (not counted in the total)` : '';
       }
-      if (reset) reset.disabled = !next.canReset;
+      if (reset) reset.disabled = !next.canReset || Boolean(next.locked);
+      if (readiness) { readiness.hidden = next.readinessText === undefined; readiness.textContent = next.readinessText ?? ''; readiness.classList?.toggle?.('is-complete', Boolean(next.readinessComplete)); }
       if (acknowledgement) {
         acknowledgement.group.hidden = !next.acknowledgement;
         acknowledgement.text.textContent = next.acknowledgement?.text ?? '';
