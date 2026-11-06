@@ -8,7 +8,9 @@ export const classificationOptions = Object.freeze([
   'Accomodation', 'Building Maintenance and Repairs', 'Bank Fees', 'Cost of Goods', 'Equipment', 'Gasoline', 'Marketing', 'Meals', 'Office Supplies', 'Others',
   'Parking', 'Postage and Shipping', 'Professional Fee', 'Representation', 'Taxes and Registration', 'Toll Fee', 'Transportation', 'Utilities', 'Vehicle Maintenance',
   'Advertisement', 'Car Insurance', 'Car Registration', 'Delivery Fee', 'Electricity', 'Freight Cost', 'Gifts for Customer', 'Grocery', 'Hotel', 'Internet',
-  'Meals w/ Customer', 'Notary Fee', 'Packaging', 'Permits', 'Phone', 'Sponsorship', 'Staffhouse', 'Stationeries', 'Trade Show Fees', 'Water'
+  'Meals w/ Customer', 'Notary Fee', 'Packaging', 'Permits', 'Phone', 'Sponsorship', 'Staffhouse', 'Stationeries', 'Trade Show Fees', 'Water',
+  // Added with Issue #56 (Product Owner approved). Appended so every earlier option keeps its place; the column is plain text, so no migration is needed.
+  'Service Charge', 'Government Benefits'
 ]);
 
 export const expenseFieldLabels = Object.freeze({ expenseAccount: 'Expense Account', classification: 'Classification of Expense' });

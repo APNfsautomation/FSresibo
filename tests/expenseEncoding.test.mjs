@@ -57,17 +57,17 @@ test('ENC-4: choosing a value after load marks the receipt unsaved, so the choic
   assert.equal(f.calls.update.at(-1)[1].expenseAccount, 'Day to day');
 });
 
-test('ENC-5: exporting an incomplete selection is blocked before anything happens: each receipt and missing field is named, nothing is downloaded, consumed or changed', async () => {
+test('ENC-5 (Issue #56): an incomplete selection opens Review & Arrange, but nothing is saved, downloaded or consumed until every receipt is complete', async () => {
   const f = await receiptFixture({ loaded: threeReceipts() }); await toManual(f);
   await pick(f, 'Store A'); await pick(f, 'Store B'); await pick(f, 'Store C');
   const before = JSON.stringify([...f.db.values()]);
   await f.click(f.elements.manualExportSelected);
-  const message = f.elements.manualFeedback.textContent;
-  assert.match(message, /Receipt \d+ needs Expense Account and Classification of Expense before it can be exported\./);
-  assert.match(message, /Receipt \d+ needs Classification of Expense before it can be exported\./);
-  assert.doesNotMatch(message, /Store A/); assert.match(message, /Nothing was exported\./);
-  assert.equal(dialogOpen(f), false, 'no review dialog opens for an incomplete selection');
-  assert.equal(f.calls.download.length, 0); assert.equal(f.calls.consume.length, 0);
+  assert.equal(dialogOpen(f), true, 'missing expense fields no longer keep the review from opening');
+  assert.equal(f.elements.exportReviewReadiness.textContent, 'Export readiness: 1 of 3 receipts complete');
+  await f.click(f.elements.confirmExport);
+  assert.match(f.elements.exportConfirmMessage.textContent, /still need an Expense Account and a Classification of Expense\. Nothing was saved or exported\./);
+  assert.equal(dialogOpen(f), true);
+  assert.equal(f.calls.download.length, 0); assert.equal(f.calls.consume.length, 0); assert.equal(f.calls.expenseSave, undefined);
   assert.equal(JSON.stringify([...f.db.values()]), before, 'no receipt was changed: statuses, values and timestamps are intact');
 });
 
@@ -164,13 +164,13 @@ test('ENC-14: the markup exposes both fields in the Encoding card, with accessib
   assert.doesNotMatch(html, /<datalist/);
 });
 
-test('ENC-15: the on-screen preflight reports missing expense fields together with unsaved edits in one message, and offers Go to Encoding', async () => {
+test('ENC-15 (Issue #56): unsaved edits still block the review and offer Go to Encoding; the missing expense fields no longer do', async () => {
   const f = await receiptFixture({ loaded: threeReceipts() }); await toManual(f);
   await pick(f, 'Store B');
   await f.type(rowOf(f, 'Store B'), 'amount', '250'); // unsaved edit on a receipt that also lacks both fields
   await f.click(f.elements.manualExportSelected);
   const message = f.elements.manualFeedback.textContent;
-  assert.match(message, /has unsaved changes/); assert.match(message, /needs Expense Account and Classification of Expense before it can be exported\./);
+  assert.match(message, /has unsaved changes/); assert.doesNotMatch(message, /needs Expense Account/);
   assert.equal(f.elements.manualGoToEncoding.hidden, false);
   assert.equal(f.calls.snapshot.length, 0, 'blocked from the screen alone: no database read, no download, no status change');
   assert.equal(f.calls.download.length, 0); assert.equal(f.calls.consume.length, 0);

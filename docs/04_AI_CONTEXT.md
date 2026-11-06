@@ -1,12 +1,14 @@
 # AI Context
 
+> Release snapshot (2026-11-06): v3.7.1 is prepared as a production release candidate containing UAT-accepted Issues #56 and #58. Production remains v3.7.0; nothing is merged or published. For current release status and gates see `12_Release_Notes_v3.7.1.md`; older release descriptions below are historical.
+
 | Field | Value |
 |-------|-------|
 | Project | FSResibo |
 | Document | AI Context |
 | Version | 1.0 |
 | Status | Living Document |
-| Last Updated | 2026-10-10 |
+| Last Updated | 2026-11-06 |
 
 ---
 

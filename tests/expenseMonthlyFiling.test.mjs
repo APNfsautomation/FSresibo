@@ -31,18 +31,17 @@ test('MF-2: Save works with both fields blank (optional on save) and persists a 
   assert.deepEqual([f.calls.update.at(-1)[1].expenseAccount, f.calls.update.at(-1)[1].classification], ['Project Expense', 'Trade Show Fees']);
 });
 
-test('MF-3: Export & Archive with missing fields is blocked before the confirmation: receipts and fields named, nothing saved, generated or archived, typed edits kept', async () => {
+// Issue #58: the missing fields no longer stop the export before its review (they are completed inside Review & Arrange). Without a review dialog there is no way to
+// complete them, so the final check after the review step still refuses to generate a workbook or archive anything.
+test('MF-3 (Issue #58): with missing fields and no review to complete them, receipts and fields are named, and nothing is generated or archived; the pre-review save still ran', async () => {
   const f = await ready([savedMonthly('a', blankPair), savedMonthly('b'), savedMonthly('c', { expenseAccount: 'Day to day', classification: '' })]);
   await f.edit(f.cards()[1], 'store', 'Edited but unsaved');
-  const before = JSON.stringify([...f.table.values()]);
   await f.click(f.elements.exportActive);
   const message = f.elements.feedback.textContent;
   assert.match(message, /Receipt 1 needs Expense Account and Classification of Expense\./); assert.match(message, /Receipt 3 needs Classification of Expense\./);
   assert.doesNotMatch(message, /Receipt 2/); assert.match(message, /Nothing was exported and no receipt status was changed\./);
-  assert.equal(f.calls.create.length + f.calls.update.length, 0, 'nothing was saved'); assert.equal(f.calls.workbook.length, 0); assert.equal(f.calls.archive.length, 0);
-  assert.equal(JSON.stringify([...f.table.values()]), before, 'no record or status changed');
-  assert.equal(f.field(f.cards()[1], 'store').value, 'Edited but unsaved', 'the typed edit is preserved');
-  assert.equal(f.state.activeElement, f.field(f.cards()[0], 'expenseAccount'), 'focus goes to the first missing field of the first receipt that needs it');
+  assert.equal(f.calls.update.length, 3, 'the existing pre-review save of every Active receipt is preserved'); assert.equal(f.calls.expenseSave.length, 0); assert.equal(f.calls.workbook.length, 0); assert.equal(f.calls.archive.length, 0);
+  assert.ok([...f.table.values()].every(record => record.status === 'active'));
 });
 
 test('MF-4: a complete set exports with the expense columns, archives the exact ids, and a receipt outside the export (Archived, incomplete) never blocks', async () => {

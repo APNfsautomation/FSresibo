@@ -1,6 +1,6 @@
 import { getSupabaseClient } from '../config/supabase.js';
 import { normalizeMoneyAmount } from '../domain/moneyAmount.js';
-import { expenseFieldsFromDatabase, expenseFieldsToDatabase } from '../domain/expenseClassification.js';
+import { expenseFieldsFromDatabase, expenseFieldsToDatabase, isClassification, isExpenseAccount } from '../domain/expenseClassification.js';
 
 export function toDatabaseReceipt(receipt, userId) {
   // A blank amount is stored as NULL; a malformed non-blank amount is rejected here, never turned into NULL.
@@ -72,6 +72,19 @@ export async function updateReceipt(id, receipt, userId) {
   const { data, error } = await client.from('receipts').update(changes).eq('id', id).select().single();
   if (error) throw error;
   return fromDatabaseReceipt(data);
+}
+
+// Review & Arrange (Issue #56): writes ONLY the two expense columns of ONE receipt, and only if the row is still Available and still has the `updated_at` the caller
+// last saw. Any other change (another session edited, consumed or deleted the receipt) matches no row and is reported as a conflict instead of being overwritten.
+// Row-level security still limits the write to the signed-in user's own receipts.
+export async function updateReceiptExpenseFields(id, { expenseAccount, classification }, expectedUpdatedAt) {
+  if (!id || !expectedUpdatedAt) throw new Error('A saved receipt and its last known update time are required.');
+  if (!isExpenseAccount(expenseAccount) || !isClassification(classification)) throw new Error('Choose an approved Expense Account and Classification of Expense.');
+  const client = await clientOrThrow();
+  const { data, error } = await client.from('receipts').update(expenseFieldsToDatabase({ expenseAccount, classification })).eq('id', id).eq('status', 'available').eq('updated_at', expectedUpdatedAt).select();
+  if (error) throw error;
+  if (!Array.isArray(data) || data.length !== 1 || data[0]?.id !== id) { const conflict = new Error('The receipt was changed in another session, so its details were not saved.'); conflict.code = 'RECEIPT_CONFLICT'; throw conflict; }
+  return fromDatabaseReceipt(data[0]);
 }
 
 export async function deleteReceipt(id) {
