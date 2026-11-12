@@ -1,5 +1,7 @@
 # Product Owner Integration UAT Checklist (CP10-C3E-5)
 
+> Release snapshot (2026-11-06): v3.7.1 is the pending production release candidate; the Product Owner reported UAT PASS for Issues #56 and #58. The older 3.6.0 UAT and production smoke checks below are historical. Current production release gates and a safe, targeted smoke strategy are in `12_Release_Notes_v3.7.1.md`.
+
 Build: `FSResibo v3.6.0-beta.1` on the UAT deployment when checks 1-15 were run (the release candidate is `3.6.0`; its production checks are in the section "Production release smoke checks" below). Record the deployed commit below. This is a **focused sample of 15 end-to-end checks (plus the optional 8b and the deferred 11b)**, not a repeat of the 700+ automated tests or of earlier accepted UAT. Automated tests do not fill in any status here.
 
 | Field | Value |

@@ -1,5 +1,7 @@
 # Regression Coverage Matrix and Evidence Map
 
+> Release snapshot (2026-11-06): v3.7.1 contains Product Owner-accepted UAT Issues #56 and #58, reviewed source b50fdaf. Release PR targeting main and CI are separate from those UAT acceptances. Earlier 3.6.0 checkpoint and topology descriptions below are historical; current gates are in `12_Release_Notes_v3.7.1.md`.
+
 Checkpoint: CP10-C3E-5 (Issue #26). Build under review: `FSResibo v3.6.0-beta.1` on `claude/ui-ux-refinement` at `2b1268c` plus this checkpoint's tests and documentation. **Release update (Stage 4B, 2026-10-26):** the release candidate carries version `3.6.0`; the rows below keep their checkpoint-time evidence, and the release-time status is in section 10.
 
 This document records what is **automated**, what is **live-tested by the Product Owner**, what is **deferred**, what is **unverified**, and what is **not released**. It is a test and documentation checkpoint: no application code was changed. Its executable test IDs are checked by `tests/crossModuleRegression.test.mjs` (DOC-1), so a renamed or deleted test cannot silently leave a stale claim here.

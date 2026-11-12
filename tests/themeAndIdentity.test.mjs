@@ -32,7 +32,7 @@ test('both version targets render from the one application metadata value', () =
   const authVersion = { textContent: '' };
   const appVersion = { textContent: '' };
   const label = renderApplicationIdentity([authVersion, appVersion], appMetadata);
-  assert.equal(label, 'FS Receipt Management Tool v3.7.0');
+  assert.equal(label, 'FS Receipt Management Tool v3.7.1');
   assert.equal(authVersion.textContent, label);
   assert.equal(appVersion.textContent, label);
 });
@@ -42,6 +42,6 @@ test('semantic surface tokens cover dark native selects and optimization result 
   assert.match(styles, /html\[data-theme="dark"\] select \{ color-scheme: dark; \}/);
   assert.match(styles, /html\[data-theme="dark"\] \{[^}]*--surface-2: #1b2a41/);
   assert.match(styles, /\.receipt-status-filter select[^{]*\{[^}]*background: var\(--control\)/);
-  assert.match(styles, /\.optimization-toolbar \{[^}]*background: var\(--surface-2\)/);
+  assert.match(styles, /\.optimization-toolbar, \.encoding-toolbar \{[^}]*background: var\(--surface-2\)/);
   assert.match(styles, /\.optimization-result-summary div \{[^}]*background: var\(--surface-2\)/);
 });
