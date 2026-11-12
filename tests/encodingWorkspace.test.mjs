@@ -108,7 +108,7 @@ test('the compact editor rules are scoped to the Encoding list', () => {
 test('the status filter keeps its filtering semantics: only presentation changed', async () => {
   const ui = await read('../ui/receiptUi.js');
   assert.match(ui, /const matchesStatus = toolbarState\.status === 'all' \|\| receiptStatus\(row\) === toolbarState\.status;/);
-  assert.match(ui, /row\.hidden = !matchesStatus \|\| \(!matchesCompartment && !keepVisible\);/, 'rows are hidden, never removed or renumbered; a pin overrides only the amount range');
+  assert.match(ui, /row\.hidden = !matchesStatus \|\| \(\(!matchesCompartment \|\| !matchesExtra\) && !keepVisible\);/, 'rows are hidden, never removed or renumbered; an edit pin overrides presentation filters, never the Available/Consumed view');
   assert.match(ui, /const keepVisible = Boolean\(row\.dataset\.filterPinned\) && matchesStatus;/, 'a pin never overrides the Available/Consumed view');
   assert.match(ui, /export const floatingAddVisibleForStatus = status => status !== 'consumed';/);
 });

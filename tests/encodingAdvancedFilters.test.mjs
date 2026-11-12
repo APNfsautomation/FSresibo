@@ -75,6 +75,21 @@ test('Store, dates, amount and both expense controls compose without changing st
   assert.equal(f.elements.encodingResultCount.textContent, 'Showing 3 of 3 receipts');
 });
 
+test('An actively edited receipt stays visible outside a new advanced filter until it is collapsed', async () => {
+  const f = await receiptFixture({ loaded: [saved('a', 'Alpha', 100), saved('b', 'Beta', 200)] });
+  const row = f.rows()[0];
+  row.open = true;
+  await f.type(row, 'amount', '125');
+  await change(f.elements.encodingStoreFilter, 'beta');
+  assert.deepEqual(rowsShown(f), ['a', 'b'], 'active edit remains visible until it is released');
+  assert.equal(row.part('.receipt-range-flag').textContent, 'Outside filters');
+  assert.match(f.elements.encodingFilterNoticeText.textContent, /outside the current filters/i);
+  row.open = false;
+  await row.emit('toggle');
+  assert.deepEqual(rowsShown(f), ['b'], 'collapsing releases the presentation-only edit pin');
+  assert.equal(row.part('.receipt-amount').value, '125', 'the typed unsaved value is preserved even when filtered out');
+});
+
 test('Clear filters resets the existing amount compartment but does not alter the shared Available / Consumed view', async () => {
   const f = await receiptFixture({ loaded: [saved('a', 'Alpha', 180), saved('b', 'Used', 500, { status: 'consumed' })] });
   f.elements.receiptStatusFilter.value = 'consumed'; await f.elements.receiptStatusFilter.emit('change');
