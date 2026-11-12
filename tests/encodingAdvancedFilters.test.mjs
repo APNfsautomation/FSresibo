@@ -83,6 +83,7 @@ test('An actively edited receipt stays visible outside a new advanced filter unt
   await change(f.elements.encodingStoreFilter, 'beta');
   assert.deepEqual(rowsShown(f), ['a', 'b'], 'active edit remains visible until it is released');
   assert.equal(row.part('.receipt-range-flag').textContent, 'Outside filters');
+  assert.match(row.part('summary').getAttribute('aria-label'), /outside the current filters/, 'the screen-reader label names the real filtering reason');
   assert.match(f.elements.encodingFilterNoticeText.textContent, /outside the current filters/i);
   row.open = false;
   await row.emit('toggle');
@@ -96,6 +97,7 @@ test('Clear filters resets the existing amount compartment but does not alter th
   f.elements.encodingAmountCompartment.value = 'below-200'; await f.elements.encodingAmountCompartment.emit('change');
   assert.deepEqual(rowsShown(f), []);
   assert.equal(f.elements.clearEncodingFilters.hidden, false);
+  assert.equal(f.elements.encodingFilterStatus.textContent, '1 active filter', 'the existing amount compartment counts as an active filter');
   await f.click(f.elements.clearEncodingFilters);
   assert.equal(f.elements.encodingAmountCompartment.value, 'all');
   assert.equal(f.elements.receiptStatusFilter.value, 'consumed');

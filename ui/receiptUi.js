@@ -552,6 +552,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       status: normalizeReceiptStatus(row.dataset.receiptStatus),
       open: row.open,
       outsideRange: row.classList.contains('is-outside-range'),
+      outsideFilters: row.dataset.encodingOutsideExtraFilters === '1',
       unsavedLabel: unsavedLabels[row.dataset.unsavedKind] ?? ''
     }));
   };
@@ -663,22 +664,22 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       const matchesCompartment = receiptMatchesEncodingAmountCompartment(toCents(row.querySelector('.receipt-amount').value), encodingDisplayState.compartment);
       const keepVisible = Boolean(row.dataset.filterPinned) && matchesStatus;
       const outsideRange = (!matchesCompartment || !matchesExtra) && keepVisible;
+      const wasOutsideExtraFilters = row.dataset.encodingOutsideExtraFilters === '1';
       if (!matchesExtra && keepVisible) row.dataset.encodingOutsideExtraFilters = '1';
       else delete row.dataset.encodingOutsideExtraFilters;
       row.hidden = !matchesStatus || ((!matchesCompartment || !matchesExtra) && !keepVisible);
       if (!row.hidden) shown += 1;
       row.querySelector('.receipt-range-flag').textContent = !matchesExtra && outsideRange ? 'Outside filters' : 'Outside range';
-      if (row.classList.contains('is-outside-range') !== outsideRange) {
-        row.classList.toggle('is-outside-range', outsideRange);
-        row.querySelector('.receipt-range-flag').hidden = !outsideRange;
-        refreshSummaryAccessibleName(row);
-      }
+      const outsideChanged = row.classList.contains('is-outside-range') !== outsideRange;
+      if (outsideChanged) row.classList.toggle('is-outside-range', outsideRange);
+      row.querySelector('.receipt-range-flag').hidden = !outsideRange;
+      if (outsideChanged || wasOutsideExtraFilters !== (row.dataset.encodingOutsideExtraFilters === '1')) refreshSummaryAccessibleName(row);
       if (outsideRange) outsideRows.push(row);
     });
     renderFilterNotice(outsideRows);
     refreshAvailableSummary();
     elements.floatingAdd.hidden = !floatingAddVisibleForStatus(toolbarState.status);
-    const count = encodingFilterCount(encodingFilterState);
+    const count = encodingFilterCount(encodingFilterState) + Number(encodingDisplayState.compartment !== 'all');
     elements.encodingResultCount.textContent = 'Showing ' + shown + ' of ' + entries.length + ' receipt' + (entries.length === 1 ? '' : 's');
     elements.encodingFilterStatus.hidden = count === 0;
     elements.encodingFilterStatus.textContent = count ? count + ' active filter' + (count === 1 ? '' : 's') : '';
