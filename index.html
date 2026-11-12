@@ -103,6 +103,31 @@
         <div class="panel encoding-panel">
           <div class="panel-heading"><div><h2>Your receipts</h2><p id="receiptCount">No receipts added</p></div>
             <div class="list-tools"><button class="ghost list-tool" id="expandAllReceipts" type="button"><svg class="button-icon" viewBox="0 0 16 16" width="14" height="14" focusable="false" aria-hidden="true"><path d="M3.5 6 8 10.5 12.5 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Expand all</span></button><button class="ghost list-tool" id="collapseAllReceipts" type="button"><svg class="button-icon" viewBox="0 0 16 16" width="14" height="14" focusable="false" aria-hidden="true"><path d="M3.5 10 8 5.5 12.5 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Collapse all</span></button></div></div>
+          <div class="encoding-toolbar" aria-label="Encoding receipt search and filters">
+            <label class="optimization-search-label" for="encodingSearch">Search encoded receipts</label>
+            <div class="optimization-search-wrap">
+              <input id="encodingSearch" type="search" autocomplete="off" placeholder="Search store, invoice number, TIN, or receipt…" />
+              <button id="clearEncodingSearch" class="toolbar-clear-search" type="button" aria-label="Clear Encoding receipt search" hidden>Clear</button>
+            </div>
+            <div class="optimization-toolbar-status">
+              <p id="encodingResultCount" aria-live="polite">Showing 0 of 0 receipts</p>
+              <p id="encodingFilterStatus" class="filter-status" aria-live="polite" hidden></p>
+              <button id="clearEncodingFilters" class="ghost toolbar-clear-filters" type="button" hidden>Clear filters</button>
+            </div>
+            <details class="more-filters" id="encodingMoreFilters">
+              <summary><span id="encodingFilterToggleLabel">Show Filter Options</span><span id="encodingFilterActiveCount" class="encoding-filter-count" hidden></span></summary>
+              <div class="filter-fields">
+                <label>Store<select id="encodingStoreFilter"><option value="">All stores</option></select></label>
+                <label>Start date<input id="encodingStartDate" type="date" /></label>
+                <label>End date<input id="encodingEndDate" type="date" /></label>
+                <label>Minimum amount<input id="encodingMinAmount" inputmode="decimal" placeholder="0.00" /></label>
+                <label>Maximum amount<input id="encodingMaxAmount" inputmode="decimal" placeholder="0.00" /></label>
+                <label>Expense Account<select id="encodingExpenseAccountFilter"><option value="">All accounts</option><option value="Day to day">Day to day</option><option value="Project Expense">Project Expense</option></select></label>
+                <label>Classification of Expense<select id="encodingClassificationFilter"><option value="">All classifications</option></select></label>
+              </div>
+            </details>
+            <p id="encodingRangeValidation" class="toolbar-validation" role="alert" hidden></p>
+          </div>
           <div class="filter-notice" id="encodingFilterNotice" role="status" hidden><svg class="notice-icon" viewBox="0 0 24 24" width="22" height="22" focusable="false" aria-hidden="true"><path d="M12 3.75 21 19.5H3L12 3.75ZM12 10v4.25M12 17h.01" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><p id="encodingFilterNoticeText"></p><button class="secondary" id="showAllAmounts" type="button">Show all amounts</button></div>
           <div id="receiptList" class="encoding-list" aria-live="polite"></div>
           <div class="photo-note"><span aria-hidden="true">⌁</span><p><strong>Free printed-text OCR.</strong> Open a receipt and choose Scan printed details to fill printed store details. Check handwritten amounts manually.</p></div>

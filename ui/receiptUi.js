@@ -51,6 +51,9 @@ export function createOptimizationStrategyState({ select, helper, optimizationSt
   return { getActiveStrategy, setActiveStrategy, restoreActiveStrategy };
 }
 export const defaultOptimizationToolbarState = () => ({ search: '', store: '', startDate: '', endDate: '', minAmount: '', maxAmount: '', sort: 'default', status: 'available' });
+// Encoding filters are display-only and account-session-local. The receipt status and amount compartment are existing, separate controls.
+export const defaultEncodingFilterState = () => ({ search: '', store: '', startDate: '', endDate: '', minAmount: '', maxAmount: '', expenseAccount: '', classification: '' });
+export const encodingFilterCount = state => Object.keys(defaultEncodingFilterState()).filter(key => String(state?.[key] ?? '').trim()).length;
 export const normalizeOptimizationText = value => String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
 export const readableOptimizationText = value => String(value || '').trim().replace(/\s+/g, ' ');
 export const normalizeReceiptStatus = value => value === 'consumed' ? 'consumed' : 'available';
@@ -186,6 +189,9 @@ export function buildOptimizationView(entries, state) {
     const matchesStatus = status === 'all' || normalizeReceiptStatus(receipt.status) === status;
     const matchesSearch = !query || [receipt.store, receipt.invoice, receipt.tin, receipt.address, entry.receiptId, `Receipt ${entry.receiptId}`].some(value => normalizeOptimizationText(value).includes(query));
     if (!matchesStatus || !matchesSearch || (state.store && normalizeOptimizationText(receipt.store) !== state.store)) return false;
+    // Encoding uses these two optional filters. Optimization passes no such filters and remains unchanged.
+    if (state.expenseAccount && receipt.expenseAccount !== state.expenseAccount) return false;
+    if (state.classification && receipt.classification !== state.classification) return false;
     if (!invalidDateRange && !invalidStartDate && !invalidEndDate && (startDate || endDate)) {
       if (!entry.date || (startDate && entry.date < startDate) || (endDate && entry.date > endDate)) return false;
     }
@@ -332,6 +338,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   const setManualIds = ids => { manualIds = ids; manualSourceCache = null; arrangements.manual = null; };
   let toolbarState = defaultOptimizationToolbarState();
   let encodingDisplayState = { compartment: 'all' };
+  let encodingFilterState = defaultEncodingFilterState();
+  let encodingSearchDebounce;
   let searchDebounce;
   let storeSourceReceipts = [];
   let storeProfiles = [];
@@ -439,6 +447,42 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     elements.optimizationSort.value = toolbarState.sort;
     elements.receiptStatusFilter.value = toolbarState.status;
   };
+  const readEncodingFilterState = () => ({
+    search: elements.encodingSearch.value,
+    store: elements.encodingStoreFilter.value,
+    startDate: elements.encodingStartDate.value,
+    endDate: elements.encodingEndDate.value,
+    minAmount: elements.encodingMinAmount.value,
+    maxAmount: elements.encodingMaxAmount.value,
+    expenseAccount: elements.encodingExpenseAccountFilter.value,
+    classification: elements.encodingClassificationFilter.value
+  });
+  const syncEncodingFilterControls = () => {
+    elements.encodingSearch.value = encodingFilterState.search;
+    elements.encodingStoreFilter.value = encodingFilterState.store;
+    elements.encodingStartDate.value = encodingFilterState.startDate;
+    elements.encodingEndDate.value = encodingFilterState.endDate;
+    elements.encodingMinAmount.value = encodingFilterState.minAmount;
+    elements.encodingMaxAmount.value = encodingFilterState.maxAmount;
+    elements.encodingExpenseAccountFilter.value = encodingFilterState.expenseAccount;
+    elements.encodingClassificationFilter.value = encodingFilterState.classification;
+  };
+  const updateEncodingDisclosureLabel = () => {
+    elements.encodingFilterToggleLabel.textContent = elements.encodingMoreFilters.open ? 'Hide Filter Options' : 'Show Filter Options';
+  };
+  const applyEncodingFilterChange = () => {
+    encodingFilterState = readEncodingFilterState();
+    refreshEncodingCards();
+  };
+  const clearEncodingFilters = () => {
+    clearTimeout(encodingSearchDebounce);
+    encodingFilterState = defaultEncodingFilterState();
+    encodingDisplayState.compartment = 'all'; // Clear also resets the existing amount compartment, but never the shared Available/Consumed view.
+    elements.encodingAmountCompartment.value = 'all';
+    persistEncodingDisplayState();
+    syncEncodingFilterControls();
+    refreshEncodingCards();
+  };
   const persistToolbarState = () => {
     const key = toolbarStorageKey();
     if (!key) return;
@@ -472,6 +516,10 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       encodingDisplayState.compartment = normalizeEncodingAmountCompartment(stored?.compartment);
     } catch { /* Ignore unavailable or malformed browser-session state. */ }
     elements.encodingAmountCompartment.value = encodingDisplayState.compartment;
+  };
+  const renderEncodingClassificationOptions = () => {
+    elements.encodingClassificationFilter.replaceChildren(new Option('All classifications', ''), ...classificationOptions.map(value => new Option(value, value)));
+    elements.encodingClassificationFilter.value = '';
   };
   const renderEncodingAmountCompartmentOptions = () => {
     const selected = normalizeEncodingAmountCompartment(elements.encodingAmountCompartment.value);
@@ -543,7 +591,19 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   const renderFilterNotice = outsideRows => {
     if (!elements.encodingFilterNotice) return;
     elements.encodingFilterNotice.hidden = outsideRows.length === 0;
-    if (outsideRows.length) elements.encodingFilterNoticeText.textContent = outsideRangeNotice(outsideRows.map(row => row.dataset.receiptId || ''), rangeLabel());
+    if (outsideRows.length) {
+      const labels = outsideRows.map(row => row.dataset.receiptId || '');
+      const outsideExtraFilters = outsideRows.some(row => row.dataset.encodingOutsideExtraFilters === '1');
+      elements.encodingFilterNoticeText.textContent = outsideExtraFilters
+        ? (labels.length === 1 ? 'Receipt ' + labels[0] + ' is outside the current filters and stays visible only while you edit it.' : labels.length + ' receipts are outside the current filters and stay visible only while you edit them.')
+        : outsideRangeNotice(labels, rangeLabel());
+    }
+  };
+  const releasedEncodingHiddenNotice = ids => {
+    if (!ids.length) return '';
+    return encodingFilterCount(encodingFilterState)
+      ? (ids.length === 1 ? 'Receipt ' + ids[0] + ' is now hidden by the current filters. Adjust or clear Filter Options to see it.' : ids.length + ' receipts are now hidden by the current filters. Adjust or clear Filter Options to see them.')
+      : releasedHiddenNotice(ids);
   };
   const savedReceiptFor = row => row.dataset.receiptDbId ? storeSourceReceipts.find(receipt => receipt.dbId === row.dataset.receiptDbId) : undefined;
   // The summary card shows persisted Available receipts only (all amount ranges); pending edits are announced, never added in.
@@ -590,13 +650,24 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     refreshUnsavedIndicator();
   };
   const refreshEncodingCards = () => {
+    // Search/filter never changes DOM row order, receipt numbers, saved values, export selection or the optimizer's candidate pool.
+    const entries = optimizationEntries();
+    updateEncodingStoreOptions(entries);
+    const { visible, validation } = buildOptimizationView(entries, { ...encodingFilterState, status: toolbarState.status, sort: 'default' });
+    const matchedRows = new Set(visible.map(entry => entry.row));
     const outsideRows = [];
+    let shown = 0;
     [...elements.list.children].forEach(row => {
       const matchesStatus = toolbarState.status === 'all' || receiptStatus(row) === toolbarState.status;
+      const matchesExtra = matchedRows.has(row);
       const matchesCompartment = receiptMatchesEncodingAmountCompartment(toCents(row.querySelector('.receipt-amount').value), encodingDisplayState.compartment);
       const keepVisible = Boolean(row.dataset.filterPinned) && matchesStatus;
-      const outsideRange = !matchesCompartment && keepVisible;
-      row.hidden = !matchesStatus || (!matchesCompartment && !keepVisible);
+      const outsideRange = (!matchesCompartment || !matchesExtra) && keepVisible;
+      if (!matchesExtra && keepVisible) row.dataset.encodingOutsideExtraFilters = '1';
+      else delete row.dataset.encodingOutsideExtraFilters;
+      row.hidden = !matchesStatus || ((!matchesCompartment || !matchesExtra) && !keepVisible);
+      if (!row.hidden) shown += 1;
+      row.querySelector('.receipt-range-flag').textContent = !matchesExtra && outsideRange ? 'Outside filters' : 'Outside range';
       if (row.classList.contains('is-outside-range') !== outsideRange) {
         row.classList.toggle('is-outside-range', outsideRange);
         row.querySelector('.receipt-range-flag').hidden = !outsideRange;
@@ -607,6 +678,17 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     renderFilterNotice(outsideRows);
     refreshAvailableSummary();
     elements.floatingAdd.hidden = !floatingAddVisibleForStatus(toolbarState.status);
+    const count = encodingFilterCount(encodingFilterState);
+    elements.encodingResultCount.textContent = 'Showing ' + shown + ' of ' + entries.length + ' receipt' + (entries.length === 1 ? '' : 's');
+    elements.encodingFilterStatus.hidden = count === 0;
+    elements.encodingFilterStatus.textContent = count ? count + ' active filter' + (count === 1 ? '' : 's') : '';
+    elements.encodingFilterActiveCount.hidden = count === 0;
+    elements.encodingFilterActiveCount.textContent = count ? ' (' + count + ' active)' : '';
+    elements.clearEncodingFilters.hidden = count === 0 && encodingDisplayState.compartment === 'all';
+    elements.clearEncodingSearch.hidden = !encodingFilterState.search;
+    elements.encodingRangeValidation.hidden = !validation.message;
+    elements.encodingRangeValidation.textContent = validation.message;
+    updateEncodingDisclosureLabel();
   };
   const applyAmountRangeChange = () => {
     encodingDisplayState.compartment = normalizeEncodingAmountCompartment(elements.encodingAmountCompartment.value);
@@ -628,7 +710,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     rows.forEach(row => { row.open = false; });
     refreshEncodingCards();
     const hidden = nowHidden.filter(row => row.hidden).map(row => row.dataset.receiptId || '');
-    if (hidden.length) setFeedback(elements.encodingFeedback, releasedHiddenNotice(hidden), 'warning');
+    if (hidden.length) setFeedback(elements.encodingFeedback, releasedEncodingHiddenNotice(hidden), 'warning');
   };
   // Collapsing a pinned receipt that is outside the range hides it again; keep keyboard focus on a receipt that is still visible.
   const releasePinAfterCollapse = row => {
@@ -638,7 +720,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     delete row.dataset.filterPinned;
     refreshEncodingCards();
     if (!wasOutside || !row.hidden) return;
-    setFeedback(elements.encodingFeedback, releasedHiddenNotice([row.dataset.receiptId || '']), 'warning');
+    setFeedback(elements.encodingFeedback, releasedEncodingHiddenNotice([row.dataset.receiptId || '']), 'warning');
     if (!focusedInside) return;
     const next = visibleReceiptRows().find(candidate => visibleRows.indexOf(candidate) > position) || visibleReceiptRows().at(-1);
     (next ? next.querySelector('summary') : elements.encodingAmountCompartment)?.focus?.({ preventScroll: true });
@@ -676,6 +758,20 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     const receipt = { ...rowValues(row), status: receiptStatus(row) };
     return { row, index, receipt, receiptId: row.dataset.receiptId || String(index + 1), date: calendarReceiptDate(receipt.receiptDate), amount: toCents(receipt.amount) };
   });
+  const updateEncodingStoreOptions = entries => {
+    const selected = encodingFilterState.store;
+    const stores = new Map();
+    entries.forEach(({ receipt }) => {
+      const label = readableOptimizationText(receipt.store);
+      const key = normalizeOptimizationText(label);
+      if (key && !stores.has(key)) stores.set(key, label);
+    });
+    // Never silently clear a currently selected filter because an unsaved store name changed.
+    if (selected && !stores.has(selected)) stores.set(selected, selected);
+    const choices = [...stores.entries()].sort((a, b) => a[1].localeCompare(b[1], undefined, { sensitivity: 'base' }));
+    elements.encodingStoreFilter.replaceChildren(new Option('All stores', ''), ...choices.map(([key, label]) => new Option(label, key)));
+    elements.encodingStoreFilter.value = selected;
+  };
   const updateStoreOptions = entries => {
     const selected = toolbarState.store;
     const stores = new Map();
@@ -1923,6 +2019,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       const generation = ++sessionGeneration;
       endTransientAccountState();
       currentUser = user;
+      clearTimeout(encodingSearchDebounce); encodingFilterState = defaultEncodingFilterState(); elements.encodingMoreFilters.open = false; syncEncodingFilterControls();
       elements.list.replaceChildren(); storeSourceReceipts = []; sharedStoreProfiles = []; rebuildStoreProfiles(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty();
       let receipts;
       try { receipts = await receiptService.loadReceipts(); } catch (error) { if (generation !== sessionGeneration) return; throw error; }
@@ -1956,10 +2053,24 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     },
     setWorkspace,
     setModuleVisible,
-    clearForLogout() { cancelCalculation(); sessionGeneration += 1; resetSaveState(); currentUser = undefined; sharedStoreProfiles = []; toolbarState = defaultOptimizationToolbarState(); encodingDisplayState = { compartment: 'all' }; storeSourceReceipts = []; rebuildStoreProfiles(); syncToolbarControls(); elements.encodingAmountCompartment.value = 'all'; setActiveStrategy(optimizationStrategies.closest, { persist: false }); elements.list.replaceChildren(); elements.target.value = ''; endTransientAccountState(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); closeEditModal(); closeExportConfirmation({ force: true }); },
+    clearForLogout() { cancelCalculation(); sessionGeneration += 1; resetSaveState(); currentUser = undefined; sharedStoreProfiles = []; toolbarState = defaultOptimizationToolbarState(); encodingDisplayState = { compartment: 'all' }; encodingFilterState = defaultEncodingFilterState(); clearTimeout(encodingSearchDebounce); elements.encodingMoreFilters.open = false; syncEncodingFilterControls(); storeSourceReceipts = []; rebuildStoreProfiles(); syncToolbarControls(); elements.encodingAmountCompartment.value = 'all'; setActiveStrategy(optimizationStrategies.closest, { persist: false }); elements.list.replaceChildren(); elements.target.value = ''; endTransientAccountState(); clearSelection(); refreshReceiptIds(); refreshEncodingCards(); refreshOptimizationCards(); showEmpty(); closeEditModal(); closeExportConfirmation({ force: true }); },
     importLegacyDraft,
     start() {
       renderEncodingAmountCompartmentOptions();
+      renderEncodingClassificationOptions();
+      syncEncodingFilterControls();
+      elements.encodingMoreFilters.open = false;
+      updateEncodingDisclosureLabel();
+      elements.encodingMoreFilters.addEventListener('toggle', updateEncodingDisclosureLabel);
+      elements.encodingSearch.addEventListener('input', () => {
+        clearTimeout(encodingSearchDebounce);
+        const generation = sessionGeneration;
+        encodingSearchDebounce = setTimeout(() => { if (generation === sessionGeneration) applyEncodingFilterChange(); }, 120);
+      });
+      [elements.encodingStoreFilter, elements.encodingStartDate, elements.encodingEndDate, elements.encodingMinAmount, elements.encodingMaxAmount, elements.encodingExpenseAccountFilter, elements.encodingClassificationFilter].forEach(field => field.addEventListener('change', applyEncodingFilterChange));
+      [elements.encodingMinAmount, elements.encodingMaxAmount].forEach(field => field.addEventListener('input', applyEncodingFilterChange));
+      elements.clearEncodingSearch.addEventListener('click', () => { clearTimeout(encodingSearchDebounce); elements.encodingSearch.value = ''; applyEncodingFilterChange(); elements.encodingSearch.focus(); });
+      elements.clearEncodingFilters.addEventListener('click', clearEncodingFilters);
       elements.calculate.addEventListener('click', calculate);
       elements.cancelCalculation?.addEventListener('click', () => cancelCalculation('cancelled'));
       // A different target or strategy would make a running answer stale: stop rather than apply it.
