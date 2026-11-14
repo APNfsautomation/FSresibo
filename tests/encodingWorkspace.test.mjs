@@ -74,7 +74,7 @@ test('On Hold and other Encoding badges do not shift receipt amount columns on d
   for (const flag of ['receipt-status-badge', 'receipt-hold-badge', 'receipt-range-flag', 'receipt-unsaved-flag']) {
     assert.match(template, new RegExp('class="' + flag + '"'), flag + ' remains in the shared status lane');
   }
-  const desktop = css.match(/\.receipt-summary \{[^}]*\}/)?.[0] ?? '';
+  const desktop = css.match(/^\.receipt-summary \{[^}]*\}/m)?.[0] ?? '';
   assert.match(desktop, /grid-template-columns: 88px minmax\(0, 1fr\) 130px 136px 32px;/, 'desktop amount and badge tracks are fixed, not auto');
   assert.match(desktop, /grid-template-areas: "id store amount badge toggle"/);
   const phone = css.slice(css.indexOf('@media (max-width: 640px) {\n  .receipts-bar'), css.indexOf('@media (prefers-reduced-motion'));
