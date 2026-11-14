@@ -257,7 +257,6 @@ button[aria-busy="true"] { cursor: progress; opacity: .8; }
   background: var(--warning-soft); color: var(--warning); font-size: var(--text-xs); font-weight: var(--weight-heavy);
   letter-spacing: .04em; text-transform: uppercase;
 }
-.optimization-receipt-card.is-on-hold .compact-receipt-details { row-gap: var(--space-1); }
 .receipt-card.is-on-hold { border-color: var(--warning-border); }
 .toggle-receipt-hold { white-space: nowrap; }
 .selected-badge { padding: 4px 9px; border-radius: var(--radius-pill); background: var(--success); color: var(--on-success); font-size: var(--text-xs); font-weight: var(--weight-heavy); letter-spacing: .04em; text-transform: uppercase; }
@@ -609,11 +608,11 @@ button[aria-busy="true"] { cursor: progress; opacity: .8; }
 .optimization-receipt-card { display: grid; grid-template-columns: minmax(0, 1fr) 120px 84px 104px; grid-template-areas: "details amount badge action"; align-items: center; gap: var(--space-3); min-height: 52px; padding: 4px var(--space-4); border: 0; border-bottom: var(--border-width) solid var(--border); border-radius: 0; }
 .optimization-receipt-list > .optimization-receipt-card:last-child { border-bottom: 0; border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
 .optimization-receipt-card:hover { background: var(--surface-2); }
-.compact-receipt-details { grid-area: details; display: grid; grid-template-columns: minmax(0, 1fr) 120px auto; align-items: center; gap: var(--space-3); min-width: 0; }
+.compact-receipt-details { grid-area: details; display: grid; grid-template-columns: minmax(0, 1fr) 120px; align-items: center; gap: var(--space-3); min-width: 0; }
 .compact-store { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .compact-date { color: var(--muted); font-size: var(--text-sm); }
 .compact-amount { grid-area: amount; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.selected-badge { grid-area: badge; justify-self: start; }
+.compact-status-slot { grid-area: badge; display: flex; align-items: center; justify-self: start; min-width: 0; }
 .compact-edit, .compact-restore { grid-area: action; justify-self: end; min-height: 36px; }
 /* Selected receipts are marked by a fill, a bar and the text badge; consumed ones read as muted and stay read-only. */
 .optimization-receipt-card.is-selected { background: var(--selected-bg); box-shadow: inset 5px 0 0 var(--success); }
