@@ -68,6 +68,20 @@ test('rows are one compact line and the editor is one twelve-column grid on wide
   assert.match(css, /\.summary-store \{[^}]*text-overflow: ellipsis/, 'long names truncate in the row (the full name is the title and the editor value)');
 });
 
+test('On Hold and other Encoding badges do not shift receipt amount columns on desktop or phone', () => {
+  // Every receipt must reserve the same amount/status tracks, whether its flags are hidden or shown.
+  assert.match(template, /<strong class="summary-amount">₱0\.00<\/strong><span class="summary-flags">/);
+  for (const flag of ['receipt-status-badge', 'receipt-hold-badge', 'receipt-range-flag', 'receipt-unsaved-flag']) {
+    assert.match(template, new RegExp('class="' + flag + '"'), flag + ' remains in the shared status lane');
+  }
+  const desktop = css.match(/^\.receipt-summary \{[^}]*\}/m)?.[0] ?? '';
+  assert.match(desktop, /grid-template-columns: 88px minmax\(0, 1fr\) 130px 136px 32px;/, 'desktop amount and badge tracks are fixed, not auto');
+  assert.match(desktop, /grid-template-areas: "id store amount badge toggle"/);
+  const phone = css.slice(css.indexOf('@media (max-width: 640px) {\n  .receipts-bar'), css.indexOf('@media (prefers-reduced-motion'));
+  assert.match(phone, /\.receipt-summary \{ grid-template-columns: minmax\(0, 1fr\) 128px 32px; grid-template-areas: "store amount toggle" "id badge toggle"/, 'phone amount and flags share a stable fixed-width lane');
+  assert.match(css, /\.summary-flags \{ grid-area: badge; display: flex; flex-wrap: wrap;/, 'long or multiple status flags can wrap within their lane');
+});
+
 test('control heights agree: 40px (44px on coarse pointers) in the editor, 44px on phones', () => {
   assert.match(css, /\.encoding-list \.receipt-fields input, \.encoding-list \.receipt-fields select \{ height: var\(--control-height\); min-height: var\(--control-height\); \}/);
   assert.match(css, /@media \(pointer: coarse\) \{ :root \{ --control-height: 44px; \} \}/);

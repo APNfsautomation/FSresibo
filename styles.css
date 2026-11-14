@@ -449,7 +449,8 @@ button[aria-busy="true"] { cursor: progress; opacity: .8; }
 .encoding-list .receipt-card.is-unsaved, .encoding-list .receipt-card.is-unsaved[open] { box-shadow: inset 4px 0 0 var(--warning); }
 .encoding-list .receipt-summary { border-radius: calc(var(--radius-md) - 1px); }
 .encoding-list .receipt-card[open] > .receipt-summary { border-radius: calc(var(--radius-md) - 1px) calc(var(--radius-md) - 1px) 0 0; }
-.receipt-summary { display: grid; grid-template-columns: 88px minmax(0, 1fr) 130px auto 32px; grid-template-areas: "id store amount badge toggle"; align-items: center; gap: var(--space-3); min-height: 48px; padding: 0 var(--space-3) 0 var(--space-4); list-style: none; cursor: pointer; }
+/* Reserve a consistent status lane: On Hold/Consumed/unsaved badges must not move the amount between rows. */
+.receipt-summary { display: grid; grid-template-columns: 88px minmax(0, 1fr) 130px 136px 32px; grid-template-areas: "id store amount badge toggle"; align-items: center; gap: var(--space-3); min-height: 48px; padding: 0 var(--space-3) 0 var(--space-4); list-style: none; cursor: pointer; }
 .receipt-summary::-webkit-details-marker { display: none; }
 .receipt-summary:hover { background: var(--surface-2); }
 .encoding-list .receipt-card[open] > .receipt-summary { border-bottom: 0; background: var(--primary-soft); }
@@ -849,7 +850,7 @@ html[lang] body .receipt-summary:focus-visible { outline-offset: -3px; }
   #encodingActions .unsaved-status { display: block; flex: 1 1 100%; order: -1; }
   #encodingActions .unsaved-status:has(> .unsaved-indicator[hidden]) { margin-bottom: calc(var(--space-2) * -1); }
   .encoding-panel .panel-heading { padding: var(--space-2) var(--space-3); }
-  .receipt-summary { grid-template-columns: minmax(0, 1fr) auto 32px; grid-template-areas: "store amount toggle" "id badge toggle"; gap: 0 var(--space-2); min-height: 52px; padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3); }
+  .receipt-summary { grid-template-columns: minmax(0, 1fr) 128px 32px; grid-template-areas: "store amount toggle" "id badge toggle"; gap: 0 var(--space-2); min-height: 52px; padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3); }
   .summary-id { font-size: var(--text-xs); }
   .encoding-list { padding: var(--space-2); gap: 10px; }
   .encoding-list .receipt-content { padding: var(--space-3); }
