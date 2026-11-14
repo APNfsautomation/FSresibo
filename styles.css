@@ -458,6 +458,35 @@ button[aria-busy="true"] { cursor: progress; opacity: .8; }
 .summary-store { grid-area: store; min-width: 0; overflow: hidden; color: var(--text); font-weight: var(--weight-medium); text-overflow: ellipsis; white-space: nowrap; }
 .summary-amount { grid-area: amount; color: var(--text); font-size: var(--text-md); font-variant-numeric: tabular-nums; text-align: right; }
 .summary-flags { grid-area: badge; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: var(--space-1); min-width: 0; }
+/* Compact, labelled statuses apply ONLY to Encoding. Keep the global unsaved count and Optimization/Monthly badges unchanged. */
+.encoding-list .summary-flags { flex-wrap: nowrap; }
+.encoding-list .receipt-status-icon {
+  position: relative; display: inline-flex; flex: 0 0 26px; align-items: center; justify-content: center;
+  width: 26px; height: 26px; min-width: 26px; padding: 0; border-radius: var(--radius-sm);
+  font-size: 0; line-height: 1; cursor: help; user-select: none;
+}
+.encoding-list .receipt-status-icon[hidden] { display: none; }
+.encoding-list .receipt-status-icon::before { font-size: 16px; line-height: 1; }
+.encoding-list .receipt-status-badge.receipt-status-icon::before { content: "✓"; }
+.encoding-list .receipt-hold-badge.receipt-status-icon::before { content: "⏸︎"; }
+.encoding-list .receipt-range-flag.receipt-status-icon::before { content: "!"; font-weight: var(--weight-heavy); }
+.encoding-list .receipt-unsaved-flag.receipt-status-icon::before { content: "✎"; }
+.encoding-list .receipt-status-icon:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.encoding-list .receipt-status-icon::after {
+  content: attr(data-tooltip); position: absolute; right: 0; bottom: calc(100% + 7px); z-index: 30;
+  box-sizing: border-box; width: max-content; max-width: min(236px, calc(100vw - 32px));
+  padding: 8px 10px; border: var(--border-width) solid var(--border-strong); border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--text); box-shadow: var(--shadow-md);
+  font-size: var(--text-sm); line-height: 1.35; letter-spacing: normal; text-transform: none; text-align: left;
+  font-weight: var(--weight-medium); white-space: normal; overflow-wrap: anywhere;
+  visibility: hidden; opacity: 0; pointer-events: none;
+}
+.encoding-list .receipt-status-icon:hover::after,
+.encoding-list .receipt-status-icon:focus-visible::after,
+.encoding-list .receipt-status-icon.is-tooltip-open::after { visibility: visible; opacity: 1; }
+@media (max-width: 640px) {
+  .encoding-list .receipt-status-icon::after { top: calc(100% + 7px); bottom: auto; right: -40px; max-width: min(208px, calc(100vw - 36px)); }
+}
 .receipt-status-badge { grid-area: badge; }
 .summary-toggle { grid-area: toggle; display: grid; place-items: center; width: 32px; height: 32px; border: var(--border-width) solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); }
 .summary-toggle .toggle-label { display: none; }
