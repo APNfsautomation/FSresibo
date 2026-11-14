@@ -112,7 +112,7 @@ test('the export lifecycle code is untouched by the layout work', async () => {
   const ui = await read('../ui/receiptUi.js');
   for (const token of ['openExportConfirmation', 'closeExportConfirmation', 'exportPending', 'preflightSelection', 'exportRunner', 'downloadSelectedReceipts']) assert.ok(ui.includes(token), `${token} still present`);
   const service = await read('../services/receiptService.js');
-  assert.ok(service.includes(".update({ status: 'consumed' }).in('id', uniqueIds).eq('status', 'available')"), 'the consumed update still only touches Available receipts');
+  assert.ok(service.includes("client.rpc('consume_receipts_available_unheld', { p_ids: uniqueIds })"), 'consumption is now atomic and rejects held receipts');
 });
 
 // ---- Quick Optimizer: markup contract -------------------------------------------------------------------------------------

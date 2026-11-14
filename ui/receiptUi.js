@@ -52,7 +52,7 @@ export function createOptimizationStrategyState({ select, helper, optimizationSt
 }
 export const defaultOptimizationToolbarState = () => ({ search: '', store: '', startDate: '', endDate: '', minAmount: '', maxAmount: '', sort: 'default', status: 'available' });
 // Encoding filters are display-only and account-session-local. The receipt status and amount compartment are existing, separate controls.
-export const defaultEncodingFilterState = () => ({ search: '', store: '', startDate: '', endDate: '', minAmount: '', maxAmount: '', expenseAccount: '', classification: '' });
+export const defaultEncodingFilterState = () => ({ search: '', store: '', startDate: '', endDate: '', minAmount: '', maxAmount: '', expenseAccount: '', classification: '', hold: '' });
 export const encodingFilterCount = state => Object.keys(defaultEncodingFilterState()).filter(key => String(state?.[key] ?? '').trim()).length;
 export const normalizeOptimizationText = value => String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
 export const readableOptimizationText = value => String(value || '').trim().replace(/\s+/g, ' ');
@@ -192,6 +192,8 @@ export function buildOptimizationView(entries, state) {
     // Encoding uses these two optional filters. Optimization passes no such filters and remains unchanged.
     if (state.expenseAccount && receipt.expenseAccount !== state.expenseAccount) return false;
     if (state.classification && receipt.classification !== state.classification) return false;
+    if (state.hold === 'held' && receipt.isOnHold !== true) return false;
+    if (state.hold === 'unheld' && receipt.isOnHold === true) return false;
     if (!invalidDateRange && !invalidStartDate && !invalidEndDate && (startDate || endDate)) {
       if (!entry.date || (startDate && entry.date < startDate) || (endDate && entry.date > endDate)) return false;
     }
@@ -217,7 +219,7 @@ export function buildOptimizationView(entries, state) {
   };
   return { visible: visible.sort(compare), validation: { startDate, endDate, minAmount, maxAmount, invalidStartDate, invalidEndDate, invalidMinAmount, invalidMaxAmount, invalidDateRange, invalidAmountRange, message: messages.join(' ') } };
 }
-export const availableOptimizerReceipts = receipts => receipts.filter(receipt => normalizeReceiptStatus(receipt.status) === 'available' && receipt.cents > 0);
+export const availableOptimizerReceipts = receipts => receipts.filter(receipt => normalizeReceiptStatus(receipt.status) === 'available' && receipt.isOnHold !== true && receipt.cents > 0);
 
 export function createReceiptDeleteHandler({ row, triggerFallback, getSession = () => 0, getCurrentUser, getReceiptStatus, hasDraftContent, confirmAction, deleteReceipt, removeStoreSourceReceipt, clearSelection, refreshReceiptIds, refreshEncodingCards, refreshOptimizationCards, setFeedback, feedbackTarget }) {
   let deletePending = false;
@@ -333,7 +335,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   const manualEligibilityOf = (dbId, savedById = savedReceiptsById()) => {
     if (dbId && knownMissingIds.has(dbId)) return 'missing';
     const saved = dbId ? savedById.get(dbId) : null;
-    return manualEligibility({ dbId: saved ? saved.dbId : null, status: saved?.status });
+    return manualEligibility({ dbId: saved ? saved.dbId : null, status: saved?.status, isOnHold: saved?.isOnHold === true });
   };
   const setManualIds = ids => { manualIds = ids; manualSourceCache = null; arrangements.manual = null; };
   let toolbarState = defaultOptimizationToolbarState();
@@ -455,7 +457,8 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     minAmount: elements.encodingMinAmount.value,
     maxAmount: elements.encodingMaxAmount.value,
     expenseAccount: elements.encodingExpenseAccountFilter.value,
-    classification: elements.encodingClassificationFilter.value
+    classification: elements.encodingClassificationFilter.value,
+    hold: elements.encodingHoldFilter.value
   });
   const syncEncodingFilterControls = () => {
     elements.encodingSearch.value = encodingFilterState.search;
@@ -466,6 +469,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     elements.encodingMaxAmount.value = encodingFilterState.maxAmount;
     elements.encodingExpenseAccountFilter.value = encodingFilterState.expenseAccount;
     elements.encodingClassificationFilter.value = encodingFilterState.classification;
+    elements.encodingHoldFilter.value = encodingFilterState.hold;
   };
   const updateEncodingDisclosureLabel = () => {
     elements.encodingFilterToggleLabel.textContent = elements.encodingMoreFilters.open ? 'Hide Filter Options' : 'Show Filter Options';
@@ -550,6 +554,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       store: row.querySelector('.receipt-store').value,
       amountCents: amountValue ? toCents(amountValue) : null,
       status: normalizeReceiptStatus(row.dataset.receiptStatus),
+      onHold: receiptOnHold(row),
       open: row.open,
       outsideRange: row.classList.contains('is-outside-range'),
       outsideFilters: row.dataset.encodingOutsideExtraFilters === '1',
@@ -557,6 +562,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     }));
   };
   const receiptStatus = row => normalizeReceiptStatus(row.dataset.receiptStatus);
+  const receiptOnHold = row => row.dataset.receiptOnHold === '1';
   const refreshSummary = row => {
     const id = row.dataset.receiptId || '1';
     const store = row.querySelector('.receipt-store').value.trim() || 'Store not set';
@@ -728,6 +734,13 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   };
   const applyReceiptStatusState = row => {
     const consumed = receiptStatus(row) === 'consumed';
+    const held = receiptOnHold(row);
+    row.classList.toggle('is-on-hold', held && !consumed);
+    row.querySelector('.receipt-hold-badge').hidden = !held || consumed;
+    const holdButton = row.querySelector('.toggle-receipt-hold');
+    holdButton.hidden = consumed;
+    holdButton.disabled = consumed || !row.dataset.receiptDbId;
+    holdButton.textContent = held ? 'Release Hold' : 'Put On Hold';
     row.classList.toggle('is-consumed', consumed);
     row.querySelector('.receipt-status-badge').hidden = !consumed;
     row.querySelector('.delete-receipt').hidden = consumed;
@@ -756,7 +769,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     updateResultSummary();
   };
   const optimizationEntries = () => [...elements.list.children].map((row, index) => {
-    const receipt = { ...rowValues(row), status: receiptStatus(row) };
+    const receipt = { ...rowValues(row), status: receiptStatus(row), isOnHold: receiptOnHold(row) };
     return { row, index, receipt, receiptId: row.dataset.receiptId || String(index + 1), date: calendarReceiptDate(receipt.receiptDate), amount: toCents(receipt.amount) };
   });
   const updateEncodingStoreOptions = entries => {
@@ -816,7 +829,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   };
   const toggleManualReceipt = (dbId, label, pick) => {
     // A stale or forged change event can never add a receipt that is not eligible now; deselecting is always allowed.
-    if (!manualIds.includes(dbId) && manualEligibilityOf(dbId) !== 'ok') { if (pick) pick.checked = false; setManualFeedback(`${label} cannot be selected: it is not a saved, Available receipt.`, 'warning'); return refreshOptimizationCards(); }
+    if (!manualIds.includes(dbId) && manualEligibilityOf(dbId) !== 'ok') { if (pick) pick.checked = false; setManualFeedback(`${label} cannot be selected: it must be saved, Available and not On Hold.`, 'warning'); return refreshOptimizationCards(); }
     const result = toggleManual(manualIds, dbId);
     if (result.rejected === 'limit') { if (pick) pick.checked = false; return setManualFeedback(manualLimitMessage(), 'warning'); }
     setManualIds(result.ids);
@@ -826,7 +839,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   };
   const selectShownReceipts = () => {
     const ids = shownEligibleIds();
-    if (!ids.length) return setManualFeedback('No selectable receipts are shown. Consumed receipts and unsaved drafts cannot be selected.', 'warning');
+    if (!ids.length) return setManualFeedback('No selectable receipts are shown. Consumed or On-Hold receipts and unsaved drafts cannot be selected.', 'warning');
     // Fills the remaining capacity from the shown receipts, in the visible sort order; never past the limit and never reordering what is already selected.
     const result = fillShown(manualIds, ids, maximumManualSelection);
     if (!result.added.length) return setManualFeedback(fillShownMessage(result, maximumManualSelection), result.wasFull && result.notAdded ? 'warning' : 'info');
@@ -866,7 +879,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     const pruned = pruneManual(manualIds, id => Boolean(rowByDbId(id)) && manualEligibilityOf(id, savedById) === 'ok');
     if (pruned.removed.length) {
       setManualIds(pruned.ids);
-      setManualFeedback(`${pruned.removed.length} selected receipt${pruned.removed.length === 1 ? ' is' : 's are'} no longer in the list or Available and ${pruned.removed.length === 1 ? 'was' : 'were'} removed from the selection.`, 'warning');
+      setManualFeedback(`${pruned.removed.length} selected receipt${pruned.removed.length === 1 ? ' is' : 's are'} no longer selectable (Consumed, On Hold or missing) and ${pruned.removed.length === 1 ? 'was' : 'were'} removed from the selection.`, 'warning');
     }
     const entries = optimizationEntries();
     updateStoreOptions(entries);
@@ -891,6 +904,9 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       const card = elements.optimizationTemplate.content.firstElementChild.cloneNode(true);
       const selected = selectionIncludesRow(entry.row);
       const consumed = entry.receipt.status === 'consumed';
+      const held = entry.receipt.isOnHold === true && !consumed;
+      card.querySelector('.compact-hold-status').hidden = !held;
+      card.classList.toggle('is-on-hold', held);
       card.querySelector('.compact-store').textContent = entry.receipt.store.trim() || 'Store not set';
       card.querySelector('.compact-date').textContent = formatDate(entry.receipt.receiptDate);
       // A blank amount is shown as "No amount" in Manual Selection (it is valid there and must never look like zero).
@@ -909,7 +925,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
         // At the limit, receipts that are not selected cannot be added (selected ones stay enabled so they can be deselected and re-open a slot).
         const atCapacity = eligibility === 'ok' && !selected && manualIds.length >= maximumManualSelection;
         pick.disabled = eligibility !== 'ok' || atCapacity;
-        pick.setAttribute('aria-label', atCapacity ? `${label} cannot be selected: the limit of ${maximumManualSelection} receipts is reached. Deselect a receipt first` : eligibility === 'ok' ? `Select ${label}, ${entry.receipt.store.trim() || 'Store not set'}` : eligibility === 'consumed' ? `${label} is Consumed and cannot be selected` : eligibility === 'missing' ? `${label} no longer exists in your saved receipts and cannot be selected` : eligibility === 'unavailable' ? `${label} is not Available and cannot be selected` : `${label} is not saved yet. Save it before selecting it`);
+        pick.setAttribute('aria-label', atCapacity ? `${label} cannot be selected: the limit of ${maximumManualSelection} receipts is reached. Deselect a receipt first` : eligibility === 'ok' ? `Select ${label}, ${entry.receipt.store.trim() || 'Store not set'}` : eligibility === 'consumed' ? `${label} is Consumed and cannot be selected` : eligibility === 'on-hold' ? `${label} is On Hold and cannot be selected until released` : eligibility === 'missing' ? `${label} no longer exists in your saved receipts and cannot be selected` : eligibility === 'unavailable' ? `${label} is not Available and cannot be selected` : `${label} is not saved yet. Save it before selecting it`);
         if (eligibility === 'ok') { pick.addEventListener('change', () => toggleManualReceipt(dbId, label, pick)); picks.set(dbId, pick); }
       }
       card.classList.toggle('is-selected', selected);
@@ -1060,14 +1076,53 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     });
     list.addEventListener('mousedown', () => clearTimeout(closeTimer));
   };
+  // The user may place a SAVED Available receipt On Hold without changing its
+  // lifecycle status. Disallow toggles while this editor has unsaved fields, so
+  // a stale-tab action cannot silently mask edits or an older timestamp.
+  const toggleReceiptHold = async (row, trigger) => {
+    const id = row.dataset.receiptDbId;
+    if (!currentUser || !id || receiptStatus(row) !== 'available' || trigger.disabled) return;
+    if (rowHasUnsavedExportChanges(row)) {
+      setFeedback(elements.encodingFeedback, `Save Receipt ${row.dataset.receiptId} before changing its Hold status. Your unsaved edits were preserved.`, 'warning');
+      return;
+    }
+    const expectedUpdatedAt = row.dataset.receiptUpdatedAt;
+    if (!expectedUpdatedAt) {
+      setFeedback(elements.encodingFeedback, 'Could not verify the last saved time. Reload this receipt before changing Hold.', 'warning');
+      return;
+    }
+    const desired = !receiptOnHold(row);
+    const generation = sessionGeneration;
+    trigger.disabled = true;
+    try {
+      const saved = await receiptService.setReceiptOnHold(id, desired, expectedUpdatedAt);
+      if (generation !== sessionGeneration || !currentUser) return;
+      row.dataset.receiptOnHold = saved.isOnHold === true ? '1' : '0';
+      row.dataset.receiptUpdatedAt = saved.updatedAt || '';
+      upsertStoreSourceReceipt(saved);
+      clearSelection(); // changing the candidate pool makes an old Best Match result stale
+      showEmpty();
+      applyReceiptStatusState(row);
+      refreshEncodingCards();
+      refreshOptimizationCards(); // prunes held Manual Selection IDs
+      setFeedback(elements.encodingFeedback, `Receipt ${row.dataset.receiptId} ${desired ? 'placed On Hold and excluded from optimization, manual selection and export.' : 'released from Hold and available for optimization.'}`, 'success');
+    } catch (error) {
+      if (generation !== sessionGeneration) return;
+      setFeedback(elements.encodingFeedback, `Could not change Receipt ${row.dataset.receiptId} Hold status: ${error.message}`, 'error');
+    } finally {
+      if (generation === sessionGeneration) applyReceiptStatusState(row);
+    }
+  };
   const addReceipt = (values = {}, { refresh = true } = {}) => {
     const row = elements.template.content.firstElementChild.cloneNode(true);
     makeTemplateIdsUnique(row, `receipt-${++receiptDomSequence}`);
     if (values.dbId) row.dataset.receiptDbId = values.dbId;
     if (values.updatedAt) row.dataset.receiptUpdatedAt = values.updatedAt;
     row.dataset.receiptStatus = normalizeReceiptStatus(values.status);
+    row.dataset.receiptOnHold = values.isOnHold === true ? '1' : '0';
     if (values.dbId) row.dataset.persistedStoreFingerprint = persistedStoreFingerprint(values);
     for (const [key, value] of Object.entries(values)) { const field = row.querySelector(`.receipt-${key}`); if (field) field.value = value; }
+    row.querySelector('.toggle-receipt-hold').addEventListener('click', event => toggleReceiptHold(row, event.currentTarget));
     row.querySelector('.receipt-photo').addEventListener('change', event => { const file = event.currentTarget.files[0]; if (file) { const session = sessionGeneration; scanPrintedDetails(file, row, target => { if (session !== sessionGeneration) return; refreshSummary(target); refreshAvailableSummary(); }); } }); // the scan fills fields after it returns: refresh the unsaved flag and count then
     row.querySelector('.delete-receipt').addEventListener('click', createReceiptDeleteHandler({
       row,
@@ -1511,10 +1566,10 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   const calculate = () => {
     cancelCalculation(); // a newer calculation silently supersedes an earlier one
     const targetCents = toCents(elements.target.value);
-    const invalidRow = [...elements.list.children].find(row => receiptStatus(row) === 'available' && amountProblem(row));
+    const invalidRow = [...elements.list.children].find(row => receiptStatus(row) === 'available' && !receiptOnHold(row) && amountProblem(row));
     if (invalidRow) { clearSelection(); refreshOptimizationCards(); showEmpty(); elements.difference.textContent = `${rowAmountMessage(invalidRow, amountProblem(invalidRow))} Correct it before running Find Best Match.`; return; }
     const rows = [...elements.list.children];
-    const receipts = availableOptimizerReceipts(rows.map((row, index) => ({ index, dbId: row.dataset.receiptDbId, receiptId: row.dataset.receiptId, label: `Receipt ${row.dataset.receiptId}`, cents: amountCents(row), status: receiptStatus(row), ...rowValues(row) })));
+    const receipts = availableOptimizerReceipts(rows.map((row, index) => ({ index, dbId: row.dataset.receiptDbId, receiptId: row.dataset.receiptId, label: `Receipt ${row.dataset.receiptId}`, cents: amountCents(row), status: receiptStatus(row), isOnHold: receiptOnHold(row), ...rowValues(row) })));
     if (!targetCents || !receipts.length) { clearSelection(); refreshOptimizationCards(); showEmpty(); return; }
     try {
       const strategy = setActiveStrategy(getActiveStrategy());
@@ -1707,6 +1762,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       savedSinceResult: Boolean(row?.dataset.receiptDbId),
       present: Boolean(row),
       status: row ? receiptStatus(row) : 'consumed',
+      isOnHold: row ? receiptOnHold(row) : false,
       unsaved: row ? rowHasUnsavedExportChanges(row) : false,
       amountProblem: row ? amountProblem(row) : ''
     };
@@ -1718,6 +1774,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     if (row) {
       receiptFieldKeys.forEach(key => { row.querySelector(`.receipt-${key}`).value = saved[key] ?? ''; });
       row.dataset.receiptStatus = normalizeReceiptStatus(saved.status); // display state only; the saved record keeps the exact database status
+      row.dataset.receiptOnHold = saved.isOnHold === true ? '1' : '0';
       row.dataset.receiptUpdatedAt = saved.updatedAt || '';
       row.dataset.persistedStoreFingerprint = persistedStoreFingerprint(saved);
       applyReceiptStatusState(row);
@@ -1726,7 +1783,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     upsertStoreSourceReceipt(saved);
   };
   const syncRowsFromSnapshot = (snapshotRows, problems) => {
-    const affected = new Set(problems.filter(problem => problem.type === 'changed' || problem.type === 'unavailable' || problem.type === 'optimizerChanged').map(problem => problem.dbId));
+    const affected = new Set(problems.filter(problem => ['changed', 'unavailable', 'optimizerChanged', 'onHold'].includes(problem.type)).map(problem => problem.dbId));
     snapshotRows.filter(saved => affected.has(saved.dbId)).forEach(applySavedToScreen);
   };
   // The optimizer result no longer matches the database: refresh what changed, drop the result and say exactly what to do.
@@ -1745,7 +1802,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   // Manual Selection: the affected receipts now show their saved values; receipts that are gone or Consumed leave the selection, everything else stays.
   const rejectManualSelection = (snapshotRows, problems, stage, note = '') => {
     syncRowsFromSnapshot(snapshotRows, problems);
-    const gone = new Set(problems.filter(problem => problem.type === 'missing' || problem.type === 'unavailable').map(problem => problem.dbId));
+    const gone = new Set(problems.filter(problem => ['missing', 'unavailable', 'onHold'].includes(problem.type)).map(problem => problem.dbId));
     if (gone.size) setManualIds(manualIds.filter(id => !gone.has(id)));
     refreshEncodingCards();
     refreshOptimizationCards();
@@ -2068,7 +2125,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
         const generation = sessionGeneration;
         encodingSearchDebounce = setTimeout(() => { if (generation === sessionGeneration) applyEncodingFilterChange(); }, 120);
       });
-      [elements.encodingStoreFilter, elements.encodingStartDate, elements.encodingEndDate, elements.encodingMinAmount, elements.encodingMaxAmount, elements.encodingExpenseAccountFilter, elements.encodingClassificationFilter].forEach(field => field.addEventListener('change', applyEncodingFilterChange));
+      [elements.encodingStoreFilter, elements.encodingStartDate, elements.encodingEndDate, elements.encodingMinAmount, elements.encodingMaxAmount, elements.encodingExpenseAccountFilter, elements.encodingClassificationFilter, elements.encodingHoldFilter].forEach(field => field.addEventListener('change', applyEncodingFilterChange));
       [elements.encodingMinAmount, elements.encodingMaxAmount].forEach(field => field.addEventListener('input', applyEncodingFilterChange));
       elements.clearEncodingSearch.addEventListener('click', () => { clearTimeout(encodingSearchDebounce); elements.encodingSearch.value = ''; applyEncodingFilterChange(); elements.encodingSearch.focus(); });
       elements.clearEncodingFilters.addEventListener('click', clearEncodingFilters);

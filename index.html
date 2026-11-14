@@ -124,6 +124,7 @@
                 <label>Maximum amount<input id="encodingMaxAmount" inputmode="decimal" placeholder="0.00" /></label>
                 <label>Expense Account<select id="encodingExpenseAccountFilter"><option value="">All accounts</option><option value="Day to day">Day to day</option><option value="Project Expense">Project Expense</option></select></label>
                 <label>Classification of Expense<select id="encodingClassificationFilter"><option value="">All classifications</option></select></label>
+                <label>Approval status<select id="encodingHoldFilter"><option value="">All receipts</option><option value="held">On Hold</option><option value="unheld">Not On Hold</option></select></label>
               </div>
             </details>
             <p id="encodingRangeValidation" class="toolbar-validation" role="alert" hidden></p>
@@ -180,7 +181,7 @@
               <details class="admin"><summary>Calculation details</summary><div id="adminContent" class="admin-content">Run a calculation to view the selection logic.</div></details>
             </aside>
             <section class="panel manual-panel" id="manualPanel" aria-label="Manual selection" hidden>
-              <p class="manual-help">Check the receipts to export, in the order you want them listed (you can rearrange them before exporting). Choose up to 100 saved, Available receipts.</p>
+              <p class="manual-help">Check the receipts to export, in the order you want them listed (you can rearrange them before exporting). Choose up to 100 saved, Available receipts that are not On Hold.</p>
               <dl class="manual-summary" id="manualSummary">
                 <div><dt>Selected</dt><dd id="manualSelectedCount">0 of 100</dd></div>
                 <div><dt>Total amount</dt><dd id="manualSelectedTotal">₱0.00</dd></div>
@@ -304,7 +305,7 @@
 
     <template id="receiptTemplate">
       <details class="receipt-card">
-        <summary class="receipt-summary" title="Show receipt details"><span class="summary-id">Receipt 1</span><span class="summary-store">Store not set</span><strong class="summary-amount">₱0.00</strong><span class="summary-flags"><span class="receipt-status-badge" hidden>Consumed</span><span class="receipt-range-flag" hidden>Outside range</span><span class="receipt-unsaved-flag" hidden></span></span><span class="summary-toggle" aria-hidden="true"><span class="toggle-label">Details</span><svg class="toggle-icon" viewBox="0 0 16 16" width="16" height="16" focusable="false" aria-hidden="true"><path d="M3.5 6.25 8 10.75l4.5-4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></summary>
+        <summary class="receipt-summary" title="Show receipt details"><span class="summary-id">Receipt 1</span><span class="summary-store">Store not set</span><strong class="summary-amount">₱0.00</strong><span class="summary-flags"><span class="receipt-status-badge" hidden>Consumed</span><span class="receipt-hold-badge" hidden>On Hold</span><span class="receipt-range-flag" hidden>Outside range</span><span class="receipt-unsaved-flag" hidden></span></span><span class="summary-toggle" aria-hidden="true"><span class="toggle-label">Details</span><svg class="toggle-icon" viewBox="0 0 16 16" width="16" height="16" focusable="false" aria-hidden="true"><path d="M3.5 6.25 8 10.75l4.5-4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></summary>
         <div class="receipt-content">
           <!-- One grid, so the keyboard (DOM) order is also the visual reading order: Store, Address, Amount, Receipt date, TIN, VAT, Invoice, Scan. No tabindex is used. -->
           <div class="receipt-fields receipt-editor-fields">
@@ -320,7 +321,7 @@
             <label class="scan-label field-scan">Receipt photo<input class="receipt-photo" type="file" accept="image/*" capture="environment" /><span class="scan-button">⌁ Scan printed details</span></label>
           </div>
           <div class="receipt-form-footer">
-            <button class="ghost contribute-store" type="button">Add to Store Directory</button><button class="delete-receipt" type="button">Delete receipt</button><button class="delete-consumed" type="button" hidden>Delete permanently</button><button class="secondary restore-receipt" type="button" hidden>Mark Available</button>
+            <button class="ghost contribute-store" type="button">Add to Store Directory</button><button class="secondary toggle-receipt-hold" type="button" hidden>Put On Hold</button><button class="delete-receipt" type="button">Delete receipt</button><button class="delete-consumed" type="button" hidden>Delete permanently</button><button class="secondary restore-receipt" type="button" hidden>Mark Available</button>
           </div>
           <p class="ocr-status" aria-live="polite"></p>
         </div>
@@ -330,7 +331,7 @@
     <template id="optimizationReceiptTemplate">
       <article class="optimization-receipt-card">
         <input class="manual-select" type="checkbox" hidden />
-        <div class="compact-receipt-details"><strong class="compact-store">Store not set</strong><span class="compact-date">Date not set</span><span class="compact-status" hidden>Consumed</span></div>
+        <div class="compact-receipt-details"><strong class="compact-store">Store not set</strong><span class="compact-date">Date not set</span><span class="compact-status" hidden>Consumed</span><span class="compact-hold-status" hidden>On Hold</span></div>
         <strong class="compact-amount">₱0.00</strong>
         <span class="selected-badge" hidden>Selected</span>
         <button class="ghost compact-edit" type="button">Edit</button><button class="secondary compact-restore" type="button" hidden>Mark Available</button>

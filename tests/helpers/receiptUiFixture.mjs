@@ -45,12 +45,12 @@ export async function receiptFixture({ loaded = [], confirm = async () => true, 
     receiptStatusFilter: node({ value: 'available' }), optimizationSort: node({ value: 'default' }), optimizationStrategy: node({ value: optimizationStrategies.closest }), encodingAmountCompartment: node({ value: 'all' })
   };
   const elements = new Proxy(overrides, { get: (target, key) => key in target ? target[key] : (target[key] = node()) });
-  const calls = { create: [], update: [], consume: [], download: [], snapshot: [], load: [] }; let sequence = 0; let clock = 0;
+  const calls = { create: [], update: [], hold: [], consume: [], download: [], snapshot: [], load: [] }; let sequence = 0; let clock = 0;
   // An in-memory receipts table. Tests change `db` directly to simulate another session, and set `fails.*` to inject failures.
   const stamp = () => `2026-10-18T00:00:${String(++clock).padStart(2, '0')}Z`;
-  const db = new Map(loaded.map(item => [item.dbId, { amount: '', receiptDate: '', vat: '', invoice: '', store: '', address: '', tin: '', expenseAccount: 'Day to day', classification: 'Others', status: 'available', ...item, updatedAt: item.updatedAt ?? stamp() }]));
+  const db = new Map(loaded.map(item => [item.dbId, { amount: '', receiptDate: '', vat: '', invoice: '', store: '', address: '', tin: '', expenseAccount: 'Day to day', classification: 'Others', status: 'available', isOnHold: false, ...item, updatedAt: item.updatedAt ?? stamp() }]));
   const fails = { loadGates: [], importGate: null, restoreGate: null, deleteGate: null, snapshotHold: null, snapshot: null, snapshotGate: null, saveAfter: null, saveGate: null, saveGateOnce: null, createResponseLost: null, load: null, consume: null, download: null, afterDownload: null, consumeResponseLost: null, gate: null, save: null };
-  const databaseShape = row => { const raw = { id: row.dbId, amount: row.amount === '' ? null : row.amount, receipt_date: row.receiptDate, vat_status: row.vat, invoice_number: row.invoice, store_name: row.store, address: row.address, tin: row.tin, expense_account: row.expenseAccount || null, classification_of_expense: row.classification || null, updated_at: row.updatedAt }; if ('status' in row) raw.status = row.status; return raw; };
+  const databaseShape = row => { const raw = { id: row.dbId, amount: row.amount === '' ? null : row.amount, receipt_date: row.receiptDate, vat_status: row.vat, invoice_number: row.invoice, store_name: row.store, address: row.address, tin: row.tin, expense_account: row.expenseAccount || null, classification_of_expense: row.classification || null, updated_at: row.updatedAt }; if ('status' in row) raw.status = row.status; raw.is_on_hold = row.isOnHold === true; return raw; };
   const copy = row => viaServiceMapping ? fromDatabaseReceipt(databaseShape(row)) : { ...row };
   const storedAmount = raw => { const parsed = parseMoneyAmount(raw); return parsed.blank ? '' : parsed.valid ? parsed.amount : raw; };
   const receiptService = {
@@ -75,11 +75,25 @@ export async function receiptFixture({ loaded = [], confirm = async () => true, 
       if (!current || current.status !== 'available' || current.updatedAt !== expectedUpdatedAt) { const conflict = new Error('The receipt was changed in another session, so its details were not saved.'); conflict.code = 'RECEIPT_CONFLICT'; throw conflict; }
       const row = { ...current, expenseAccount, classification, updatedAt: stamp() }; db.set(id, row); return copy(row);
     },
+    setReceiptOnHold: async (id, isOnHold, expectedUpdatedAt) => {
+      calls.hold.push({ id, isOnHold, expectedUpdatedAt });
+      if (fails.holdGate) await fails.holdGate;
+      if (fails.hold) throw fails.hold;
+      const old = db.get(id);
+      if (!old || old.status !== 'available' || old.updatedAt !== expectedUpdatedAt) {
+        const conflict = new Error('Receipt details changed in another session.');
+        conflict.code = 'RECEIPT_CONFLICT';
+        throw conflict;
+      }
+      const next = { ...old, isOnHold, updatedAt: stamp() };
+      db.set(id, next);
+      return copy(next);
+    },
     consumeReceipts: async ids => {
       calls.consume.push([...ids]);
       if (fails.gate) await fails.gate;
       if (fails.consume) throw fails.consume;
-      if (ids.some(id => db.get(id)?.status !== 'available')) throw new Error('One or more selected receipts are no longer available. Refresh and review the result before exporting again.');
+      if (ids.some(id => db.get(id)?.status !== 'available' || db.get(id)?.isOnHold === true)) throw new Error('One or more selected receipts are not Available or are On Hold. Nothing was consumed.');
       const updated = ids.map(id => { const row = { ...db.get(id), status: 'consumed', updatedAt: stamp() }; db.set(id, row); return copy(row); });
       if (fails.consumeResponseLost) throw fails.consumeResponseLost; // the update was committed, the answer never arrived
       return updated;

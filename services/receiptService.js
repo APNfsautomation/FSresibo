@@ -31,6 +31,7 @@ export function fromDatabaseReceipt(receipt) {
     tin: receipt.tin ?? '',
     updatedAt: receipt.updated_at ?? '',
     status: receipt.status ?? '',
+    isOnHold: receipt.is_on_hold === true,
     ...expenseFieldsFromDatabase(receipt)
   };
 }
@@ -87,6 +88,27 @@ export async function updateReceiptExpenseFields(id, { expenseAccount, classific
   return fromDatabaseReceipt(data[0]);
 }
 
+// Hold is a per-receipt permission gate independent of the Available / Consumed lifecycle.
+// Optimistic updated_at prevents stale tabs from overwriting another session's recent edits.
+// RLS remains the ownership boundary; the database guard independently rejects consumption
+// while held, including a forged simultaneous "release + consume" write.
+export async function setReceiptOnHold(id, isOnHold, expectedUpdatedAt) {
+  if (!id || typeof isOnHold !== 'boolean' || !expectedUpdatedAt) throw new Error('A saved receipt, Hold choice and last-known update time are required.');
+  const client = await clientOrThrow();
+  const { data, error } = await client.from('receipts')
+    .update({ is_on_hold: isOnHold })
+    .eq('id', id).eq('status', 'available')
+    .eq('updated_at', expectedUpdatedAt)
+    .select();
+  if (error) throw error;
+  if (!Array.isArray(data) || data.length !== 1 || data[0]?.id !== id) {
+    const conflict = new Error('Receipt details changed in another session. Refresh and try again without overwriting those changes.');
+    conflict.code = 'RECEIPT_CONFLICT';
+    throw conflict;
+  }
+  return fromDatabaseReceipt(data[0]);
+}
+
 export async function deleteReceipt(id) {
   const client = await clientOrThrow();
   const { error } = await client.from('receipts').delete().eq('id', id);
@@ -116,9 +138,13 @@ export async function consumeReceipts(ids) {
   const uniqueIds = [...new Set(ids)].filter(Boolean);
   if (!uniqueIds.length) return [];
   const client = await clientOrThrow();
-  const { data, error } = await client.from('receipts').update({ status: 'consumed' }).in('id', uniqueIds).eq('status', 'available').select();
+  // Database transaction locks, validates and consumes exactly this set; a concurrent
+  // Hold, prior consumption, or wrong-owner ID causes the WHOLE batch to roll back.
+  const { data, error } = await client.rpc('consume_receipts_available_unheld', { p_ids: uniqueIds });
   if (error) throw error;
-  if (data.length !== uniqueIds.length) throw new Error('One or more selected receipts are no longer available. Refresh and review the result before exporting again.');
+  if (!Array.isArray(data) || data.length !== uniqueIds.length || data.some(row => row.status !== 'consumed' || row.is_on_hold !== false)) {
+    throw new Error('Receipt consumption result could not be verified. Reload their status before attempting another export.');
+  }
   return data.map(fromDatabaseReceipt);
 }
 

@@ -2,10 +2,11 @@
 const pesos = new Intl.NumberFormat('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 // Names every receipt summary uniquely (stable receipt identity, store, amount, state) so screen-reader users can tell them apart.
-export function receiptSummaryAccessibleName({ id, store = '', amountCents = null, status = 'available', open = false, outsideRange = false, outsideFilters = false, unsavedLabel = '' }) {
+export function receiptSummaryAccessibleName({ id, store = '', amountCents = null, status = 'available', onHold = false, open = false, outsideRange = false, outsideFilters = false, unsavedLabel = '' }) {
   const parts = [`Receipt ${id}`, String(store).trim() || 'no store name'];
   if (Number.isFinite(amountCents)) parts.push(`${pesos.format(amountCents / 100)} pesos`);
   if (status === 'consumed') parts.push('consumed');
+  if (status === 'available' && onHold) parts.push('on hold, excluded from optimization and export');
   if (outsideFilters) parts.push('outside the current filters');
   else if (outsideRange) parts.push('outside the selected amount range');
   if (unsavedLabel) parts.push(String(unsavedLabel).toLowerCase());

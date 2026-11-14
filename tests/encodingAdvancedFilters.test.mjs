@@ -13,7 +13,7 @@ const change = async (input, value) => { input.value = value; await input.emit('
 const search = async (fixture, value) => { fixture.elements.encodingSearch.value = value; await fixture.elements.encodingSearch.emit('input'); await new Promise(resolve => setTimeout(resolve, 155)); };
 
 test('Encoding filter defaults, count and blank values are display-only', () => {
-  assert.deepEqual(defaultEncodingFilterState(), { search: '', store: '', startDate: '', endDate: '', minAmount: '', maxAmount: '', expenseAccount: '', classification: '' });
+  assert.deepEqual(defaultEncodingFilterState(), { search: '', store: '', startDate: '', endDate: '', minAmount: '', maxAmount: '', expenseAccount: '', classification: '', hold: '' });
   assert.equal(encodingFilterCount(defaultEncodingFilterState()), 0);
   assert.equal(encodingFilterCount({ ...defaultEncodingFilterState(), search: ' hi ', expenseAccount: 'Project Expense', maxAmount: ' ' }), 2);
 });
@@ -46,6 +46,19 @@ test('Encoding search is visible, debounced, does not alter editor rows or optim
   await f.click(f.elements.clearEncodingSearch);
   assert.deepEqual(rowsShown(f), ['a', 'b']);
   assert.equal(f.elements.encodingSearch.value, '');
+});
+
+test('Encoding On Hold filter is an independent, display-only criterion', async () => {
+  const f = await receiptFixture({ loaded: [saved('a', 'Ready', 100), saved('b', 'Awaiting', 200, { isOnHold: true })] });
+  await change(f.elements.encodingHoldFilter, 'held');
+  assert.deepEqual(rowsShown(f), ['b']);
+  assert.equal(f.elements.encodingFilterStatus.textContent, '1 active filter');
+  await change(f.elements.encodingHoldFilter, 'unheld');
+  assert.deepEqual(rowsShown(f), ['a']);
+  await f.click(f.elements.clearEncodingFilters);
+  assert.deepEqual(rowsShown(f), ['a', 'b']);
+  assert.equal(f.elements.encodingHoldFilter.value, '');
+  assert.deepEqual(f.calls.hold, [], 'filtering never toggles Hold');
 });
 
 test('Store, dates, amount and both expense controls compose without changing stored values', async () => {
