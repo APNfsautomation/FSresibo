@@ -52,7 +52,7 @@ test('Expand all and Collapse all are real buttons in the list header; chevrons 
   assert.doesNotMatch(receiptTemplate, /⌄/); assert.doesNotMatch(monthlyTemplate, /⌄/);
   assert.match(monthlyTemplate, /<span class="monthly-summary-chevron" aria-hidden="true"><svg class="chevron-icon"/, 'Monthly Filing gets the same decorative icon only');
   assert.match(receiptTemplate, /<summary class="receipt-summary"/, 'the control stays the native summary: expanded state, Enter/Space and focus are built in');
-  assert.match(receiptTemplate, /<span class="receipt-range-flag" hidden>Outside range<\/span>/, 'the out-of-range state is text, not colour alone');
+  assert.match(receiptTemplate, /<span class="receipt-range-flag receipt-status-icon" role="button" tabindex="0" aria-label="Outside the selected amount range\." data-tooltip="Outside the selected amount range\." hidden>Outside range<\/span>/, 'the icon retains accessible state text and a focusable tooltip, not colour alone');
 });
 
 test('Monthly Filing numbering, totals, export and lifecycle markup were not touched', () => {
