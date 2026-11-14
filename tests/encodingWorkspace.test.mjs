@@ -92,7 +92,8 @@ test('Encoding shows four compact status icons with accessible hover, focus and 
   assert.match(css, /\.encoding-list \.receipt-status-icon \{[\s\S]*?flex: 0 0 26px;/, 'all statuses occupy equal compact slots');
   assert.match(css, /\.encoding-list \.receipt-status-icon\[hidden\] \{ display: none; \}/, 'hidden icons leave focus and layout');
   assert.match(css, /\.encoding-list \.receipt-status-icon::after \{[\s\S]*?content: attr\(data-tooltip\)/, 'tooltip message is dynamic');
-  assert.match(css, /\.receipt-status-icon:hover::after,[\s\S]*?\.receipt-status-icon:focus-visible::after,[\s\S]*?\.receipt-status-icon\.is-tooltip-open::after/, 'hover, keyboard and tap states share a tooltip');
+  assert.match(css, /@media \(hover: hover\) \{\n  \.encoding-list \.receipt-status-icon:hover::after/, 'hover is limited to hover-capable devices');
+  assert.match(css, /\.receipt-status-icon:focus-visible::after,[\s\S]*?\.receipt-status-icon\.is-tooltip-open::after/, 'keyboard focus and tap also display the tooltip');
   assert.match(css, /@media \(max-width: 640px\) \{\n  \.encoding-list \.receipt-status-icon::after/, 'tooltips have explicit phone placement');
   assert.match(css, /\.encoding-list \.receipt-hold-badge\.receipt-status-icon::before \{ content: "⏸︎"; \}/);
   assert.match(css, /\.encoding-list \.receipt-unsaved-flag\.receipt-status-icon::before \{ content: "✎"; \}/);
