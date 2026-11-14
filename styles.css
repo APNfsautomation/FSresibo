@@ -251,6 +251,15 @@ button[aria-busy="true"] { cursor: progress; opacity: .8; }
   font-size: var(--text-xs); font-weight: var(--weight-heavy); letter-spacing: .04em; text-transform: uppercase;
 }
 .monthly-status { margin-left: var(--space-2); }
+/* Receipt On Hold (Issue #64): warning palette conveys the state alongside explicit text. */
+.receipt-hold-badge, .compact-hold-status {
+  width: max-content; padding: 3px 9px; border: var(--border-width) solid var(--warning-border); border-radius: var(--radius-pill);
+  background: var(--warning-soft); color: var(--warning); font-size: var(--text-xs); font-weight: var(--weight-heavy);
+  letter-spacing: .04em; text-transform: uppercase;
+}
+.optimization-receipt-card.is-on-hold .compact-receipt-details { row-gap: var(--space-1); }
+.receipt-card.is-on-hold { border-color: var(--warning-border); }
+.toggle-receipt-hold { white-space: nowrap; }
 .selected-badge { padding: 4px 9px; border-radius: var(--radius-pill); background: var(--success); color: var(--on-success); font-size: var(--text-xs); font-weight: var(--weight-heavy); letter-spacing: .04em; text-transform: uppercase; }
 /* Keyboard shortcut hints inside the Encoding action buttons: subtle, hidden from assistive technology (aria-keyshortcuts names them), and hidden on touch screens and phones where there is no Ctrl key. */
 .shortcut-hint { margin-left: var(--space-2); padding: 1px 6px; border: var(--border-width) solid currentColor; border-radius: var(--radius-sm); font: inherit; font-size: var(--text-xs); font-weight: var(--weight-medium); line-height: 1.4; opacity: .7; white-space: nowrap; }

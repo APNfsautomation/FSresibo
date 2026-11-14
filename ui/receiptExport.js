@@ -18,6 +18,7 @@ export function preflightExport(items) {
   const problems = [];
   for (const item of items) {
     if (!item.present || item.status !== 'available') problems.push({ type: 'unavailable', label: item.label });
+    else if (item.isOnHold === true) problems.push({ type: 'onHold', label: item.label });
     else if (!item.dbId) problems.push({ type: item.savedSinceResult ? 'resultStale' : 'draft', label: item.label });
     else if (item.unsaved) problems.push({ type: 'unsaved', label: item.label });
     else if (item.amountProblem) problems.push({ type: 'invalidAmount', label: item.label, detail: item.amountProblem });
@@ -40,6 +41,8 @@ export function preflightMessage(problems, { mode = 'best-match' } = {}) {
   if (unsaved.length) lines.push(`${names(unsaved)} ${unsaved.length === 1 ? 'has' : 'have'} unsaved changes. Save them in Encoding, then ${manual ? 'choose Export Selected again' : 'run Find Best Match again before exporting'}.`);
   for (const problem of problems.filter(candidate => candidate.type === 'invalidAmount')) lines.push(`${problem.label}: ${problem.detail} Correct it before exporting.`);
   lines.push(...expenseLines(problems));
+  const held = labelsOf(problems, 'onHold');
+  if (held.length) lines.push(`${names(held)} ${held.length === 1 ? 'is' : 'are'} On Hold. Release Hold in Encoding before selecting or exporting ${held.length === 1 ? 'it' : 'them'}.`);
   const unavailable = labelsOf(problems, 'unavailable');
   if (unavailable.length) lines.push(`${names(unavailable)} ${unavailable.length === 1 ? 'is' : 'are'} no longer Available. ${manual ? `Deselect ${unavailable.length === 1 ? 'it' : 'them'} and choose Export Selected again.` : 'Run Find Best Match again.'}`);
   return `${lines.join(' ')} Nothing was exported.`;
@@ -54,6 +57,8 @@ export function snapshotProblemMessage(problems, { stage = 'review', mode = 'bes
   if (missing.length) lines.push(`${names(missing)} no longer ${missing.length === 1 ? 'exists' : 'exist'} in your saved receipts${removed(missing)}.`);
   const unavailable = labelsOf(problems, 'unavailable');
   if (unavailable.length) lines.push(`${names(unavailable)} ${unavailable.length === 1 ? 'is' : 'are'} no longer Available (already Consumed in another session)${removed(unavailable)}.`);
+  const held = labelsOf(problems, 'onHold');
+  if (held.length) lines.push(`${names(held)} ${held.length === 1 ? 'is' : 'are'} now On Hold. Release Hold in Encoding before exporting.`);
   const invalid = labelsOf(problems, 'invalidAmount');
   if (invalid.length) lines.push(`${names(invalid)} ${invalid.length === 1 ? 'has' : 'have'} an invalid saved amount.`);
   const stale = labelsOf(problems, 'optimizerChanged');

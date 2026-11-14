@@ -39,6 +39,7 @@ export function classifyExportSnapshot({ entries, snapshotRows, reference = new 
     const row = byId.get(entry.dbId);
     if (!row) { problems.push({ type: 'missing', dbId: entry.dbId, label: entry.label }); continue; }
     if (row.status !== 'available') { problems.push({ type: 'unavailable', dbId: entry.dbId, label: entry.label }); continue; }
+    if (row.isOnHold === true) { problems.push({ type: 'onHold', dbId: entry.dbId, label: entry.label }); continue; }
     if (parseMoneyAmount(row.amount).valid === false) problems.push({ type: 'invalidAmount', dbId: entry.dbId, label: entry.label });
     const missingExpense = missingExpenseFields(row);
     if (missingExpense.length) problems.push({ type: 'missingExpense', dbId: entry.dbId, label: entry.label, fields: missingExpense });
