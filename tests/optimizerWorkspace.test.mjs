@@ -76,6 +76,22 @@ test('selected and consumed receipts are shown by more than colour', () => {
   assert.match(html, /<span class="compact-status" hidden>Consumed<\/span>/);
 });
 
+
+test('optimization badges occupy a stable status column without shifting the receipt date', () => {
+  const template = html.split('<template id="optimizationReceiptTemplate">')[1]?.split('</template>')[0];
+  assert.ok(template, 'optimization receipt template exists');
+  const detailMarkup = template.split('<div class="compact-receipt-details">')[1]?.split('</div>')[0];
+  assert.ok(detailMarkup, 'receipt details group exists');
+  assert.match(detailMarkup, /class="compact-store"/);
+  assert.match(detailMarkup, /class="compact-date"/);
+  assert.doesNotMatch(detailMarkup, /compact-(hold-status|status)/, 'badges must not occupy the date grid');
+  assert.match(template, /<div class="compact-status-slot"><span class="compact-status" hidden>Consumed<\/span><span class="compact-hold-status" hidden>On Hold<\/span><span class="selected-badge" hidden>Selected<\/span><\/div>/);
+  assert.match(rule('.compact-receipt-details'), /grid-template-columns: minmax\(0, 1fr\) 120px;/, 'desktop date has a fixed-width column');
+  assert.match(rule('.compact-status-slot'), /grid-area: badge;/, 'all status badges share the outer badge column');
+  assert.match(css, /\.optimization-receipt-card\.has-manual-pick \{[^}]*grid-template-areas: "pick details amount badge action"/, 'manual selection retains status column');
+  assert.match(css, /\.optimization-receipt-card \{ grid-template-columns: minmax\(0, 1fr\) auto; grid-template-areas: "details amount" "badge action"/, 'phone status stays on the second row');
+});
+
 test('short windows collapse "Receipts to pull" once, as presentation only, and users can always expand it', () => {
   const details = { open: true };
   const kept = { closest: selector => selector === 'details' ? details : null };
