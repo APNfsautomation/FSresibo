@@ -293,7 +293,7 @@ test('Save, Clear and lifecycle code paths are untouched by the layout work', as
   for (const message of ['Could not save receipt changes: ', 'Receipt changes saved.', 'Receipt marked as Available.', 'Store added to the Company Store Directory.']) assert.ok(ui.includes(message), `${message} is unchanged`);
   assert.ok(ui.includes("title: 'Mark receipt Available?'") && ui.includes("title: 'Delete saved receipt?'"), 'destructive and restore confirmations unchanged');
   const service = await read('../services/receiptService.js');
-  assert.ok(service.includes(".update({ status: 'consumed' }).in('id', uniqueIds).eq('status', 'available')"));
+  assert.ok(service.includes("client.rpc('consume_receipts_available_unheld', { p_ids: uniqueIds })"), 'the consumed operation now verifies exact-set ownership/status/Hold atomically');
 });
 
 // ---- CSS isolation: Monthly Filing reuses class="encoding-actions" and must keep its pre-CP8 layout ------------------------

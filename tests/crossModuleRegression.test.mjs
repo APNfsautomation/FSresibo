@@ -350,7 +350,7 @@ const allMigrations = async () => {
 
 test('SEC-1: every table created by the migrations enables row level security, grants nothing to anon, and every policy is owner-scoped or an active-profile read', async () => {
   const names = (await readdir(new URL('../supabase/migrations/', import.meta.url))).filter(name => name.endsWith('.sql')).sort();
-  assert.deepEqual(names.map(name => name.slice(0, 3)), ['001', '002', '003', '004', '005'], 'a new migration needs this posture check reviewed');
+  assert.deepEqual(names.map(name => name.slice(0, 3)), ['001', '002', '003', '004', '005', '006'], 'the reviewed On Hold additive migration is included in the security inventory');
   const sql = (await Promise.all(names.map(name => read(`../supabase/migrations/${name}`)))).join('\n');
   const tables = [...sql.matchAll(/create table (?:if not exists )?(public\.\w+)/gi)].map(match => match[1]);
   assert.deepEqual(tables.sort(), ['public.monthly_filing_receipts', 'public.receipts', 'public.shared_store_directory']);
@@ -366,7 +366,8 @@ test('SEC-1: every table created by the migrations enables row level security, g
 });
 
 test('SEC-2: no migration defines a privileged (security definer) function, so every RPC runs as the signed-in caller', async () => {
-  assert.doesNotMatch(await allMigrations(), /security definer/i);
+  const executableSql = (await allMigrations()).replace(/--[^\n]*/g, '');
+  assert.doesNotMatch(executableSql, /\bsecurity definer\b/i, 'no migration uses a privileged execution context');
 });
 
 // ---- 5. Coverage matrix integrity: every executable test ID the documentation cites exists --------------------------------------------------------

@@ -377,7 +377,7 @@ test('pins and presentation state are never persisted, and the save, delete, res
   assert.doesNotMatch(ui, /sessionStorage\.setItem\([^)]*[Pp]in/);
   for (const token of ['persistReceiptsBeforeDirectoryPrompts', 'receiptService.consumeReceipts', 'receiptService.updateReceiptStatus', 'createReceiptDeleteHandler', 'postSaveDirectoryDecision']) assert.ok(ui.includes(token), `${token} still present`);
   const service = await read('../services/receiptService.js');
-  assert.ok(service.includes(".update({ status: 'consumed' }).in('id', uniqueIds).eq('status', 'available')"));
+  assert.ok(service.includes("client.rpc('consume_receipts_available_unheld', { p_ids: uniqueIds })"), 'On Hold now requires atomic exact-set consumption with RLS');
   const engine = await read('../services/optimizationService.js');
   assert.match(engine, /export const MAXIMUM_EXCESS_CENTS = 5000;/);
 });

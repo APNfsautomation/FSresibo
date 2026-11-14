@@ -412,7 +412,7 @@ test('G: Best Match still exports exactly as before and removes the exported rec
   await f.click(f.elements.exportSelected); await f.click(f.elements.confirmExport);
   assert.deepEqual(f.calls.consume, [['r6']]); assert.equal(f.elements.difference.textContent, '1 receipt exported and marked as Consumed.');
   await toManual(f);
-  assert.equal(summary(f).count, '1 of 100', 'only the receipt that is still Available remains selected'); assert.match(feedback(f), /1 selected receipt is no longer in the list or Available and was removed from the selection\./);
+  assert.equal(summary(f).count, '1 of 100', 'only the receipt that is still Available remains selected'); assert.match(feedback(f), /1 selected receipt is no longer selectable \(Consumed, On Hold or missing\) and was removed from the selection\./);
   assert.deepEqual(selectedStores(f), ['Store A']);
 });
 
