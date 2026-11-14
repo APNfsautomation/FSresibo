@@ -481,7 +481,9 @@ button[aria-busy="true"] { cursor: progress; opacity: .8; }
   font-weight: var(--weight-medium); white-space: normal; overflow-wrap: anywhere;
   visibility: hidden; opacity: 0; pointer-events: none;
 }
-.encoding-list .receipt-status-icon:hover::after,
+@media (hover: hover) {
+  .encoding-list .receipt-status-icon:hover::after { visibility: visible; opacity: 1; }
+}
 .encoding-list .receipt-status-icon:focus-visible::after,
 .encoding-list .receipt-status-icon.is-tooltip-open::after { visibility: visible; opacity: 1; }
 @media (max-width: 640px) {
