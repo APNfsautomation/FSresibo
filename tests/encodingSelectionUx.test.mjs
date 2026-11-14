@@ -233,8 +233,9 @@ test('C2/C4: the bar carries two labelled real buttons between the unsaved statu
   assert.equal((html.match(/id="expandAllReceipts"/g) || []).length, 1, 'the list-header buttons remain');
 });
 
-test('A1/C4: the unsaved flag is text in the card summary, themed with the warning tokens (light and dark), and the card gets the same accent as Monthly Filing', () => {
-  assert.match(html, /<span class="receipt-unsaved-flag" hidden><\/span>/);
+test('A1/C4: the unsaved status retains accessible text and warning tokens as a compact Encoding icon, and the card keeps its Monthly Filing accent', () => {
+  assert.match(html, /<span class="receipt-unsaved-flag receipt-status-icon" role="button" tabindex="0" aria-label="Unsaved changes — Save to preserve your edits\." data-tooltip="Unsaved changes — Save to preserve your edits\." hidden><\/span>/);
+  assert.match(css, /\.encoding-list \.receipt-unsaved-flag\.receipt-status-icon::before \{ content: "✎"; \}/);
   assert.match(css, /\.receipt-unsaved-flag \{[^}]*var\(--warning-border\)[^}]*var\(--warning-soft\)[^}]*var\(--warning\)/);
   assert.match(css, /\.encoding-list \.receipt-card\.is-unsaved, \.encoding-list \.receipt-card\.is-unsaved\[open\] \{ box-shadow: inset 4px 0 0 var\(--warning\); \}/);
   assert.match(css, /\.monthly-card\.is-unsaved \{ box-shadow: inset 4px 0 0 var\(--warning\); \}/);

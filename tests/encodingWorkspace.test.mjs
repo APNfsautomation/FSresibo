@@ -72,7 +72,7 @@ test('On Hold and other Encoding badges do not shift receipt amount columns on d
   // Every receipt must reserve the same amount/status tracks, whether its flags are hidden or shown.
   assert.match(template, /<strong class="summary-amount">₱0\.00<\/strong><span class="summary-flags">/);
   for (const flag of ['receipt-status-badge', 'receipt-hold-badge', 'receipt-range-flag', 'receipt-unsaved-flag']) {
-    assert.match(template, new RegExp('class="' + flag + '"'), flag + ' remains in the shared status lane');
+    assert.match(template, new RegExp('class="' + flag + ' receipt-status-icon"'), flag + ' remains in the shared icon status lane');
   }
   const desktop = css.match(/^\.receipt-summary \{[^}]*\}/m)?.[0] ?? '';
   assert.match(desktop, /grid-template-columns: 88px minmax\(0, 1fr\) 130px 136px 32px;/, 'desktop amount and badge tracks are fixed, not auto');
@@ -80,6 +80,24 @@ test('On Hold and other Encoding badges do not shift receipt amount columns on d
   const phone = css.slice(css.indexOf('@media (max-width: 640px) {\n  .receipts-bar'), css.indexOf('@media (prefers-reduced-motion'));
   assert.match(phone, /\.receipt-summary \{ grid-template-columns: minmax\(0, 1fr\) 128px 32px; grid-template-areas: "store amount toggle" "id badge toggle"/, 'phone amount and flags share a stable fixed-width lane');
   assert.match(css, /\.summary-flags \{ grid-area: badge; display: flex; flex-wrap: wrap;/, 'long or multiple status flags can wrap within their lane');
+});
+
+test('Encoding shows four compact status icons with accessible hover, focus and tap descriptions', () => {
+  const names = ['receipt-status-badge', 'receipt-hold-badge', 'receipt-range-flag', 'receipt-unsaved-flag'];
+  const labels = ['Consumed', 'On Hold', 'Outside the selected amount range', 'Unsaved changes'];
+  names.forEach((cls, index) => {
+    assert.match(template, new RegExp('class="' + cls + ' receipt-status-icon" role="button" tabindex="0" aria-label="' + labels[index]), cls + ' has a keyboard-focusable, named icon');
+  });
+  assert.match(css, /\.encoding-list \.summary-flags \{ flex-wrap: nowrap; \}/);
+  assert.match(css, /\.encoding-list \.receipt-status-icon \{[\s\S]*?flex: 0 0 26px;/, 'all statuses occupy equal compact slots');
+  assert.match(css, /\.encoding-list \.receipt-status-icon\[hidden\] \{ display: none; \}/, 'hidden icons leave focus and layout');
+  assert.match(css, /\.encoding-list \.receipt-status-icon::after \{[\s\S]*?content: attr\(data-tooltip\)/, 'tooltip message is dynamic');
+  assert.match(css, /@media \(hover: hover\) \{\n  \.encoding-list \.receipt-status-icon:hover::after/, 'hover is limited to hover-capable devices');
+  assert.match(css, /\.receipt-status-icon:focus-visible::after,[\s\S]*?\.receipt-status-icon\.is-tooltip-open::after/, 'keyboard focus and tap also display the tooltip');
+  assert.match(css, /@media \(max-width: 640px\) \{\n  \.encoding-list \.receipt-status-icon::after/, 'tooltips have explicit phone placement');
+  assert.match(css, /\.encoding-list \.receipt-hold-badge\.receipt-status-icon::before \{ content: "⏸︎"; \}/);
+  assert.match(css, /\.encoding-list \.receipt-unsaved-flag\.receipt-status-icon::before \{ content: "✎"; \}/);
+  assert.doesNotMatch(css, /\.optimization-receipt-card \.receipt-status-icon/, 'no changes to the accepted Optimization appearance');
 });
 
 test('control heights agree: 40px (44px on coarse pointers) in the editor, 44px on phones', () => {
