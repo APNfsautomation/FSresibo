@@ -3,6 +3,7 @@ import { deduplicateDirectoryCandidates, finalizeDirectoryPromptFingerprints, fi
 export { deduplicateDirectoryCandidates, finalizeDirectoryPromptFingerprints, findCompatibleSharedProfiles, hasContributableStoreDetails, normalizeStoreTin, persistedStoreFingerprint, postSaveDirectoryDecision, resolveSharedContributionCandidate, sharedProfileIdentity } from '../domain/sharedStoreProfiles.js';
 
 import { makeTemplateIdsUnique, receiptSummaryAccessibleName } from './receiptAccessibility.js';
+import { installReceiptSummaryTooltips, setReceiptStatusTooltip, statusTooltipText } from './receiptStatusIcons.js';
 import { collapseKeptReceiptsOnShortWindows } from './optimizationPresentation.js';
 import { trackTextEntry } from './textEntryFocus.js';
 import { parseMoneyAmount } from '../domain/moneyAmount.js';
@@ -637,7 +638,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     if (kind) row.dataset.unsavedKind = kind; else delete row.dataset.unsavedKind;
     row.classList.toggle('is-unsaved', Boolean(kind));
     const flag = row.querySelector('.receipt-unsaved-flag');
-    if (flag) { flag.textContent = unsavedLabels[kind] ?? ''; flag.hidden = !kind; }
+    if (flag) { flag.textContent = unsavedLabels[kind] ?? ''; setReceiptStatusTooltip(flag, kind === 'new' ? statusTooltipText.newReceipt : statusTooltipText.unsaved); flag.hidden = !kind; }
     refreshSummaryAccessibleName(row);
   };
   const countUnsavedReceipts = () => [...elements.list.children].filter(row => unsavedKind(row)).length;
@@ -676,6 +677,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
       row.hidden = !matchesStatus || ((!matchesCompartment || !matchesExtra) && !keepVisible);
       if (!row.hidden) shown += 1;
       row.querySelector('.receipt-range-flag').textContent = !matchesExtra && outsideRange ? 'Outside filters' : 'Outside range';
+      setReceiptStatusTooltip(row.querySelector('.receipt-range-flag'), !matchesExtra && outsideRange ? statusTooltipText.outsideFilters : statusTooltipText.outsideRange);
       const outsideChanged = row.classList.contains('is-outside-range') !== outsideRange;
       if (outsideChanged) row.classList.toggle('is-outside-range', outsideRange);
       row.querySelector('.receipt-range-flag').hidden = !outsideRange;
@@ -737,12 +739,14 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
     const held = receiptOnHold(row);
     row.classList.toggle('is-on-hold', held && !consumed);
     row.querySelector('.receipt-hold-badge').hidden = !held || consumed;
+    setReceiptStatusTooltip(row.querySelector('.receipt-hold-badge'), statusTooltipText.onHold);
     const holdButton = row.querySelector('.toggle-receipt-hold');
     holdButton.hidden = consumed;
     holdButton.disabled = consumed || !row.dataset.receiptDbId;
     holdButton.textContent = held ? 'Release Hold' : 'Put On Hold';
     row.classList.toggle('is-consumed', consumed);
     row.querySelector('.receipt-status-badge').hidden = !consumed;
+    setReceiptStatusTooltip(row.querySelector('.receipt-status-badge'), statusTooltipText.consumed);
     row.querySelector('.delete-receipt').hidden = consumed;
     row.querySelector('.delete-consumed').hidden = !consumed;
     row.querySelector('.restore-receipt').hidden = !consumed;
@@ -1116,6 +1120,7 @@ export function createReceiptUi({ elements, findBest, optimizationStrategies, to
   const addReceipt = (values = {}, { refresh = true } = {}) => {
     const row = elements.template.content.firstElementChild.cloneNode(true);
     makeTemplateIdsUnique(row, `receipt-${++receiptDomSequence}`);
+    installReceiptSummaryTooltips(row);
     if (values.dbId) row.dataset.receiptDbId = values.dbId;
     if (values.updatedAt) row.dataset.receiptUpdatedAt = values.updatedAt;
     row.dataset.receiptStatus = normalizeReceiptStatus(values.status);
